@@ -1,6 +1,7 @@
 import os
 import uuid
 import re
+import tempfile
 import fitz  # pymupdf
 from datetime import datetime
 from typing import Optional, List
@@ -65,7 +66,7 @@ app = FastAPI()
 @app.on_event("startup")
 def on_startup():
     SQLModel.metadata.create_all(engine)
-    os.makedirs("uploads", exist_ok=True)
+    # 不再长期创建 uploads/ 目录，使用临时文件保存上传内容
 
 
 # ==============================
@@ -89,15 +90,16 @@ async def upload_pdf(
 
     conversation_id = uuid.uuid4().hex[:12]
     file_id = uuid.uuid4().hex
-    save_path = f"uploads/{file_id}.pdf"
 
-    # 保存本地文件
-    with open(save_path, "wb") as f:
-        f.write(file_bytes)
+    # 使用临时文件写入上传的 bytes，保证兼容需要文件路径的库（如 fitz）
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(file_bytes)
+        tmp.flush()
+        temp_path = tmp.name
 
-    # ✅ 上传到 Poe CDN（只做一次）
-    with open(save_path, "rb") as f:
-        pdf_attachment = await fp.upload_file(f, api_key=api_key, file_name=file.filename)
+        # ✅ 上传到 Poe CDN（只做一次）——使用临时文件
+        with open(temp_path, "rb") as f:
+            pdf_attachment = await fp.upload_file(f, api_key=api_key, file_name=file.filename)
 
     initial_prompt = """
 翻译这篇论文，每次翻译一章（摘要单独算一章）。
@@ -124,7 +126,7 @@ async def upload_pdf(
     # ✅ 写入数据库
     with Session(engine) as session:
 
-        extracted_title = extract_pdf_title(save_path)
+        extracted_title = extract_pdf_title(temp_path)
 
         final_title = extracted_title or file.filename
 
@@ -138,7 +140,7 @@ async def upload_pdf(
             id=file_id,
             conversation_id=conversation_id,
             filename=file.filename,
-            filepath=save_path,
+            filepath=temp_path,
             poe_url=pdf_attachment.url,
             content_type=pdf_attachment.content_type,
             poe_name=pdf_attachment.name
