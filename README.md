@@ -31,7 +31,7 @@
 ### 安装依赖
 
 ```bash
-pip install fastapi uvicorn sqlmodel pymupdf fastapi-poe
+pip install fastapi uvicorn sqlmodel pymupdf fastapi-poe python-multipart gunicorn
 ```
 
 ### 环境配置
@@ -57,6 +57,12 @@ python app.py
 ```
 
 服务将在 `http://127.0.0.1:8000` 启动
+
+如果需要部署，建议使用 `gunicorn`，并配置反向代理。
+
+```bash
+gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
+```
 
 ## 使用方法
 
