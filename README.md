@@ -53,7 +53,7 @@ pip install fastapi uvicorn sqlmodel pymupdf fastapi-poe python-multipart gunico
 ### 启动服务
 
 ```bash
-python app.py
+uvicorn app:app --reload
 ```
 
 服务将在 `http://127.0.0.1:8000` 启动

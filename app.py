@@ -392,12 +392,3 @@ def extract_pdf_title(pdf_path: str) -> Optional[str]:
     except Exception as e:
         print("Title extraction error:", e)
         return None
-
-
-# ==============================
-# ✅ 启动
-# ==============================
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
