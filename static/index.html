@@ -254,20 +254,31 @@ function App() {
         body:formData
       });
 
-      const data = await res.json();
-      setLoading(false);
+        const data = await res.json();
+        setLoading(false);
 
-      if(!res.ok){
-        message.error(data.detail || "上传失败");
-        return;
-      }
+        if(!res.ok){
+          message.error(data.detail || "上传失败");
+          return;
+        }
 
-      setConversationId(data.conversation_id);
+        // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
+        if(data.exists){
+          setConversationId(data.conversation_id);
+          pushConversationToUrl(data.conversation_id);
 
-      // ✅ 写入 URL
-      pushConversationToUrl(data.conversation_id);
+          const botMsgs = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
+          setBlocks(botMsgs);
+          message.info("文件已存在，跳转到对应会话");
+          return;
+        }
 
-      setBlocks([{ id:Date.now(), content:data.reply }]);
+        // 新上传返回的也改为 messages 数组（包含 user 和 bot）
+        setConversationId(data.conversation_id);
+        pushConversationToUrl(data.conversation_id);
+
+        const botMsgsNew = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
+        setBlocks(botMsgsNew.length? botMsgsNew : [{ id: Date.now(), content: "无回复" }]);
     }
   };
 

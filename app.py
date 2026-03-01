@@ -2,6 +2,7 @@ import os
 import uuid
 import re
 import tempfile
+import hashlib
 import fitz  # pymupdf
 from datetime import datetime
 from typing import Optional, List
@@ -47,7 +48,9 @@ class FileRecord(SQLModel, table=True):
 
     # 本地文件信息
     filename: str
-    filepath: str
+
+    # 文件指纹，用于去重
+    fingerprint: Optional[str] = Field(default=None, index=True)
 
     # ✅ Poe CDN attachment 信息（关键）
     poe_url: Optional[str] = None
@@ -87,6 +90,32 @@ async def upload_pdf(
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
+
+    # 计算文件指纹（SHA256），用于去重
+    fingerprint = hashlib.sha256(file_bytes).hexdigest()
+
+    # 如果存在相同指纹的记录，直接返回对应会话 id，避免重复上传到 Poe
+    with Session(engine) as session:
+        existing = session.exec(
+            select(FileRecord).where(FileRecord.fingerprint == fingerprint)
+        ).first()
+
+        if existing:
+            # 聚合该会话中已有的 bot 消息作为回复（用于前端展示并跳转）
+            stmt = (
+                select(Message)
+                .where(Message.conversation_id == existing.conversation_id)
+                .order_by(Message.id)
+            )
+            msgs = session.exec(stmt).all()
+            # 仅返回 bot 消息给前端（后端聚合），前端无需 user 内容
+            bot_messages = [ {"role": "bot", "content": m.content} for m in msgs if m.role == "bot" ]
+
+            return {
+                "conversation_id": existing.conversation_id,
+                "messages": bot_messages,
+                "exists": True
+            }
 
     conversation_id = uuid.uuid4().hex[:12]
     file_id = uuid.uuid4().hex
@@ -140,7 +169,7 @@ async def upload_pdf(
             id=file_id,
             conversation_id=conversation_id,
             filename=file.filename,
-            filepath=temp_path,
+            fingerprint=fingerprint,
             poe_url=pdf_attachment.url,
             content_type=pdf_attachment.content_type,
             poe_name=pdf_attachment.name
@@ -160,9 +189,12 @@ async def upload_pdf(
 
         session.commit()
 
+    # 返回仅包含 bot 回复的消息数组（前端只需要 bot 内容）
     return {
         "conversation_id": conversation_id,
-        "reply": response_text
+        "messages": [
+            {"role": "bot", "content": response_text}
+        ]
     }
 
 
