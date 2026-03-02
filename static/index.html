@@ -111,7 +111,7 @@ body { margin:0; background:#f5f7fa; }
 <script type="text/babel">
 
 const { useState, useEffect } = React;
-const { Button, Upload, Input, message } = antd;
+const { Button, Upload, Input, InputNumber, message } = antd;
 
 const BASE_URL = "http://127.0.0.1:8000";
 
@@ -133,6 +133,8 @@ function App() {
   const [toc, setToc] = useState([]);
   const [activeHeading, setActiveHeading] = useState(null);
   const [loading, setLoading] = useState(false);
+  // 每次自动继续的次数
+  const [continueCount, setContinueCount] = useState(4);
 
   useEffect(()=>{ localStorage.setItem("poe_api_key", apiKey); },[apiKey]);
 
@@ -279,16 +281,14 @@ function App() {
 
         const botMsgsNew = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
         setBlocks(botMsgsNew.length? botMsgsNew : [{ id: Date.now(), content: "无回复" }]);
+        if(continueCount>0){
+          setTimeout(handleContinue, 100);
+        }
     }
   };
 
-  // ✅ 继续翻译（现在正确传 api_key）
-  const handleContinue = async ()=>{
-    if(!conversationId){ message.warning("请先上传论文"); return; }
-    if(!apiKey){ message.warning("请输入 API Key"); return; }
-
-    setLoading(true);
-
+  // ✅ 单次翻译请求
+  const doContinue = async () => {
     const formData = new FormData();
     formData.append("api_key", apiKey);
 
@@ -298,17 +298,30 @@ function App() {
     );
 
     const data = await res.json();
-    setLoading(false);
 
     if(!res.ok){
       message.error(data.detail || "请求失败");
-      return;
+      return false;
     }
 
     setBlocks(prev=>[
       ...prev,
       { id:Date.now(), content:data.reply }
     ]);
+    return true;
+  };
+
+  // ✅ 继续翻译（会根据 continueCount 调用多次）
+  const handleContinue = async ()=>{
+    if(!conversationId){ message.warning("请先上传论文"); return; }
+    if(!apiKey){ message.warning("请输入 API Key"); return; }
+
+    setLoading(true);
+    for(let i=0;i<continueCount;i++){
+      const ok = await doContinue();
+      if(!ok) break;
+    }
+    setLoading(false);
   };
 
   const resetSession = ()=>{
@@ -336,6 +349,15 @@ function App() {
               {loading ? "处理中..." : "上传 PDF"}
             </Button>
           </Upload>
+
+          <span style={{marginLeft:10}}>自动继续次数：</span>
+          <InputNumber
+            min={0}
+            value={continueCount}
+            disabled={loading}
+            onChange={v=>setContinueCount(v)}
+            style={{ width:80, marginLeft:5 }}
+          />
 
           <Button
             style={{ marginLeft:10 }}
