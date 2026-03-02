@@ -1,24 +1,36 @@
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
+    # ✅ v2 使用 model_config
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     # database connection string
-    database_url: str = Field("sqlite:///translations.db", env="DATABASE_URL")
+    database_url: str = Field(
+        default="sqlite:///translations.db",
+        validation_alias="DATABASE_URL",
+    )
 
     # Poe model and prompts
-    poe_model: str = Field("GPT-5.2-Instant", env="POE_MODEL")
-    title_prompt: str = Field(
-        "请查看附加的 PDF 文档，提取论文标题。标题可能由多行组成，仅返回标题文本，不要翻译或添加其他注释。",
-        env="TITLE_PROMPT"
-    )
-    initial_prompt: str = Field(
-        "翻译这篇论文，每次翻译一章（摘要单独算一章）。摘要、章节用 1 级标题，子章节为 2 级标题。当我说“继续”时翻译下一章，直到结束。请先翻译摘要。",
-        env="INITIAL_PROMPT"
+    poe_model: str = Field(
+        default="GPT-5.2-Instant",
+        validation_alias="POE_MODEL",
     )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    title_prompt: str = Field(
+        default="请查看附加的 PDF 文档，提取论文标题。标题可能由多行组成，仅返回标题文本，不要翻译或添加其他注释。",
+        validation_alias="TITLE_PROMPT",
+    )
+
+    initial_prompt: str = Field(
+        default="翻译这篇论文，每次翻译一章（摘要单独算一章）。摘要、章节用 1 级标题，子章节为 2 级标题。当我说“继续”时翻译下一章，直到结束。请先翻译摘要。",
+        validation_alias="INITIAL_PROMPT",
+    )
 
 
 settings = Settings()

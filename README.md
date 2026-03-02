@@ -48,7 +48,7 @@ INITIAL_PROMPT=翻译这篇论文，每次翻译一章……
 ### 安装依赖
 
 ```bash
-pip install fastapi uvicorn sqlmodel pydantic fastapi-poe python-multipart gunicorn
+pip install fastapi uvicorn sqlmodel pydantic-settings fastapi-poe python-multipart gunicorn
 ```
 
 ### 环境配置
