@@ -6,7 +6,7 @@
 
 ## 功能特性
 
-- 📄 **PDF 上传与翻译**：上传 PDF 文件，自动调用 GPT-5.2-Instant 进行翻译
+- 📄 **PDF 上传与翻译**：上传 PDF 文件，自动调用 GPT-5.2-Instant 解析标题及翻译
 - 🔄 **断点续翻**：支持分章节翻译，可随时继续翻译下一章节
 - 💾 **会话管理**：自动保存所有翻译历史，支持查看完整会话记录
 - 🏷️ **标题自动提取**：从 PDF 首页自动提取论文标题
@@ -58,7 +58,7 @@ uvicorn app:app --reload
 
 服务将在 `http://127.0.0.1:8000` 启动
 
-如果需要部署，建议使用 `gunicorn`，并配置反向代理。
+如果需要部署，建议使用 `gunicorn`，并配置反向代理（注意文件上传存在延迟，推荐服务器带宽在 5 M 以上）。
 
 ```bash
 gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
@@ -71,98 +71,8 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 1. 打开浏览器访问 `http://127.0.0.1:8000`
 2. 上传 PDF 文件并输入 Poe API Key
 3. 等待 AI 翻译摘要
-4. 点击"继续"按钮翻译下一章节（~~由于 Poe 有 5 分钟内的缓存优惠，为了节省积分建议尽快翻译完整篇文章，未来将更新成一次性继续 5 次~~已更新自动继续次数，省心省力）
+4. 点击"继续"按钮翻译下一章节（~~由于 Poe 有 5 分钟内的缓存优惠，为了节省积分建议尽快翻译完整篇文章，未来将更新成一次性继续 5 次~~已更新按次自动继续，省心省力）
 5. 查看翻译历史记录
-
-### 通过 API 调用
-
-#### 1. 上传 PDF 并开始翻译
-
-```bash
-curl -X POST "http://127.0.0.1:8000/upload" \
-  -F "file=@paper.pdf" \
-  -F "api_key=your_poe_api_key"
-```
-
-**响应示例：**
-```json
-{
-  "conversation_id": "abc123def456",
-  "reply": "# 摘要\n\n论文主要介绍..."
-}
-```
-
-#### 2. 继续翻译下一章节
-
-```bash
-curl -X POST "http://127.0.0.1:8000/continue/abc123def456" \
-  -F "api_key=your_poe_api_key"
-```
-
-**响应示例：**
-```json
-{
-  "reply": "# 第一章\n\n研究背景..."
-}
-```
-
-#### 3. 获取完整会话
-
-```bash
-curl "http://127.0.0.1:8000/conversation/abc123def456"
-```
-
-**响应示例：**
-```json
-{
-  "id": "abc123def456",
-  "title": "Deep Learning Fundamentals",
-  "created_at": "2026-02-24T10:30:00",
-  "messages": [
-    {
-      "role": "user",
-      "content": "翻译这篇论文..."
-    },
-    {
-      "role": "bot",
-      "content": "# 摘要\n\n..."
-    }
-  ]
-}
-```
-
-#### 4. 获取所有会话列表
-
-```bash
-curl "http://127.0.0.1:8000/conversations"
-```
-
-**响应示例：**
-```json
-[
-  {
-    "id": "abc123def456",
-    "title": "Deep Learning Fundamentals",
-    "created_at": "2026-02-24T10:30:00"
-  },
-  {
-    "id": "xyz789uvw012",
-    "title": "Machine Learning Basics",
-    "created_at": "2026-02-23T15:45:00"
-  }
-]
-```
-
-## API 端点说明
-
-| 方法 | 端点 | 说明 |
-|------|------|------|
-| POST | `/upload` | 上传 PDF 文件并开始翻译 |
-| POST | `/continue/{conversation_id}` | 继续翻译下一章节 |
-| GET | `/conversation/{conversation_id}` | 获取完整会话内容 |
-| GET | `/conversations` | 获取所有会话列表 |
-| GET | `/` | 主页面 (Web 界面) |
-| GET | `/chat/{conversation_id}` | 查看指定会话 (Web 界面) |
 
 ## 数据存储
 
@@ -182,21 +92,15 @@ curl "http://127.0.0.1:8000/conversations"
 ```
 1. 用户上传 PDF
    ↓
-2. 系统保存本地副本
+2. 上传到 Poe CDN（获得可复用 URL）
    ↓
-3. 上传到 Poe CDN（获得可复用 URL）
+3. 发送初始翻译请求（包含 PDF attachment）
    ↓
-4. 发送初始翻译请求（包含 PDF attachment）
+4. 保存会话和第一段回复
    ↓
-5. 保存会话和第一段回复
+5. 用户点击"继续"
    ↓
-6. 用户点击"继续"
-   ↓
-7. 重用 Poe CDN URL，无需重新上传文件
-   ↓
-8. 继续翻译，保存新消息
-   ↓
-9. 重复 6-8 直到完成
+6. 按照次数，重用 Poe CDN URL，直到完成
 ```
 
 ## 常见问题
