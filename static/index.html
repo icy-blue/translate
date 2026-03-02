@@ -1,445 +1,459 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8" />
-<title>论文翻译 - Poe API</title>
+  <meta charset="UTF-8" />
+  <title>论文翻译 - Poe API</title>
 
-<!-- React -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- React -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-<!-- Ant Design -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/antd/4.24.16/antd.min.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/antd/4.24.16/antd.min.js"></script>
+  <!-- Ant Design -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/antd/4.24.16/antd.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/antd/4.24.16/antd.min.js"></script>
 
-<!-- Markdown -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Markdown -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-<!-- KaTeX -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 
-<!-- Babel -->
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-<style>
-body { margin:0; background:#f5f7fa; }
+  <style>
+    body {
+      margin: 0;
+      background: #f5f7fa;
+    }
 
-.header-box {
-  background:white;
-  padding:20px;
-  position:sticky;
-  top:0;
-  z-index:1000;
-  box-shadow:0 4px 15px rgba(0,0,0,0.08);
-}
+    .header-box {
+      background: white;
+      padding: 20px;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    }
 
-.container {
-  max-width:1200px;
-  margin:0 auto;
-  padding:20px;
-}
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
 
-.layout {
-  display:flex;
-  gap:30px;
-  margin-top:20px;
-}
+    .layout {
+      display: flex;
+      gap: 30px;
+      margin-top: 20px;
+    }
 
-.sidebar {
-  width:260px;
-  background:white;
-  padding:20px;
-  border-radius:10px;
-  height:80vh;
-  overflow-y:auto;
-  position:sticky;
-  top:120px;
-}
+    .sidebar {
+      width: 260px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      height: 80vh;
+      overflow-y: auto;
+      position: sticky;
+      top: 120px;
+    }
 
-.toc-item {
-  cursor:pointer;
-  margin:6px 0;
-  font-size:14px;
-  color:#555;
-}
+    .toc-item {
+      cursor: pointer;
+      margin: 6px 0;
+      font-size: 14px;
+      color: #555;
+    }
 
-.toc-item.active {
-  color:#1677ff;
-  font-weight:600;
-}
+    .toc-item.active {
+      color: #1677ff;
+      font-weight: 600;
+    }
 
-.level-1 { font-weight:600; }
-.level-2 { padding-left:16px; }
-.level-3 { padding-left:32px; }
+    .level-1 {
+      font-weight: 600;
+    }
 
-.content h1,
-.content h2,
-.content h3 {
-  scroll-margin-top: 220px;
-}
+    .level-2 {
+      padding-left: 16px;
+    }
+
+    .level-3 {
+      padding-left: 32px;
+    }
+
+    .content h1,
+    .content h2,
+    .content h3 {
+      scroll-margin-top: 220px;
+    }
 
 
-.content { flex:1; }
+    .content {
+      flex: 1;
+    }
 
-.message-block {
-  margin-bottom:30px;
-  padding:25px;
-  background:white;
-  border-radius:10px;
-  border:1px solid #eee;
-}
+    .message-block {
+      margin-bottom: 30px;
+      padding: 25px;
+      background: white;
+      border-radius: 10px;
+      border: 1px solid #eee;
+    }
 
-.title-block {
-  margin-bottom:30px;
-  padding:25px;
-  background:#fafafa;
-  border-radius:10px;
-  border:1px solid #ddd;
-  font-size:24px;
-  font-weight:600;
-  text-align:center;
-}
+    .title-block {
+      margin-bottom: 30px;
+      padding: 25px;
+      background: #fafafa;
+      border-radius: 10px;
+      border: 1px solid #ddd;
+      font-size: 24px;
+      font-weight: 600;
+      text-align: center;
+    }
 
-.math-block {
-  margin: 20px 0;
-}
+    .math-block {
+      margin: 20px 0;
+    }
 
-.status-bar {
-  background:#e6f4ff;
-  color:#1677ff;
-  padding:10px;
-  border-radius:6px;
-  margin-top:10px;
-}
-</style>
+    .status-bar {
+      background: #e6f4ff;
+      color: #1677ff;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 
 <body>
-<div id="root"></div>
+  <div id="root"></div>
 
-<script type="text/babel">
+  <script type="text/babel">
 
-const { useState, useEffect } = React;
-const { Button, Upload, Input, InputNumber, message } = antd;
+    const { useState, useEffect } = React;
+    const { Button, Upload, Input, InputNumber, message } = antd;
 
-const BASE_URL = "http://127.0.0.1:8000";
+    const BASE_URL = "http://127.0.0.1:8000";
 
-function App() {
+    function App() {
 
-  // ✅ 从 URL 读取 conversationId
-  function getConversationIdFromUrl() {
-    const match = window.location.pathname.match(/\/chat\/(.+)/);
-    return match ? match[1] : null;
-  }
-
-  function pushConversationToUrl(id) {
-    window.history.pushState({}, "", `/chat/${id}`);
-  }
-
-  const [apiKey, setApiKey] = useState(localStorage.getItem("poe_api_key") || "");
-  const [conversationId, setConversationId] = useState(getConversationIdFromUrl());
-  const [blocks, setBlocks] = useState([]);
-  const [toc, setToc] = useState([]);
-  const [activeHeading, setActiveHeading] = useState(null);
-  const [loading, setLoading] = useState(false);
-  // paper title extracted by backend
-  const [paperTitle, setPaperTitle] = useState("");
-  // 每次自动继续的次数
-  const [continueCount, setContinueCount] = useState(4);
-
-  useEffect(()=>{ localStorage.setItem("poe_api_key", apiKey); },[apiKey]);
-
-  // ✅ 页面加载时如果 URL 有 id 自动加载历史
-  useEffect(() => {
-    const id = getConversationIdFromUrl();
-    if (id) {
-      setConversationId(id);
-      loadConversation(id);
-    }
-  }, []);
-
-  async function loadConversation(id) {
-    setPaperTitle("");
-    setLoading(true);
-    const res = await fetch(`${BASE_URL}/conversation/${id}`);
-    if (!res.ok) {
-      message.error("会话不存在");
-      setLoading(false);
-      return;
-    }
-    const data = await res.json();
-    if(data.title){
-      setPaperTitle(data.title);
-    }
-    const botMessages = data.messages.filter(m => m.role === "bot");
-    setBlocks(
-      botMessages.map((m,i)=>({
-        id: Date.now() + i,
-        content: m.content
-      }))
-    );
-    setLoading(false);
-  }
-
-  // ✅ 数学处理函数（保持你原来的）
-  function processLatex(text) {
-    const displayBlocks = [];
-    let index = 0;
-
-    text = text.replace(
-      /\\\[((?:[\s\S]*?))\\\]/g,
-      (_, formula) => {
-        displayBlocks.push(
-          `\n\n<div class="math-block">$$$$\n${formula.trim()}\n$$$$</div>\n\n`
-        );
-        return `__DISPLAY_BLOCK_${index++}__`;
+      // ✅ 从 URL 读取 conversationId
+      function getConversationIdFromUrl() {
+        const match = window.location.pathname.match(/\/chat\/(.+)/);
+        return match ? match[1] : null;
       }
-    );
 
-    text = text.replace(
-      /\(([^()\n]*?[\\_^][^()\n]*?)\)/g,
-      (_, formula) => `\\(${formula}\\)`
-    );
+      function pushConversationToUrl(id) {
+        window.history.pushState({}, "", `/chat/${id}`);
+      }
 
-    displayBlocks.forEach((block, i) => {
-      text = text.replace(`__DISPLAY_BLOCK_${i}__`, block);
-    });
+      const [apiKey, setApiKey] = useState(localStorage.getItem("poe_api_key") || "");
+      const [conversationId, setConversationId] = useState(getConversationIdFromUrl());
+      const [blocks, setBlocks] = useState([]);
+      const [toc, setToc] = useState([]);
+      const [activeHeading, setActiveHeading] = useState(null);
+      const [loading, setLoading] = useState(false);
+      // paper title extracted by backend
+      const [paperTitle, setPaperTitle] = useState("");
+      // 每次自动继续的次数
+      const [continueCount, setContinueCount] = useState(4);
 
-    return text;
-  }
+      useEffect(() => { localStorage.setItem("poe_api_key", apiKey); }, [apiKey]);
 
-  useEffect(() => {
-
-    renderMathInElement(document.body,{
-      delimiters:[
-        { left: "$$", right: "$$", display: true },
-        { left: "\\(", right: "\\)", display: false }
-      ],
-      throwOnError:false,
-      strict:false
-    });
-
-    const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
-    const newToc = [];
-
-    headings.forEach((heading, index) => {
-      const id = "heading-" + index;
-      heading.id = id;
-      newToc.push({
-        id,
-        text: heading.innerText,
-        level: Number(heading.tagName.slice(1))
-      });
-    });
-
-    setToc(newToc);
-
-  }, [blocks]);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const headings = document.querySelectorAll(".content h1, .content h2");
-      let current = null;
-      headings.forEach(heading => {
-        if (heading.getBoundingClientRect().top <= 120) {
-          current = heading.id;
+      // ✅ 页面加载时如果 URL 有 id 自动加载历史
+      useEffect(() => {
+        const id = getConversationIdFromUrl();
+        if (id) {
+          setConversationId(id);
+          loadConversation(id);
         }
-      });
-      setActiveHeading(current);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+      }, []);
 
-  // ✅ 上传
-  const uploadProps = {
-    name:"file",
-    accept:".pdf",
-    showUploadList:false,
-    customRequest: async ({ file })=>{
-      if(!apiKey){ message.error("请输入 API Key"); return; }
-
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("api_key", apiKey);
-
-      setLoading(true);
-      setBlocks([]);
-
-      const res = await fetch(`${BASE_URL}/upload`,{
-        method:"POST",
-        body:formData
-      });
-
-        const data = await res.json();
-        setLoading(false);
-
-        if(!res.ok){
-          message.error(data.detail || "上传失败");
+      async function loadConversation(id) {
+        setPaperTitle("");
+        setLoading(true);
+        const res = await fetch(`${BASE_URL}/conversation/${id}`);
+        if (!res.ok) {
+          message.error("会话不存在");
+          setLoading(false);
           return;
         }
+        const data = await res.json();
+        if (data.title) {
+          setPaperTitle(data.title);
+        }
+        const botMessages = data.messages.filter(m => m.role === "bot");
+        setBlocks(
+          botMessages.map((m, i) => ({
+            id: Date.now() + i,
+            content: m.content
+          }))
+        );
+        setLoading(false);
+      }
 
-        // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
-        if(data.exists){
+      // ✅ 数学处理函数（保持你原来的）
+      function processLatex(text) {
+        const displayBlocks = [];
+        let index = 0;
+
+        text = text.replace(
+          /\\\[((?:[\s\S]*?))\\\]/g,
+          (_, formula) => {
+            displayBlocks.push(
+              `\n\n<div class="math-block">$$$$\n${formula.trim()}\n$$$$</div>\n\n`
+            );
+            return `__DISPLAY_BLOCK_${index++}__`;
+          }
+        );
+
+        text = text.replace(
+          /\(([^()\n]*?[\\_^][^()\n]*?)\)/g,
+          (_, formula) => `\\(${formula}\\)`
+        );
+
+        displayBlocks.forEach((block, i) => {
+          text = text.replace(`__DISPLAY_BLOCK_${i}__`, block);
+        });
+
+        return text;
+      }
+
+      useEffect(() => {
+
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "\\(", right: "\\)", display: false }
+          ],
+          throwOnError: false,
+          strict: false
+        });
+
+        const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
+        const newToc = [];
+
+        headings.forEach((heading, index) => {
+          const id = "heading-" + index;
+          heading.id = id;
+          newToc.push({
+            id,
+            text: heading.innerText,
+            level: Number(heading.tagName.slice(1))
+          });
+        });
+
+        setToc(newToc);
+
+      }, [blocks]);
+
+      useEffect(() => {
+        const handleScroll = () => {
+          const headings = document.querySelectorAll(".content h1, .content h2");
+          let current = null;
+          headings.forEach(heading => {
+            if (heading.getBoundingClientRect().top <= 120) {
+              current = heading.id;
+            }
+          });
+          setActiveHeading(current);
+        };
+        window.addEventListener("scroll", handleScroll);
+        return () => window.removeEventListener("scroll", handleScroll);
+      }, []);
+
+      // ✅ 上传
+      const uploadProps = {
+        name: "file",
+        accept: ".pdf",
+        showUploadList: false,
+        customRequest: async ({ file }) => {
+          if (!apiKey) { message.error("请输入 API Key"); return; }
+
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("api_key", apiKey);
+
+          setLoading(true);
+          setBlocks([]);
+          setPaperTitle("");
+
+          const res = await fetch(`${BASE_URL}/upload`, {
+            method: "POST",
+            body: formData
+          });
+
+          const data = await res.json();
+          setLoading(false);
+
+          if (!res.ok) {
+            message.error(data.detail || "上传失败");
+            return;
+          }
+
+          // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
+          if (data.exists) {
+            setConversationId(data.conversation_id);
+            if (data.title) { setPaperTitle(data.title); }
+            pushConversationToUrl(data.conversation_id);
+
+            const botMsgs = (data.messages || []).filter(m => m.role === "bot").map((m, i) => ({ id: Date.now() + i, content: m.content }));
+            setBlocks(botMsgs);
+            message.info("文件已存在，跳转到对应会话");
+            return;
+          }
+
+          // 新上传返回的也改为 messages 数组（包含 user 和 bot）
           setConversationId(data.conversation_id);
-          if(data.title){ setPaperTitle(data.title); }
+          if (data.title) { setPaperTitle(data.title); }
           pushConversationToUrl(data.conversation_id);
 
-          const botMsgs = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
-          setBlocks(botMsgs);
-          message.info("文件已存在，跳转到对应会话");
-          return;
+          const botMsgsNew = (data.messages || []).filter(m => m.role === "bot").map((m, i) => ({ id: Date.now() + i, content: m.content }));
+          setBlocks(botMsgsNew.length ? botMsgsNew : [{ id: Date.now(), content: "无回复" }]);
+          setLoading(false);
+        }
+      };
+
+      // ✅ 单次翻译请求
+      const doContinue = async () => {
+        const formData = new FormData();
+        formData.append("api_key", apiKey);
+
+        const res = await fetch(
+          `${BASE_URL}/continue/${conversationId}`,
+          { method: "POST", body: formData }
+        );
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          message.error(data.detail || "请求失败");
+          return false;
         }
 
-        // 新上传返回的也改为 messages 数组（包含 user 和 bot）
-        setConversationId(data.conversation_id);
-        if(data.title){ setPaperTitle(data.title); }
-        pushConversationToUrl(data.conversation_id);
+        setBlocks(prev => [
+          ...prev,
+          { id: Date.now(), content: data.reply }
+        ]);
+        return true;
+      };
 
-        const botMsgsNew = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
-        setBlocks(botMsgsNew.length? botMsgsNew : [{ id: Date.now(), content: "无回复" }]);
-        if(continueCount>0){
-          setTimeout(handleContinue, 100);
+      // ✅ 继续翻译（会根据 continueCount 调用多次）
+      const handleContinue = async () => {
+        if (!conversationId) { message.warning("请先上传论文"); return; }
+        if (!apiKey) { message.warning("请输入 API Key"); return; }
+
+        setLoading(true);
+        for (let i = 0; i < continueCount; i++) {
+          const ok = await doContinue();
+          if (!ok) break;
         }
-    }
-  };
+        setLoading(false);
+      };
 
-  // ✅ 单次翻译请求
-  const doContinue = async () => {
-    const formData = new FormData();
-    formData.append("api_key", apiKey);
+      const resetSession = () => {
+        window.history.pushState({}, "", "/");
+        setConversationId(null);
+        setBlocks([]);
+        setPaperTitle("");
+      };
 
-    const res = await fetch(
-      `${BASE_URL}/continue/${conversationId}`,
-      { method:"POST", body:formData }
-    );
+      return (
+        <>
+          <div className="header-box">
+            <div className="container">
+              <h2>📄 论文翻译 - Poe API</h2>
 
-    const data = await res.json();
-
-    if(!res.ok){
-      message.error(data.detail || "请求失败");
-      return false;
-    }
-
-    setBlocks(prev=>[
-      ...prev,
-      { id:Date.now(), content:data.reply }
-    ]);
-    return true;
-  };
-
-  // ✅ 继续翻译（会根据 continueCount 调用多次）
-  const handleContinue = async ()=>{
-    if(!conversationId){ message.warning("请先上传论文"); return; }
-    if(!apiKey){ message.warning("请输入 API Key"); return; }
-
-    setLoading(true);
-    for(let i=0;i<continueCount;i++){
-      const ok = await doContinue();
-      if(!ok) break;
-    }
-    setLoading(false);
-  };
-
-  const resetSession = ()=>{
-    window.history.pushState({}, "", "/");
-    setConversationId(null);
-    setBlocks([]);
-    setPaperTitle("");
-  };
-
-  return (
-    <>
-      <div className="header-box">
-        <div className="container">
-          <h2>📄 论文翻译 - Poe API</h2>
-
-          <Input.Password
-            placeholder="请输入 Poe API Key"
-            value={apiKey}
-            onChange={e=>setApiKey(e.target.value)}
-            disabled={loading}
-            style={{ marginBottom:10 }}
-          />
-
-          <Upload {...uploadProps} disabled={loading}>
-            <Button type="primary" loading={loading}>
-              {loading ? "处理中..." : "上传 PDF"}
-            </Button>
-          </Upload>
-
-          <span style={{marginLeft:10}}>自动继续次数：</span>
-          <InputNumber
-            min={0}
-            value={continueCount}
-            disabled={loading}
-            onChange={v=>setContinueCount(v)}
-            style={{ width:80, marginLeft:5 }}
-          />
-
-          <Button
-            style={{ marginLeft:10 }}
-            onClick={handleContinue}
-            loading={loading}
-            disabled={loading}
-          >
-            {loading ? "翻译中..." : "继续"}
-          </Button>
-
-          <Button
-            danger
-            style={{ marginLeft:10 }}
-            disabled={loading}
-            onClick={resetSession}
-          >
-            重新开始
-          </Button>
-
-          {loading && <div className="status-bar">⏳ 正在翻译...</div>}
-        </div>
-      </div>
-
-      <div className="container">
-        <div className="layout">
-
-          <div className="sidebar">
-            <h3>目录</h3>
-            {toc.map(item => (
-              <div
-                key={item.id}
-                className={`toc-item level-${item.level} ${activeHeading===item.id?"active":""}`}
-                onClick={() =>
-                  document.getElementById(item.id)
-                    ?.scrollIntoView({behavior:"smooth"})
-                }
-              >
-                {item.text}
-              </div>
-            ))}
-          </div>
-
-          <div className="content">
-            {paperTitle && <div className="title-block">{paperTitle}</div>}
-            {blocks.map(block=>(
-              <div
-                key={block.id}
-                className="message-block"
-                dangerouslySetInnerHTML={{
-                  __html: marked.parse(processLatex(block.content))
-                }}
+              <Input.Password
+                placeholder="请输入 Poe API Key"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                disabled={loading}
+                style={{ marginBottom: 10 }}
               />
-            ))}
+
+              <Upload {...uploadProps} disabled={loading}>
+                <Button type="primary" loading={loading}>
+                  {loading ? "处理中..." : "上传 PDF"}
+                </Button>
+              </Upload>
+
+              <span style={{ marginLeft: 10 }}>自动继续次数：</span>
+              <InputNumber
+                min={0}
+                value={continueCount}
+                disabled={loading}
+                onChange={v => setContinueCount(v)}
+                style={{ width: 80, marginLeft: 5 }}
+              />
+
+              <Button
+                style={{ marginLeft: 10 }}
+                onClick={handleContinue}
+                loading={loading}
+                disabled={loading}
+              >
+                {loading ? "翻译中..." : "继续"}
+              </Button>
+
+              <Button
+                danger
+                style={{ marginLeft: 10 }}
+                disabled={loading}
+                onClick={resetSession}
+              >
+                重新开始
+              </Button>
+
+              {loading && <div className="status-bar">⏳ 正在翻译...</div>}
+            </div>
           </div>
 
-        </div>
-      </div>
-    </>
-  );
-}
+          <div className="container">
+            <div className="layout">
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-</script>
+              <div className="sidebar">
+                <h3>目录</h3>
+                {toc.map(item => (
+                  <div
+                    key={item.id}
+                    className={`toc-item level-${item.level} ${activeHeading === item.id ? "active" : ""}`}
+                    onClick={() =>
+                      document.getElementById(item.id)
+                        ?.scrollIntoView({ behavior: "smooth" })
+                    }
+                  >
+                    {item.text}
+                  </div>
+                ))}
+              </div>
+
+              <div className="content">
+                {paperTitle && <div className="title-block">{paperTitle}</div>}
+                {blocks.map(block => (
+                  <div
+                    key={block.id}
+                    className="message-block"
+                    dangerouslySetInnerHTML={{
+                      __html: marked.parse(processLatex(block.content))
+                    }}
+                  />
+                ))}
+              </div>
+
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
 </body>
+
 </html>

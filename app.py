@@ -1,8 +1,7 @@
 import uuid
-import re
 import tempfile
 import hashlib
-import fitz  # pymupdf
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -47,9 +46,10 @@ class FileRecord(SQLModel, table=True):
     # fingerprint for deduplication
     fingerprint: Optional[str] = Field(default=None, index=True)
 
-    # Poe CDN attachment info    poe_url: Optional[str] = None
-    content_type: Optional[str] = None
-    poe_name: Optional[str] = None
+    # Poe CDN attachment info    
+    poe_url: str
+    content_type: str
+    poe_name: str
 
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -69,6 +69,22 @@ def on_startup():
     SQLModel.metadata.create_all(engine)
     # Temporary files are used for uploads; no persistent uploads/ directory required
 
+
+# helper: get title via Poe prompt
+async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str) -> Optional[str]:
+    prompt = (
+        "请查看附加的 PDF 文档，提取论文标题。标题可能由多行组成，"
+        "仅返回标题文本，不要翻译或添加其他注释。"
+    )
+    message = fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])
+    title_text = ""
+    async for part in fp.get_bot_response(
+        messages=[message],
+        bot_name="GPT-5.2-Instant",
+        api_key=api_key
+    ):
+        title_text += part.text
+    return title_text.strip() or None
 
 # Upload PDF and start translation
 
@@ -119,7 +135,7 @@ async def upload_pdf(
     conversation_id = uuid.uuid4().hex[:12]
     file_id = uuid.uuid4().hex
 
-    # write bytes to a temp file for libraries like fitz requiring a path
+    # write bytes to a temp file for libraries requiring a filepath
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_bytes)
         tmp.flush()
@@ -128,6 +144,9 @@ async def upload_pdf(
         # upload to Poe CDN once using the temporary file
         with open(temp_path, "rb") as f:
             pdf_attachment = await fp.upload_file(f, api_key=api_key, file_name=file.filename)
+
+    # title extraction via a separate ephemeral conversation
+    extracted_title = await extract_title_from_pdf(pdf_attachment, api_key)
 
     initial_prompt = """
 翻译这篇论文，每次翻译一章（摘要单独算一章）。
@@ -154,8 +173,8 @@ async def upload_pdf(
     # persist records to database
     with Session(engine) as session:
 
-        extracted_title = extract_pdf_title(temp_path)
-
+        # extract title using a separate Poe prompt
+        extracted_title = await extract_title_from_pdf(pdf_attachment, api_key)
         final_title = extracted_title or file.filename
 
         session.add(Conversation(
@@ -370,46 +389,3 @@ def is_valid_title(text: str) -> bool:
         return False
 
     return True
-
-
-def extract_pdf_title(pdf_path: str) -> Optional[str]:
-    try:
-        doc = fitz.open(pdf_path)
-        page = doc[0]
-
-        blocks = page.get_text("dict")["blocks"]
-
-        candidates = []
-
-        for block in blocks:
-            if "lines" not in block:
-                continue
-
-            for line in block["lines"]:
-                line_text = ""
-                max_font_size = 0
-
-                for span in line["spans"]:
-                    text = span["text"].strip()
-                    if not text:
-                        continue
-
-                    line_text += text + " "
-                    max_font_size = max(max_font_size, span["size"])
-
-                line_text = line_text.strip()
-
-                if is_valid_title(line_text):
-                    candidates.append((max_font_size, line_text))
-
-        if not candidates:
-            return None
-
-        # 按字体大小排序
-        candidates.sort(reverse=True, key=lambda x: x[0])
-
-        return candidates[0][1].strip()
-
-    except Exception as e:
-        print("Title extraction error:", e)
-        return None
