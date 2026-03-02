@@ -91,6 +91,17 @@ body { margin:0; background:#f5f7fa; }
   border:1px solid #eee;
 }
 
+.title-block {
+  margin-bottom:30px;
+  padding:25px;
+  background:#fafafa;
+  border-radius:10px;
+  border:1px solid #ddd;
+  font-size:24px;
+  font-weight:600;
+  text-align:center;
+}
+
 .math-block {
   margin: 20px 0;
 }
@@ -133,6 +144,8 @@ function App() {
   const [toc, setToc] = useState([]);
   const [activeHeading, setActiveHeading] = useState(null);
   const [loading, setLoading] = useState(false);
+  // paper title extracted by backend
+  const [paperTitle, setPaperTitle] = useState("");
   // 每次自动继续的次数
   const [continueCount, setContinueCount] = useState(4);
 
@@ -148,6 +161,7 @@ function App() {
   }, []);
 
   async function loadConversation(id) {
+    setPaperTitle("");
     setLoading(true);
     const res = await fetch(`${BASE_URL}/conversation/${id}`);
     if (!res.ok) {
@@ -156,6 +170,9 @@ function App() {
       return;
     }
     const data = await res.json();
+    if(data.title){
+      setPaperTitle(data.title);
+    }
     const botMessages = data.messages.filter(m => m.role === "bot");
     setBlocks(
       botMessages.map((m,i)=>({
@@ -267,6 +284,7 @@ function App() {
         // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
         if(data.exists){
           setConversationId(data.conversation_id);
+          if(data.title){ setPaperTitle(data.title); }
           pushConversationToUrl(data.conversation_id);
 
           const botMsgs = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
@@ -277,6 +295,7 @@ function App() {
 
         // 新上传返回的也改为 messages 数组（包含 user 和 bot）
         setConversationId(data.conversation_id);
+        if(data.title){ setPaperTitle(data.title); }
         pushConversationToUrl(data.conversation_id);
 
         const botMsgsNew = (data.messages || []).filter(m=>m.role==="bot").map((m,i)=>({ id: Date.now()+i, content: m.content }));
@@ -328,6 +347,7 @@ function App() {
     window.history.pushState({}, "", "/");
     setConversationId(null);
     setBlocks([]);
+    setPaperTitle("");
   };
 
   return (
@@ -401,6 +421,7 @@ function App() {
           </div>
 
           <div className="content">
+            {paperTitle && <div className="title-block">{paperTitle}</div>}
             {blocks.map(block=>(
               <div
                 key={block.id}

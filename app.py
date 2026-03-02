@@ -97,6 +97,8 @@ async def upload_pdf(
         ).first()
 
         if existing:
+            # fetch conversation title for existing record
+            conv = session.get(Conversation, existing.conversation_id)
             # collect existing bot messages for frontend display and navigation
             stmt = (
                 select(Message)
@@ -105,10 +107,11 @@ async def upload_pdf(
             )
             msgs = session.exec(stmt).all()
             # only return bot messages; user messages are not needed by frontend
-            bot_messages = [ {"role": "bot", "content": m.content} for m in msgs if m.role == "bot" ]
+            bot_messages = [{"role": "bot", "content": m.content} for m in msgs if m.role == "bot"]
 
             return {
                 "conversation_id": existing.conversation_id,
+                "title": conv.title if conv else None,
                 "messages": bot_messages,
                 "exists": True
             }
@@ -188,6 +191,7 @@ async def upload_pdf(
     # return bot-only message array (frontend only needs bot content)
     return {
         "conversation_id": conversation_id,
+        "title": final_title,
         "messages": [
             {"role": "bot", "content": response_text}
         ]
