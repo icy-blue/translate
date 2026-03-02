@@ -165,6 +165,15 @@
 
       useEffect(() => { localStorage.setItem("poe_api_key", apiKey); }, [apiKey]);
 
+      // update document title when paperTitle changes
+      useEffect(() => {
+        if (paperTitle) {
+          document.title = `论文翻译 - ${paperTitle}`;
+        } else {
+          document.title = "论文翻译 - Poe API";
+        }
+      }, [paperTitle]);
+
       // ✅ 页面加载时如果 URL 有 id 自动加载历史
       useEffect(() => {
         const id = getConversationIdFromUrl();
