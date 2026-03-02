@@ -9,6 +9,7 @@ from typing import Optional, List
 
 import fastapi_poe as fp
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel, Field, create_engine, Session, select
@@ -65,6 +66,14 @@ class FileRecord(SQLModel, table=True):
 # ==============================
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 def on_startup():
