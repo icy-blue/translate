@@ -6,22 +6,39 @@
 
 ## 功能特性
 
-- 📄 **PDF 上传与翻译**：上传 PDF 文件，自动调用 GPT-5.2-Instant 解析标题及翻译
+- 📄 **PDF 上传与翻译**：上传 PDF 文件，自动调用指定 Poe 模型解析标题及翻译
 - 🔄 **断点续翻**：支持分章节翻译，可随时继续翻译下一章节
 - 💾 **会话管理**：自动保存所有翻译历史，支持查看完整会话记录
-- 🏷️ **标题自动提取**：从 PDF 首页自动提取论文标题
+- 🏷️ **标题自动提取**：通过 Poe 模型读取 PDF 并返回结构化标题
 - 📋 **结构化输出**：按摘要和章节组织翻译内容，使用 Markdown 格式
 - 🗄️ **数据持久化**：使用 SQLite 数据库存储会话、消息和文件记录
 
 ## 技术栈
 
 - **后端框架**：FastAPI
+- **配置管理**：pydantic (`BaseSettings`)
 - **数据库**：SQLite + SQLModel
-- **AI 服务**：Poe API (GPT-5.2-Instant)
-- **PDF 处理**：PyMuPDF (fitz)
+- **AI 服务**：Poe API
+  (模型名称可通过 `POE_MODEL` 配置，默认 GPT-5.2-Instant)
+- **PDF 处理**：通过 Poe 模型，无需本地库
 - **前端**：静态HTML页面
 
 ## 部署指南
+
+### 配置
+
+项目使用 `pydantic` 的 `BaseSettings` 读取来自环境变量或 `.env` 文件的配置。可在根目录创建一个 `.env` 文件来自定义参数。
+
+示例 `.env`：
+```
+DATABASE_URL=postgresql://user:pass@host:port/dbname
+POE_MODEL=GPT-5.2-Instant
+TITLE_PROMPT=请查看附加的 PDF 文档，提取论文标题。
+INITIAL_PROMPT=翻译这篇论文，每次翻译一章……
+```
+
+设置完成后，`app.py` 无需修改即可使用这些配置。
+
 
 ### 前置要求
 
@@ -31,7 +48,7 @@
 ### 安装依赖
 
 ```bash
-pip install fastapi uvicorn sqlmodel pymupdf fastapi-poe python-multipart gunicorn
+pip install fastapi uvicorn sqlmodel pydantic fastapi-poe python-multipart gunicorn
 ```
 
 ### 环境配置
@@ -109,7 +126,7 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 A: 访问 [Poe官网](https://poe.com/) 注册账户，在设置中获取 API Key。
 
 **Q: 如何修改翻译提示词？**
-A: 编辑 `app.py` 中 `/upload` 端点的 `initial_prompt` 变量即可。
+A: 在 `.env` 中调整 `INITIAL_PROMPT` 或直接修改 `config.py` 中 `initial_prompt` 默认值。无需编辑 `app.py`。
 
 **Q: 可以使用其他 Poe 模型吗？**
 A: 可以。修改 `fp.get_bot_response()` 中的 `bot_name` 参数，改为其他可用的模型名称。

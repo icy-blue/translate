@@ -13,8 +13,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 
 
-# Database configuration
-DATABASE_URL = "sqlite:///translations.db"
+# Database configuration & other settings (loaded from config)
+from config import settings
+
+DATABASE_URL = settings.database_url
 engine = create_engine(DATABASE_URL, echo=False)
 
 
@@ -72,15 +74,12 @@ def on_startup():
 
 # helper: get title via Poe prompt
 async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str) -> Optional[str]:
-    prompt = (
-        "请查看附加的 PDF 文档，提取论文标题。标题可能由多行组成，"
-        "仅返回标题文本，不要翻译或添加其他注释。"
-    )
+    prompt = settings.title_prompt
     message = fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])
     title_text = ""
     async for part in fp.get_bot_response(
         messages=[message],
-        bot_name="GPT-5.2-Instant",
+        bot_name=settings.poe_model,
         api_key=api_key
     ):
         title_text += part.text
@@ -148,12 +147,7 @@ async def upload_pdf(
     # title extraction via a separate ephemeral conversation
     extracted_title = await extract_title_from_pdf(pdf_attachment, api_key)
 
-    initial_prompt = """
-翻译这篇论文，每次翻译一章（摘要单独算一章）。
-摘要、章节用 1 级标题，子章节为 2 级标题。
-当我说“继续”时翻译下一章，直到结束。
-请先翻译摘要。
-"""
+    initial_prompt = settings.initial_prompt
 
     message = fp.ProtocolMessage(
         role="user",
@@ -165,7 +159,7 @@ async def upload_pdf(
 
     async for partial in fp.get_bot_response(
         messages=[message],
-        bot_name="GPT-5.2-Instant",
+        bot_name=settings.poe_model,
         api_key=api_key
     ):
         response_text += partial.text
@@ -281,7 +275,7 @@ async def continue_translation(
 
     async for partial in fp.get_bot_response(
         messages=poe_messages,
-        bot_name="GPT-5.2-Instant",
+        bot_name=settings.poe_model,
         api_key=api_key
     ):
         response_text += partial.text
