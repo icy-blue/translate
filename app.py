@@ -1,11 +1,10 @@
-import os
 import uuid
 import re
 import tempfile
 import hashlib
 import fitz  # pymupdf
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
 import fastapi_poe as fp
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -15,17 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 
 
-# ==============================
-# ✅ 数据库配置
-# ==============================
-
+# Database configuration
 DATABASE_URL = "sqlite:///translations.db"
 engine = create_engine(DATABASE_URL, echo=False)
 
 
-# ==============================
-# ✅ 数据模型
-# ==============================
+# Data models
 
 class Conversation(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -36,7 +30,7 @@ class Conversation(SQLModel, table=True):
 
 
 class Message(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)  # ✅ 自增保证顺序
+    id: Optional[int] = Field(default=None, primary_key=True)  # auto-increment ensures order
     conversation_id: str = Field(index=True)
     role: str
     content: str
@@ -47,23 +41,18 @@ class FileRecord(SQLModel, table=True):
     id: str = Field(primary_key=True)
     conversation_id: str = Field(index=True)
 
-    # 本地文件信息
+    # local file metadata
     filename: str
 
-    # 文件指纹，用于去重
+    # fingerprint for deduplication
     fingerprint: Optional[str] = Field(default=None, index=True)
 
-    # ✅ Poe CDN attachment 信息（关键）
-    poe_url: Optional[str] = None
+    # Poe CDN attachment info    poe_url: Optional[str] = None
     content_type: Optional[str] = None
     poe_name: Optional[str] = None
 
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
 
-
-# ==============================
-# ✅ FastAPI 初始化
-# ==============================
 
 app = FastAPI()
 
@@ -78,12 +67,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     SQLModel.metadata.create_all(engine)
-    # 不再长期创建 uploads/ 目录，使用临时文件保存上传内容
+    # Temporary files are used for uploads; no persistent uploads/ directory required
 
 
-# ==============================
-# ✅ 上传 PDF 并开始翻译
-# ==============================
+# Upload PDF and start translation
 
 @app.post("/upload")
 async def upload_pdf(
@@ -100,24 +87,24 @@ async def upload_pdf(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # 计算文件指纹（SHA256），用于去重
+    # compute SHA256 fingerprint for deduplication
     fingerprint = hashlib.sha256(file_bytes).hexdigest()
 
-    # 如果存在相同指纹的记录，直接返回对应会话 id，避免重复上传到 Poe
+    # check existing fingerprint and shortcut
     with Session(engine) as session:
         existing = session.exec(
             select(FileRecord).where(FileRecord.fingerprint == fingerprint)
         ).first()
 
         if existing:
-            # 聚合该会话中已有的 bot 消息作为回复（用于前端展示并跳转）
+            # collect existing bot messages for frontend display and navigation
             stmt = (
                 select(Message)
                 .where(Message.conversation_id == existing.conversation_id)
                 .order_by(Message.id)
             )
             msgs = session.exec(stmt).all()
-            # 仅返回 bot 消息给前端（后端聚合），前端无需 user 内容
+            # only return bot messages; user messages are not needed by frontend
             bot_messages = [ {"role": "bot", "content": m.content} for m in msgs if m.role == "bot" ]
 
             return {
@@ -129,13 +116,13 @@ async def upload_pdf(
     conversation_id = uuid.uuid4().hex[:12]
     file_id = uuid.uuid4().hex
 
-    # 使用临时文件写入上传的 bytes，保证兼容需要文件路径的库（如 fitz）
+    # write bytes to a temp file for libraries like fitz requiring a path
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_bytes)
         tmp.flush()
         temp_path = tmp.name
 
-        # ✅ 上传到 Poe CDN（只做一次）——使用临时文件
+        # upload to Poe CDN once using the temporary file
         with open(temp_path, "rb") as f:
             pdf_attachment = await fp.upload_file(f, api_key=api_key, file_name=file.filename)
 
@@ -161,7 +148,7 @@ async def upload_pdf(
     ):
         response_text += partial.text
 
-    # ✅ 写入数据库
+    # persist records to database
     with Session(engine) as session:
 
         extracted_title = extract_pdf_title(temp_path)
@@ -198,18 +185,13 @@ async def upload_pdf(
 
         session.commit()
 
-    # 返回仅包含 bot 回复的消息数组（前端只需要 bot 内容）
+    # return bot-only message array (frontend only needs bot content)
     return {
         "conversation_id": conversation_id,
         "messages": [
             {"role": "bot", "content": response_text}
         ]
     }
-
-
-# ==============================
-# ✅ 继续翻译（不再重新上传文件）
-# ==============================
 
 @app.post("/continue/{conversation_id}")
 async def continue_translation(
@@ -241,7 +223,7 @@ async def continue_translation(
 
         db_messages = session.exec(statement).all()
 
-    # ✅ 重建 attachment（不重新上传）
+    # rebuild Poe attachment without reuploading
     pdf_attachment = fp.Attachment(
         url=file_record.poe_url,
         content_type=file_record.content_type,
@@ -252,7 +234,7 @@ async def continue_translation(
 
     for i, m in enumerate(db_messages):
         if i == 0 and m.role == "user":
-            # 第一条消息重新附带 attachment
+            # attach the PDF file on the initial user message
             poe_messages.append(
                 fp.ProtocolMessage(
                     role="user",
@@ -281,7 +263,7 @@ async def continue_translation(
     ):
         response_text += partial.text
 
-    # ✅ 保存新消息
+    # persist new conversation messages
     with Session(engine) as session:
         session.add(Message(
             conversation_id=conversation_id,
@@ -298,9 +280,7 @@ async def continue_translation(
     return {"reply": response_text}
 
 
-# ==============================
-# ✅ 获取完整会话
-# ==============================
+# Retrieve full conversation
 
 @app.get("/conversation/{conversation_id}")
 async def get_conversation(conversation_id: str):
@@ -329,9 +309,7 @@ async def get_conversation(conversation_id: str):
         }
 
 
-# ==============================
-# ✅ 会话列表
-# ==============================
+# List conversations
 
 @app.get("/conversations")
 async def list_conversations():
@@ -349,9 +327,7 @@ async def list_conversations():
         ]
 
 
-# ==============================
-# ✅ 静态文件托管
-# ==============================
+# Static file serving
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
