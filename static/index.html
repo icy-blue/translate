@@ -135,6 +135,123 @@
       border-radius: 6px;
       margin-top: 10px;
     }
+
+    /* Browse page styles */
+    .browse-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .browse-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .view-toggle-btn {
+      padding: 6px 12px;
+      border: 1px solid #d9d9d9;
+      background: white;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .view-toggle-btn.active {
+      background: #1677ff;
+      color: white;
+      border-color: #1677ff;
+    }
+
+    .paper-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .paper-grid.masonry {
+      display: block;
+      column-count: 3;
+      column-gap: 20px;
+    }
+
+    .paper-grid.masonry .paper-card {
+      break-inside: avoid;
+      margin-bottom: 20px;
+    }
+
+    .paper-grid.list {
+      grid-template-columns: 1fr;
+    }
+
+    .paper-card {
+      background: white;
+      border-radius: 10px;
+      border: 1px solid #eee;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .paper-card:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+      transform: translateY(-4px);
+    }
+
+    .paper-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1677ff;
+      margin-bottom: 10px;
+      word-break: break-word;
+      flex-grow: 0;
+    }
+
+    .paper-time {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 12px;
+    }
+
+    .paper-summary {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.5;
+      word-break: break-word;
+      flex-grow: 1;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+
+    .empty-state p {
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 1200px) {
+      .paper-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .paper-grid.masonry {
+        column-count: 2;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .paper-grid,
+      .paper-grid.masonry {
+        grid-template-columns: 1fr;
+        column-count: 1;
+      }
+    }
   </style>
 </head>
 
@@ -149,7 +266,124 @@
 
     const BASE_URL = "";
 
+    // BrowsePage Component
+    function BrowsePage() {
+      const [conversations, setConversations] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [viewMode, setViewMode] = useState("masonry"); // 'masonry' or 'list'
+
+      useEffect(() => {
+        loadConversations();
+      }, []);
+
+      async function loadConversations() {
+        setLoading(true);
+        try {
+          const res = await fetch(`${BASE_URL}/conversations`);
+          if (!res.ok) {
+            message.error("加载论文列表失败");
+            setLoading(false);
+            return;
+          }
+          const data = await res.json();
+          setConversations(data);
+        } catch (err) {
+          message.error("网络错误");
+        }
+        setLoading(false);
+      }
+
+      function goToPaper(conversationId) {
+        window.history.pushState({}, "", `/chat/${conversationId}`);
+        window.location.reload();
+      }
+
+      function formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleDateString("zh-CN", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+      }
+
+      return (
+        <div style={{ minHeight: "100vh" }}>
+          <div className="header-box">
+            <div className="container">
+              <h2>📚 论文库</h2>
+              <div className="browse-header">
+                <span>已翻译 {conversations.length} 篇论文</span>
+                <div className="browse-controls">
+                  <button
+                    className={`view-toggle-btn ${viewMode === "masonry" ? "active" : ""}`}
+                    onClick={() => setViewMode("masonry")}
+                  >
+                    瀑布流
+                  </button>
+                  <button
+                    className={`view-toggle-btn ${viewMode === "list" ? "active" : ""}`}
+                    onClick={() => setViewMode("list")}
+                  >
+                    列表
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="container">
+            {conversations.length === 0 ? (
+              <div className="empty-state">
+                <p>暂无翻译论文</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>上传 PDF 文件开始翻译</p>
+              </div>
+            ) : (
+              <div className={`paper-grid ${viewMode}`}>
+                {conversations.map(paper => (
+                  <div
+                    key={paper.id}
+                    className="paper-card"
+                    onClick={() => goToPaper(paper.id)}
+                  >
+                    <div className="paper-title">{paper.title || "未命名论文"}</div>
+                    <div className="paper-time">{formatDate(paper.created_at)}</div>
+                    <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     function App() {
+
+      // ✅ 检测当前page是浏览页还是聊天页
+      function getCurrentPage() {
+        const match = window.location.pathname.match(/\/chat\/(.+)/);
+        if (match) {
+          return { page: "chat", conversationId: match[1] };
+        }
+        return { page: "browse" };
+      }
+
+      const currentPageInfo = getCurrentPage();
+
+      // 如果是浏览页，直接返回BrowsePage组件
+      if (currentPageInfo.page === "browse") {
+        return <BrowsePage />;
+      }
+
+      // ✅ 否则显示原来的聊天页面（ChatPage）
+      return <ChatPage conversationId={currentPageInfo.conversationId} />;
+    }
+
+    // ChatPage Component (原来的App功能)
+    function ChatPage({ conversationId: initialConversationId }) {
 
       // ✅ 从 URL 读取 conversationId
       function getConversationIdFromUrl() {
@@ -470,6 +704,14 @@
                 disabled={loading || !conversationId}
               >
                 自定义对话
+              </Button>
+
+              <Button
+                style={{ marginLeft: 10 }}
+                disabled={loading}
+                onClick={() => window.location.href = "/"}
+              >
+                📚 论文库
               </Button>
 
               <Button

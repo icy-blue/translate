@@ -444,14 +444,31 @@ async def list_conversations():
         statement = select(Conversation).order_by(Conversation.created_at.desc())
         conversations = session.exec(statement).all()
 
-        return [
-            {
+        result = []
+        for c in conversations:
+            # Get first bot message as summary
+            msg_statement = (
+                select(Message)
+                .where(Message.conversation_id == c.id)
+                .where(Message.role == "bot")
+                .order_by(Message.id)
+            )
+            first_bot_msg = session.exec(msg_statement).first()
+            summary = ""
+            if first_bot_msg:
+                # Extract first 200 characters, truncate if needed
+                summary = first_bot_msg.content[:200]
+                if len(first_bot_msg.content) > 200:
+                    summary += "..."
+            
+            result.append({
                 "id": c.id,
                 "title": c.title,
-                "created_at": c.created_at
-            }
-            for c in conversations
-        ]
+                "created_at": c.created_at,
+                "summary": summary
+            })
+        
+        return result
 
 
 # Static file serving

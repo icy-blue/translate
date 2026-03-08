@@ -1,8 +1,14 @@
 # PDF 论文翻译助手
 
-![translate.jpg](static/translate.jpg)
-
 一个基于 FastAPI + Poe AI 的 PDF 论文翻译服务，支持逐章翻译、会话管理和断点续翻。
+
+## 页面
+
+![瀑布流](static/conversations.jpg)
+
+![列表](static/conversations2.jpg)
+
+![文章页面](static/translate.jpg)
 
 ## 功能特性
 
