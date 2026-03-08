@@ -557,7 +557,9 @@
 
           setLoading(true);
           setBlocks([]);
-          setPaperTitle("");
+          // 提取文件名（去掉.pdf后缀）作为临时标题
+          const tempTitle = file.name.replace(/\.pdf$/i, "");
+          setPaperTitle(tempTitle);
 
           const res = await fetch(`${BASE_URL}/upload`, {
             method: "POST",
