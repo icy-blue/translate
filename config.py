@@ -26,5 +26,10 @@ class Settings(BaseSettings):
         validation_alias="INITIAL_PROMPT",
     )
 
+    read_only: bool = Field(
+        default=False,
+        validation_alias="READ_ONLY",
+    )
+
 
 settings = Settings()

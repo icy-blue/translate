@@ -261,7 +261,7 @@
   <script type="text/babel">
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select } = antd;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag } = antd;
     const { TextArea } = Input;
 
     const BASE_URL = "";
@@ -274,6 +274,7 @@
       const [totalCount, setTotalCount] = useState(0);
       const [loading, setLoading] = useState(false);
       const [viewMode, setViewMode] = useState("masonry"); // 'masonry' or 'list'
+      const [readOnly, setReadOnly] = useState(false);
 
       const [offset, setOffset] = useState(0);
       const [hasMore, setHasMore] = useState(false);
@@ -282,6 +283,8 @@
       useEffect(() => {
         // load the first page on mount
         loadConversations(false);
+        // load config
+        loadConfig();
       }, []);
 
       async function loadConversations(append = false) {
@@ -325,6 +328,18 @@
         }
       }
 
+      async function loadConfig() {
+        try {
+          const res = await fetch(`${BASE_URL}/config`);
+          if (res.ok) {
+            const data = await res.json();
+            setReadOnly(data.read_only || false);
+          }
+        } catch (err) {
+          console.error("Failed to load config:", err);
+        }
+      }
+
       function goToPaper(conversationId) {
         window.history.pushState({}, "", `/chat/${conversationId}`);
         window.location.reload();
@@ -345,7 +360,10 @@
         <div style={{ minHeight: "100vh" }}>
           <div className="header-box">
             <div className="container">
-              <h2>📚 论文库</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2>📚 论文库</h2>
+                {readOnly && <Tag color="red">只读模式</Tag>}
+              </div>
               <div className="browse-header">
                 <span>已翻译 {totalCount} 篇论文</span>
                 <div className="browse-controls">
@@ -363,15 +381,17 @@
                   </button>
                 </div>
                 {/* 新论文按钮单独区域 */}
-                <div style={{ marginTop: 10 }}>
-                  <button
-                    className="view-toggle-btn"
-                    style={{ background: "#52c41a", color: "white", borderColor: "#52c41a" }}
-                    onClick={() => { window.location.href = "/chat"; }}
-                  >
-                    翻译新论文
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      className="view-toggle-btn"
+                      style={{ background: "#52c41a", color: "white", borderColor: "#52c41a" }}
+                      onClick={() => { window.location.href = "/chat"; }}
+                    >
+                      翻译新论文
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -473,6 +493,8 @@
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      // 只读模式
+      const [readOnly, setReadOnly] = useState(false);
 
       const modelOptions = [
         { label: "GPT-5.4", value: "GPT-5.4" },
@@ -513,6 +535,7 @@
           setConversationId(id);
           loadConversation(id);
         }
+        loadConfig();
       }, []);
 
       async function loadConversation(id) {
@@ -538,6 +561,18 @@
           }))
         );
         setLoading(false);
+      }
+
+      async function loadConfig() {
+        try {
+          const res = await fetch(`${BASE_URL}/config`);
+          if (res.ok) {
+            const data = await res.json();
+            setReadOnly(data.read_only || false);
+          }
+        } catch (err) {
+          console.error("Failed to load config:", err);
+        }
       }
 
       // ✅ 数学处理函数（保持你原来的）
@@ -748,59 +783,68 @@
         <>
           <div className="header-box">
             <div className="container">
-              <h2>📄 论文翻译 - Poe API</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2>📄 论文翻译 - Poe API</h2>
+                {readOnly && <Tag color="red">只读模式</Tag>}
+              </div>
 
-              <Button
-                style={{ marginRight: 10, color: "#1677ff", borderColor: "#1677ff" }}
-                onClick={() => window.location.href = "/"}
-              >
-                ← 论文库
-              </Button>
+              <div style={{ marginTop: 15 }}>
+                <Button
+                  style={{ marginRight: 10, color: "#1677ff", borderColor: "#1677ff" }}
+                  onClick={() => window.location.href = "/"}
+                >
+                  ← 论文库
+                </Button>
 
-              <Button
-                style={{ marginRight: 10 }}
-                onClick={() => setConfigModalVisible(true)}
-                disabled={loading}
-              >
-                ⚙️ 配置
-              </Button>
+                <Button
+                  style={{ marginRight: 10 }}
+                  onClick={() => setConfigModalVisible(true)}
+                  disabled={loading}
+                >
+                  ⚙️ 配置
+                </Button>
 
-              {/* upload button only when no conversation in progress */}
-              {!conversationId && (
-                <Upload {...uploadProps} disabled={loading}>
-                  <Button type="primary" loading={loading}>
-                    {loading ? "处理中..." : "上传 PDF"}
-                  </Button>
-                </Upload>
-              )}
+                {/* upload button only when no conversation in progress */}
+                {!readOnly && !conversationId && (
+                  <Upload {...uploadProps} disabled={loading}>
+                    <Button type="primary" loading={loading}>
+                      {loading ? "处理中..." : "上传 PDF"}
+                    </Button>
+                  </Upload>
+                )}
 
-              <span style={{ marginLeft: 10 }}>自动继续次数：</span>
-              <InputNumber
-                min={0}
-                value={continueCount}
-                disabled={loading}
-                onChange={v => setContinueCount(v)}
-                style={{ width: 80, marginLeft: 5 }}
-              />
+                {!readOnly && (
+                  <>
+                    <span style={{ marginLeft: 10 }}>自动继续次数：</span>
+                    <InputNumber
+                      min={0}
+                      value={continueCount}
+                      disabled={loading}
+                      onChange={v => setContinueCount(v)}
+                      style={{ width: 80, marginLeft: 5 }}
+                    />
 
-              <Button
-                style={{ marginLeft: 10 }}
-                onClick={handleContinue}
-                loading={loading}
-                disabled={loading}
-              >
-                {loading ? "翻译中..." : "继续"}
-              </Button>
+                    <Button
+                      style={{ marginLeft: 10 }}
+                      onClick={handleContinue}
+                      loading={loading}
+                      disabled={loading || !conversationId}
+                    >
+                      {loading ? "翻译中..." : "继续"}
+                    </Button>
 
-              <Button
-                style={{ marginLeft: 10 }}
-                onClick={() => setCustomModalVisible(true)}
-                disabled={loading || !conversationId}
-              >
-                自定义对话
-              </Button>
+                    <Button
+                      style={{ marginLeft: 10 }}
+                      onClick={() => setCustomModalVisible(true)}
+                      disabled={loading || !conversationId}
+                    >
+                      自定义对话
+                    </Button>
+                  </>
+                )}
 
-              {loading && <div className="status-bar">⏳ 正在翻译...</div>}
+                {loading && <div className="status-bar">⏳ 正在翻译...</div>}
+              </div>
             </div>
           </div>
 

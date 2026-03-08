@@ -95,6 +95,9 @@ async def upload_pdf(
     poe_model: str = Form(default="GPT-5.2-Instant"),
     title_model: str = Form(default="GPT-5.2-Instant")
 ):
+    if settings.read_only:
+        raise HTTPException(status_code=403, detail="系统处于只读模式，不允许上传文件")
+
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required")
 
@@ -224,6 +227,9 @@ async def continue_translation(
     api_key: str = Form(...),
     poe_model: str = Form(default="GPT-5.2-Instant")
 ):
+    if settings.read_only:
+        raise HTTPException(status_code=403, detail="系统处于只读模式，不允许继续翻译")
+
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key required")
 
@@ -314,6 +320,9 @@ async def custom_message(
     api_key: str = Form(...),
     poe_model: str = Form(default="GPT-5.2-Instant")
 ):
+    if settings.read_only:
+        raise HTTPException(status_code=403, detail="系统处于只读模式，不允许自定义对话")
+
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key required")
 
@@ -524,6 +533,14 @@ async def serve_chat_root():
 @app.get("/chat/{conversation_id}")
 async def serve_chat(conversation_id: str):
     return FileResponse("static/index.html")
+
+
+# Get system configuration (for frontend to check read-only mode)
+@app.get("/config")
+async def get_config():
+    return {
+        "read_only": settings.read_only
+    }
 
 
 def is_valid_title(text: str) -> bool:
