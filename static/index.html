@@ -268,29 +268,61 @@
 
     // BrowsePage Component
     function BrowsePage() {
+      const PAGE_SIZE = 10; // 与后端默认保持一致
+
       const [conversations, setConversations] = useState([]);
+      const [totalCount, setTotalCount] = useState(0);
       const [loading, setLoading] = useState(false);
       const [viewMode, setViewMode] = useState("masonry"); // 'masonry' or 'list'
 
+      const [offset, setOffset] = useState(0);
+      const [hasMore, setHasMore] = useState(false);
+      const [loadingMore, setLoadingMore] = useState(false);
+
       useEffect(() => {
-        loadConversations();
+        // load the first page on mount
+        loadConversations(false);
       }, []);
 
-      async function loadConversations() {
-        setLoading(true);
+      async function loadConversations(append = false) {
+        if (!append) {
+          setLoading(true);
+        } else {
+          setLoadingMore(true);
+        }
+
         try {
-          const res = await fetch(`${BASE_URL}/conversations`);
+          const params = new URLSearchParams();
+          params.append("limit", PAGE_SIZE);
+          params.append("offset", append ? offset : 0);
+          const res = await fetch(`${BASE_URL}/conversations?${params.toString()}`);
+
           if (!res.ok) {
             message.error("加载论文列表失败");
-            setLoading(false);
             return;
           }
+
           const data = await res.json();
-          setConversations(data);
+          const items = data.conversations || [];
+          // update total from server
+          if (typeof data.total === 'number') {
+            setTotalCount(data.total);
+          }
+
+          if (append) {
+            setConversations(prev => [...prev, ...items]);
+          } else {
+            setConversations(items);
+          }
+
+          setHasMore(!!data.has_more);
+          setOffset(prev => (append ? prev + items.length : items.length));
         } catch (err) {
           message.error("网络错误");
+        } finally {
+          setLoading(false);
+          setLoadingMore(false);
         }
-        setLoading(false);
       }
 
       function goToPaper(conversationId) {
@@ -315,7 +347,7 @@
             <div className="container">
               <h2>📚 论文库</h2>
               <div className="browse-header">
-                <span>已翻译 {conversations.length} 篇论文</span>
+                <span>已翻译 {totalCount} 篇论文</span>
                 <div className="browse-controls">
                   <button
                     className={`view-toggle-btn ${viewMode === "masonry" ? "active" : ""}`}
@@ -351,26 +383,36 @@
                 <p style={{ fontSize: 14, color: "#ccc" }}>上传 PDF 文件开始翻译</p>
               </div>
             ) : (
-              <div className={`paper-grid ${viewMode}`}>
-                {conversations.map(paper => (
-                  <div
-                    key={paper.id}
-                    className="paper-card"
-                    onClick={() => goToPaper(paper.id)}
-                  >
-                    <div className="paper-title">{paper.title || "未命名论文"}</div>
-                    <div className="paper-time">{formatDate(paper.created_at)}</div>
-                    <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
-                    {paper.pdf_url && (
-                      <div style={{ marginTop: 10 }}>
-                        <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
-                          📄 下载 PDF
-                        </a>
-                      </div>
-                    )}
+              <>
+                <div className={`paper-grid ${viewMode}`}>
+                  {conversations.map(paper => (
+                    <div
+                      key={paper.id}
+                      className="paper-card"
+                      onClick={() => goToPaper(paper.id)}
+                    >
+                      <div className="paper-title">{paper.title || "未命名论文"}</div>
+                      <div className="paper-time">{formatDate(paper.created_at)}</div>
+                      <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
+                      {paper.pdf_url && (
+                        <div style={{ marginTop: 10 }}>
+                          <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                            📄 下载 PDF
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {hasMore && (
+                  <div style={{ textAlign: 'center', margin: '20px 0' }}>
+                    <Button onClick={() => loadConversations(true)} loading={loadingMore}>
+                      {loadingMore ? '加载中…' : '加载更多'}
+                    </Button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel, Field, create_engine, Session, select
+from sqlalchemy import func
 
 
 # Database configuration & other settings (loaded from config)
@@ -439,10 +440,37 @@ async def get_conversation(conversation_id: str):
 # List conversations
 
 @app.get("/conversations")
-async def list_conversations():
+async def list_conversations(limit: int = 10, offset: int = 0):
+    """Return a paginated list of conversations along with the total count.
+
+    - `limit` controls how many items are returned (default 10).
+    - `offset` skips that many results (default 0).
+
+    The response includes:
+    * `conversations` - current page items
+    * `has_more` - whether more conversations exist after this page
+    * `total` - the grand total number of conversations in the database
+    """
+    # clamp values in case callers send something crazy
+    if limit < 1:
+        limit = 1
+    if limit > 50:
+        limit = 50
+    if offset < 0:
+        offset = 0
+
     with Session(engine) as session:
-        statement = select(Conversation).order_by(Conversation.created_at.desc())
-        conversations = session.exec(statement).all()
+        # total count (unpaginated)
+        total = session.exec(select(func.count()).select_from(Conversation)).one()
+
+        base_stmt = select(Conversation).order_by(Conversation.created_at.desc())
+        stmt = base_stmt.offset(offset).limit(limit + 1)  # one extra for has_more
+        conversations = session.exec(stmt).all()
+
+        has_more = False
+        if len(conversations) > limit:
+            has_more = True
+            conversations = conversations[:limit]
 
         result = []
         for c in conversations:
@@ -475,7 +503,7 @@ async def list_conversations():
                 "pdf_url": pdf_url
             })
         
-        return result
+        return {"conversations": result, "has_more": has_more, "total": total}
 
 
 # Static file serving
