@@ -114,20 +114,28 @@ async def upload_pdf(
         if existing:
             # fetch conversation title for existing record
             conv = session.get(Conversation, existing.conversation_id)
-            # collect existing bot messages for frontend display and navigation
+            # collect all messages for frontend display (preserve roles)
             stmt = (
                 select(Message)
                 .where(Message.conversation_id == existing.conversation_id)
                 .order_by(Message.id)
             )
             msgs = session.exec(stmt).all()
-            # only return bot messages; user messages are not needed by frontend
-            bot_messages = [{"role": "bot", "content": m.content} for m in msgs if m.role == "bot"]
+            # filter user messages that are just the initial prompt or the continuation keyword
+            def keep(m):
+                if m.role != "user":
+                    return True
+                if m.content == settings.initial_prompt:
+                    return False
+                if m.content == "继续":
+                    return False
+                return True
+            all_messages = [{"role": m.role, "content": m.content} for m in msgs if keep(m)]
 
             return {
                 "conversation_id": existing.conversation_id,
                 "title": conv.title if conv else None,
-                "messages": bot_messages,
+                "messages": all_messages,
                 "exists": True
             }
 
@@ -201,7 +209,6 @@ async def upload_pdf(
 
         session.commit()
 
-    # return bot-only message array (frontend only needs bot content)
     return {
         "conversation_id": conversation_id,
         "title": final_title,
@@ -297,6 +304,99 @@ async def continue_translation(
     return {"reply": response_text}
 
 
+@app.post("/custom_message/{conversation_id}")
+async def custom_message(
+    conversation_id: str,
+    message: str = Form(...),
+    save_to_record: bool = Form(...),
+    api_key: str = Form(...)
+):
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key required")
+
+    if not message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    with Session(engine) as session:
+
+        conversation = session.get(Conversation, conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        file_record = session.exec(
+            select(FileRecord)
+            .where(FileRecord.conversation_id == conversation_id)
+        ).first()
+
+        if not file_record:
+            raise HTTPException(status_code=404, detail="File record not found")
+
+        statement = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.id)
+        )
+
+        db_messages = session.exec(statement).all()
+
+    # rebuild Poe attachment without reuploading
+    pdf_attachment = fp.Attachment(
+        url=file_record.poe_url,
+        content_type=file_record.content_type,
+        name=file_record.poe_name
+    )
+
+    poe_messages = []
+
+    for i, m in enumerate(db_messages):
+        if i == 0 and m.role == "user":
+            # attach the PDF file on the initial user message
+            poe_messages.append(
+                fp.ProtocolMessage(
+                    role="user",
+                    content=m.content,
+                    attachments=[pdf_attachment]
+                )
+            )
+        else:
+            poe_messages.append(
+                fp.ProtocolMessage(
+                    role=m.role,
+                    content=m.content
+                )
+            )
+
+    poe_messages.append(
+        fp.ProtocolMessage(role="user", content=message)
+    )
+
+    response_text = ""
+
+    async for partial in fp.get_bot_response(
+        messages=poe_messages,
+        bot_name=settings.poe_model,
+        api_key=api_key
+    ):
+        response_text += partial.text
+
+    # persist new conversation messages if save_to_record is True
+    if save_to_record:
+        with Session(engine) as session:
+            session.add(Message(
+                conversation_id=conversation_id,
+                role="user",
+                content=message
+            ))
+            session.add(Message(
+                conversation_id=conversation_id,
+                role="bot",
+                content=response_text
+            ))
+            session.commit()
+
+    return {"reply": response_text}
+
+
 # Retrieve full conversation
 
 @app.get("/conversation/{conversation_id}")
@@ -315,13 +415,23 @@ async def get_conversation(conversation_id: str):
 
         messages = session.exec(statement).all()
 
+        # filter out initial prompt and continuation marks on every retrieval
+        def keep(m):
+            if m.role != "user":
+                return True
+            if m.content == settings.initial_prompt:
+                return False
+            if m.content == "继续":
+                return False
+            return True
+
         return {
             "id": conversation.id,
             "title": conversation.title,
             "created_at": conversation.created_at,
             "messages": [
                 {"role": m.role, "content": m.content}
-                for m in messages
+                for m in messages if keep(m)
             ]
         }
 

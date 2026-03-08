@@ -105,6 +105,14 @@
       border: 1px solid #eee;
     }
 
+    .user-message-block {
+      margin-bottom: 30px;
+      padding: 25px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      border: 1px solid #ddd;
+    }
+
     .title-block {
       margin-bottom: 30px;
       padding: 25px;
@@ -136,7 +144,8 @@
   <script type="text/babel">
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message } = antd;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox } = antd;
+    const { TextArea } = Input;
 
     const BASE_URL = "";
 
@@ -162,6 +171,10 @@
       const [paperTitle, setPaperTitle] = useState("");
       // 每次自动继续的次数
       const [continueCount, setContinueCount] = useState(4);
+      // 自定义对话
+      const [customModalVisible, setCustomModalVisible] = useState(false);
+      const [customMessage, setCustomMessage] = useState("");
+      const [saveToRecord, setSaveToRecord] = useState(true);
 
       useEffect(() => { localStorage.setItem("poe_api_key", apiKey); }, [apiKey]);
 
@@ -196,10 +209,12 @@
         if (data.title) {
           setPaperTitle(data.title);
         }
-        const botMessages = data.messages.filter(m => m.role === "bot");
+        // filter out continuation markers and rely on backend to remove the initial prompt
+        const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
         setBlocks(
-          botMessages.map((m, i) => ({
+          filtered.map((m, i) => ({
             id: Date.now() + i,
+            role: m.role,
             content: m.content
           }))
         );
@@ -311,8 +326,8 @@
             if (data.title) { setPaperTitle(data.title); }
             pushConversationToUrl(data.conversation_id);
 
-            const botMsgs = (data.messages || []).filter(m => m.role === "bot").map((m, i) => ({ id: Date.now() + i, content: m.content }));
-            setBlocks(botMsgs);
+            const msgs = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
+            setBlocks(msgs);
             message.info("文件已存在，跳转到对应会话");
             return;
           }
@@ -322,8 +337,8 @@
           if (data.title) { setPaperTitle(data.title); }
           pushConversationToUrl(data.conversation_id);
 
-          const botMsgsNew = (data.messages || []).filter(m => m.role === "bot").map((m, i) => ({ id: Date.now() + i, content: m.content }));
-          setBlocks(botMsgsNew.length ? botMsgsNew : [{ id: Date.now(), content: "无回复" }]);
+          const msgsNew = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
+          setBlocks(msgsNew.length ? msgsNew : [{ id: Date.now(), role: "bot", content: "无回复" }]);
           setLoading(false);
         }
       };
@@ -347,7 +362,7 @@
 
         setBlocks(prev => [
           ...prev,
-          { id: Date.now(), content: data.reply }
+          { id: Date.now(), role: "bot", content: data.reply }
         ]);
         return true;
       };
@@ -370,6 +385,45 @@
         setConversationId(null);
         setBlocks([]);
         setPaperTitle("");
+      };
+
+      // 自定义对话提交
+      const handleCustomSubmit = async () => {
+        if (!conversationId) { message.warning("请先上传论文"); return; }
+        if (!apiKey) { message.warning("请输入 API Key"); return; }
+        if (!customMessage.trim()) { message.warning("请输入消息"); return; }
+
+        setLoading(true);
+        const formData = new FormData();
+        formData.append("api_key", apiKey);
+        formData.append("message", customMessage);
+        formData.append("save_to_record", saveToRecord);
+
+        const res = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+        setLoading(false);
+
+        if (!res.ok) {
+          message.error(data.detail || "请求失败");
+          return;
+        }
+
+        // always display user and bot responses locally
+        setBlocks(prev => [
+          ...prev,
+          { id: Date.now(), role: "user", content: customMessage },
+          { id: Date.now() + 1, role: "bot", content: data.reply }
+        ]);
+        if (!saveToRecord) {
+          message.info("对话完成（未保存到记录）");
+        }
+
+        setCustomModalVisible(false);
+        setCustomMessage("");
       };
 
       return (
@@ -411,6 +465,14 @@
               </Button>
 
               <Button
+                style={{ marginLeft: 10 }}
+                onClick={() => setCustomModalVisible(true)}
+                disabled={loading || !conversationId}
+              >
+                自定义对话
+              </Button>
+
+              <Button
                 danger
                 style={{ marginLeft: 10 }}
                 disabled={loading}
@@ -447,7 +509,7 @@
                 {blocks.map(block => (
                   <div
                     key={block.id}
-                    className="message-block"
+                    className={block.role === "user" ? "user-message-block" : "message-block"}
                     dangerouslySetInnerHTML={{
                       __html: marked.parse(processLatex(block.content))
                     }}
@@ -457,6 +519,28 @@
 
             </div>
           </div>
+
+          <Modal
+            title="自定义对话"
+            open={customModalVisible}
+            onOk={handleCustomSubmit}
+            onCancel={() => setCustomModalVisible(false)}
+            confirmLoading={loading}
+          >
+            <TextArea
+              rows={4}
+              placeholder="请输入追问内容"
+              value={customMessage}
+              onChange={e => setCustomMessage(e.target.value)}
+            />
+            <Checkbox
+              checked={saveToRecord}
+              onChange={e => setSaveToRecord(e.target.checked)}
+              style={{ marginTop: 10 }}
+            >
+              保存到翻译记录里
+            </Checkbox>
+          </Modal>
         </>
       );
     }
