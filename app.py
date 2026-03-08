@@ -74,13 +74,13 @@ def on_startup():
 
 
 # helper: get title via Poe prompt
-async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str) -> Optional[str]:
+async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str, model: str) -> Optional[str]:
     prompt = settings.title_prompt
     message = fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])
     title_text = ""
     async for part in fp.get_bot_response(
         messages=[message],
-        bot_name=settings.poe_model,
+        bot_name=model,
         api_key=api_key
     ):
         title_text += part.text
@@ -91,7 +91,9 @@ async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str) ->
 @app.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
-    api_key: str = Form(...)
+    api_key: str = Form(...),
+    poe_model: str = Form(default="GPT-5.2-Instant"),
+    title_model: str = Form(default="GPT-5.2-Instant")
 ):
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required")
@@ -154,7 +156,7 @@ async def upload_pdf(
             pdf_attachment = await fp.upload_file(f, api_key=api_key, file_name=file.filename)
 
     # title extraction via a separate ephemeral conversation
-    extracted_title = await extract_title_from_pdf(pdf_attachment, api_key)
+    extracted_title = await extract_title_from_pdf(pdf_attachment, api_key, title_model)
 
     initial_prompt = settings.initial_prompt
 
@@ -168,7 +170,7 @@ async def upload_pdf(
 
     async for partial in fp.get_bot_response(
         messages=[message],
-        bot_name=settings.poe_model,
+        bot_name=poe_model,
         api_key=api_key
     ):
         response_text += partial.text
@@ -176,8 +178,6 @@ async def upload_pdf(
     # persist records to database
     with Session(engine) as session:
 
-        # extract title using a separate Poe prompt
-        extracted_title = await extract_title_from_pdf(pdf_attachment, api_key)
         final_title = extracted_title or file.filename
 
         session.add(Conversation(
@@ -221,7 +221,8 @@ async def upload_pdf(
 @app.post("/continue/{conversation_id}")
 async def continue_translation(
     conversation_id: str,
-    api_key: str = Form(...)
+    api_key: str = Form(...),
+    poe_model: str = Form(default="GPT-5.2-Instant")
 ):
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key required")
@@ -283,7 +284,7 @@ async def continue_translation(
 
     async for partial in fp.get_bot_response(
         messages=poe_messages,
-        bot_name=settings.poe_model,
+        bot_name=poe_model,
         api_key=api_key
     ):
         response_text += partial.text
@@ -310,7 +311,8 @@ async def custom_message(
     conversation_id: str,
     message: str = Form(...),
     save_to_record: bool = Form(...),
-    api_key: str = Form(...)
+    api_key: str = Form(...),
+    poe_model: str = Form(default="GPT-5.2-Instant")
 ):
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key required")
@@ -375,7 +377,7 @@ async def custom_message(
 
     async for partial in fp.get_bot_response(
         messages=poe_messages,
-        bot_name=settings.poe_model,
+        bot_name=poe_model,
         api_key=api_key
     ):
         response_text += partial.text

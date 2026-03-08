@@ -16,12 +16,6 @@ class Settings(BaseSettings):
         validation_alias="DATABASE_URL",
     )
 
-    # Poe model and prompts
-    poe_model: str = Field(
-        default="GPT-5.2-Instant",
-        validation_alias="POE_MODEL",
-    )
-
     title_prompt: str = Field(
         default="请查看附加的 PDF 文档，提取论文标题。标题可能由多行组成，仅返回标题文本，不要翻译或添加其他注释。",
         validation_alias="TITLE_PROMPT",

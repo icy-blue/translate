@@ -261,7 +261,7 @@
   <script type="text/babel">
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox } = antd;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select } = antd;
     const { TextArea } = Input;
 
     const BASE_URL = "";
@@ -455,7 +455,6 @@
         window.history.pushState({}, "", `/chat/${id}`);
       }
 
-      const [apiKey, setApiKey] = useState(localStorage.getItem("poe_api_key") || "");
       const [conversationId, setConversationId] = useState(getConversationIdFromUrl());
       const [blocks, setBlocks] = useState([]);
       const [toc, setToc] = useState([]);
@@ -469,8 +468,34 @@
       const [customModalVisible, setCustomModalVisible] = useState(false);
       const [customMessage, setCustomMessage] = useState("");
       const [saveToRecord, setSaveToRecord] = useState(true);
+      // Poe 配置设置
+      const [configModalVisible, setConfigModalVisible] = useState(false);
+      const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
+      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
+      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
 
-      useEffect(() => { localStorage.setItem("poe_api_key", apiKey); }, [apiKey]);
+      const modelOptions = [
+        { label: "GPT-5.4", value: "GPT-5.4" },
+        { label: "GPT-5.2", value: "GPT-5.2" },
+        { label: "GPT-5.2-Instant", value: "GPT-5.2-Instant" },
+        { label: "GPT-5.3-Instant", value: "GPT-5.3-Instant" },
+        { label: "Minimax-M2.5", value: "Minimax-M2.5" },
+        { label: "Kimi-K2.5-FW", value: "Kimi-K2.5-FW" },
+        { label: "Qwen3.5-Flash", value: "Qwen3.5-Flash" },
+        { label: "GLM-4.7-Flash", value: "GLM-4.7-Flash" },
+        { label: "GPT-5-Chat", value: "GPT-5-Chat"},
+        { label: "GPT-5", value: "GPT-5"},
+        
+      ];
+
+      // 保存配置到 localStorage
+      const saveConfig = () => {
+        localStorage.setItem("poe_api_key", poeApiKey);
+        localStorage.setItem("poe_model", poeModel);
+        localStorage.setItem("title_model", titleModel);
+        message.success("配置已保存");
+        setConfigModalVisible(false);
+      };
 
       // update document title when paperTitle changes
       useEffect(() => {
@@ -591,11 +616,13 @@
         accept: ".pdf",
         showUploadList: false,
         customRequest: async ({ file }) => {
-          if (!apiKey) { message.error("请输入 API Key"); return; }
+          if (!poeApiKey) { message.error("请先配置 API Key"); return; }
 
           const formData = new FormData();
           formData.append("file", file);
-          formData.append("api_key", apiKey);
+          formData.append("api_key", poeApiKey);
+          formData.append("poe_model", poeModel);
+          formData.append("title_model", titleModel);
 
           setLoading(true);
           setBlocks([]);
@@ -642,7 +669,8 @@
       // ✅ 单次翻译请求
       const doContinue = async () => {
         const formData = new FormData();
-        formData.append("api_key", apiKey);
+        formData.append("api_key", poeApiKey);
+        formData.append("poe_model", poeModel);
 
         const res = await fetch(
           `${BASE_URL}/continue/${conversationId}`,
@@ -666,7 +694,7 @@
       // ✅ 继续翻译（会根据 continueCount 调用多次）
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
-        if (!apiKey) { message.warning("请输入 API Key"); return; }
+        if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
 
         setLoading(true);
         for (let i = 0; i < continueCount; i++) {
@@ -679,14 +707,15 @@
       // 自定义对话提交
       const handleCustomSubmit = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
-        if (!apiKey) { message.warning("请输入 API Key"); return; }
+        if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
         if (!customMessage.trim()) { message.warning("请输入消息"); return; }
 
         setLoading(true);
         const formData = new FormData();
-        formData.append("api_key", apiKey);
+        formData.append("api_key", poeApiKey);
         formData.append("message", customMessage);
         formData.append("save_to_record", saveToRecord);
+        formData.append("poe_model", poeModel);
 
         const res = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
           method: "POST",
@@ -721,19 +750,19 @@
             <div className="container">
               <h2>📄 论文翻译 - Poe API</h2>
 
-              <Input.Password
-                placeholder="请输入 Poe API Key"
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                disabled={loading}
-                style={{ marginBottom: 10 }}
-              />
-
               <Button
                 style={{ marginRight: 10, color: "#1677ff", borderColor: "#1677ff" }}
                 onClick={() => window.location.href = "/"}
               >
                 ← 论文库
+              </Button>
+
+              <Button
+                style={{ marginRight: 10 }}
+                onClick={() => setConfigModalVisible(true)}
+                disabled={loading}
+              >
+                ⚙️ 配置
               </Button>
 
               {/* upload button only when no conversation in progress */}
@@ -830,6 +859,41 @@
             >
               保存到翻译记录里
             </Checkbox>
+          </Modal>
+
+          <Modal
+            title="Poe API 配置"
+            open={configModalVisible}
+            onOk={saveConfig}
+            onCancel={() => setConfigModalVisible(false)}
+            width={500}
+          >
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>Poe API Key：</label>
+              <Input.Password
+                placeholder="请输入 Poe API Key"
+                value={poeApiKey}
+                onChange={e => setPoeApiKey(e.target.value)}
+              />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
+              <Select
+                style={{ width: "100%" }}
+                value={titleModel}
+                onChange={setTitleModel}
+                options={modelOptions}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
+              <Select
+                style={{ width: "100%" }}
+                value={poeModel}
+                onChange={setPoeModel}
+                options={modelOptions}
+              />
+            </div>
           </Modal>
         </>
       );
