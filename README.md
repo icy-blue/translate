@@ -110,7 +110,6 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 
 ### 文件位置
 
-- **PDF 文件**：`uploads/{file_id}.pdf`
 - **数据库**：`translations.db`
 
 ## 工作流程
