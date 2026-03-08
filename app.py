@@ -461,11 +461,18 @@ async def list_conversations():
                 if len(first_bot_msg.content) > 200:
                     summary += "..."
             
+            # Get PDF URL from FileRecord
+            file_record = session.exec(
+                select(FileRecord).where(FileRecord.conversation_id == c.id)
+            ).first()
+            pdf_url = file_record.poe_url if file_record else None
+            
             result.append({
                 "id": c.id,
                 "title": c.title,
                 "created_at": c.created_at,
-                "summary": summary
+                "summary": summary,
+                "pdf_url": pdf_url
             })
         
         return result

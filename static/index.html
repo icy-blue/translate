@@ -361,6 +361,13 @@
                     <div className="paper-title">{paper.title || "未命名论文"}</div>
                     <div className="paper-time">{formatDate(paper.created_at)}</div>
                     <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
+                    {paper.pdf_url && (
+                      <div style={{ marginTop: 10 }}>
+                        <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                          📄 下载 PDF
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
