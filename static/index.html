@@ -186,6 +186,18 @@
       grid-template-columns: 1fr;
     }
 
+    .masonry-container {
+      display: flex;
+      gap: 20px;
+    }
+
+    .masonry-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
     .paper-card {
       background: white;
       border-radius: 10px;
@@ -279,6 +291,25 @@
       const [offset, setOffset] = useState(0);
       const [hasMore, setHasMore] = useState(false);
       const [loadingMore, setLoadingMore] = useState(false);
+      const [columnCount, setColumnCount] = useState(3);
+
+      // 动态计算列数
+      useEffect(() => {
+        function updateColumnCount() {
+          const width = window.innerWidth;
+          if (width <= 768) {
+            setColumnCount(1);
+          } else if (width <= 1200) {
+            setColumnCount(2);
+          } else {
+            setColumnCount(3);
+          }
+        }
+
+        updateColumnCount();
+        window.addEventListener('resize', updateColumnCount);
+        return () => window.removeEventListener('resize', updateColumnCount);
+      }, []);
 
       useEffect(() => {
         // load the first page on mount
@@ -356,6 +387,18 @@
         });
       }
 
+      // 动态计算每列应该有哪些卡片
+      function getMasonryColumns(items, cols) {
+        const columns = Array.from({ length: cols }, () => []);
+        items.forEach((item, index) => {
+          const colIndex = index % cols;
+          columns[colIndex].push(item);
+        });
+        return columns;
+      }
+
+      const masonryColumns = viewMode === 'masonry' ? getMasonryColumns(conversations, columnCount) : [];
+
       return (
         <div style={{ minHeight: "100vh" }}>
           <div className="header-box">
@@ -404,26 +447,53 @@
               </div>
             ) : (
               <>
-                <div className={`paper-grid ${viewMode}`}>
-                  {conversations.map(paper => (
-                    <div
-                      key={paper.id}
-                      className="paper-card"
-                      onClick={() => goToPaper(paper.id)}
-                    >
-                      <div className="paper-title">{paper.title || "未命名论文"}</div>
-                      <div className="paper-time">{formatDate(paper.created_at)}</div>
-                      <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
-                      {paper.pdf_url && (
-                        <div style={{ marginTop: 10 }}>
-                          <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
-                            📄 下载 PDF
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {viewMode === "masonry" ? (
+                  <div style={{ display: 'flex', gap: '20px' }}>
+                    {masonryColumns.map((column, colIndex) => (
+                      <div key={colIndex} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {column.map(paper => (
+                          <div
+                            key={paper.id}
+                            className="paper-card"
+                            onClick={() => goToPaper(paper.id)}
+                          >
+                            <div className="paper-title">{paper.title || "未命名论文"}</div>
+                            <div className="paper-time">{formatDate(paper.created_at)}</div>
+                            <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
+                            {paper.pdf_url && (
+                              <div style={{ marginTop: 10 }}>
+                                <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                                  📄 下载 PDF
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={`paper-grid ${viewMode}`}>
+                    {conversations.map(paper => (
+                      <div
+                        key={paper.id}
+                        className="paper-card"
+                        onClick={() => goToPaper(paper.id)}
+                      >
+                        <div className="paper-title">{paper.title || "未命名论文"}</div>
+                        <div className="paper-time">{formatDate(paper.created_at)}</div>
+                        <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
+                        {paper.pdf_url && (
+                          <div style={{ marginTop: 10 }}>
+                            <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                              📄 下载 PDF
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {hasMore && (
                   <div style={{ textAlign: 'center', margin: '20px 0' }}>
