@@ -480,6 +480,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def serve_root():
     return FileResponse("static/index.html")
 
+@app.get("/chat")
+async def serve_chat_root():
+    return FileResponse("static/index.html")
 
 @app.get("/chat/{conversation_id}")
 async def serve_chat(conversation_id: str):

@@ -330,6 +330,16 @@
                     列表
                   </button>
                 </div>
+                {/* 新论文按钮单独区域 */}
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="view-toggle-btn"
+                    style={{ background: "#52c41a", color: "white", borderColor: "#52c41a" }}
+                    onClick={() => { window.location.href = "/chat"; }}
+                  >
+                    翻译新论文
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -364,9 +374,10 @@
 
       // ✅ 检测当前page是浏览页还是聊天页
       function getCurrentPage() {
-        const match = window.location.pathname.match(/\/chat\/(.+)/);
+        // match /chat or /chat/{id}
+        const match = window.location.pathname.match(/^\/chat(?:\/(.+))?$/);
         if (match) {
-          return { page: "chat", conversationId: match[1] };
+          return { page: "chat", conversationId: match[1] || null };
         }
         return { page: "browse" };
       }
@@ -614,13 +625,6 @@
         setLoading(false);
       };
 
-      const resetSession = () => {
-        window.history.pushState({}, "", "/");
-        setConversationId(null);
-        setBlocks([]);
-        setPaperTitle("");
-      };
-
       // 自定义对话提交
       const handleCustomSubmit = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
@@ -674,11 +678,21 @@
                 style={{ marginBottom: 10 }}
               />
 
-              <Upload {...uploadProps} disabled={loading}>
-                <Button type="primary" loading={loading}>
-                  {loading ? "处理中..." : "上传 PDF"}
-                </Button>
-              </Upload>
+              <Button
+                style={{ marginRight: 10, color: "#1677ff", borderColor: "#1677ff" }}
+                onClick={() => window.location.href = "/"}
+              >
+                ← 论文库
+              </Button>
+
+              {/* upload button only when no conversation in progress */}
+              {!conversationId && (
+                <Upload {...uploadProps} disabled={loading}>
+                  <Button type="primary" loading={loading}>
+                    {loading ? "处理中..." : "上传 PDF"}
+                  </Button>
+                </Upload>
+              )}
 
               <span style={{ marginLeft: 10 }}>自动继续次数：</span>
               <InputNumber
@@ -704,23 +718,6 @@
                 disabled={loading || !conversationId}
               >
                 自定义对话
-              </Button>
-
-              <Button
-                style={{ marginLeft: 10 }}
-                disabled={loading}
-                onClick={() => window.location.href = "/"}
-              >
-                📚 论文库
-              </Button>
-
-              <Button
-                danger
-                style={{ marginLeft: 10 }}
-                disabled={loading}
-                onClick={resetSession}
-              >
-                重新开始
               </Button>
 
               {loading && <div className="status-bar">⏳ 正在翻译...</div>}
