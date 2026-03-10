@@ -448,6 +448,81 @@ async def get_conversation(conversation_id: str):
         }
 
 
+# Helper: build conversation data object from Conversation model
+def _build_conversation_data(session: Session, conversation: Conversation, include_relevance: bool = False, relevance_score: int = 0) -> dict:
+    """Build a conversation data object with summary and PDF URL.
+
+    Args:
+        session: Database session
+        conversation: Conversation model instance
+        include_relevance: Whether to include relevance score in result
+        relevance_score: Relevance score (used if include_relevance is True)
+
+    Returns:
+        Dictionary containing conversation data
+    """
+    # Get first bot message as summary
+    msg_statement = (
+        select(Message)
+        .where(Message.conversation_id == conversation.id)
+        .where(Message.role == "bot")
+        .order_by(Message.id)
+    )
+    first_bot_msg = session.exec(msg_statement).first()
+    summary = ""
+    if first_bot_msg:
+        # Extract first 200 characters, truncate if needed
+        summary = first_bot_msg.content[:200]
+        if len(first_bot_msg.content) > 200:
+            summary += "..."
+
+    # Get PDF URL from FileRecord
+    file_record = session.exec(
+        select(FileRecord).where(FileRecord.conversation_id == conversation.id)
+    ).first()
+    pdf_url = file_record.poe_url if file_record else None
+
+    result = {
+        "id": conversation.id,
+        "title": conversation.title,
+        "created_at": conversation.created_at,
+        "summary": summary,
+        "pdf_url": pdf_url
+    }
+
+    if include_relevance:
+        result["relevance"] = relevance_score
+
+    return result
+
+
+# Helper: build conversation data objects from a list of Conversation models
+def _build_conversations_data(session: Session, conversations: list[Conversation], include_relevance: bool = False, relevance_scores: list[int] = None) -> list[dict]:
+    """Build conversation data objects from a list of Conversation models.
+
+    Args:
+        session: Database session
+        conversations: List of Conversation model instances
+        include_relevance: Whether to include relevance scores in results
+        relevance_scores: Optional list of relevance scores (same length as conversations)
+
+    Returns:
+        List of dictionaries containing conversation data
+    """
+    if include_relevance and relevance_scores is None:
+        relevance_scores = [0] * len(conversations)
+
+    return [
+        _build_conversation_data(
+            session,
+            conv,
+            include_relevance=include_relevance,
+            relevance_score=relevance_scores[i] if include_relevance else 0
+        )
+        for i, conv in enumerate(conversations)
+    ]
+
+
 # List conversations
 
 @app.get("/conversations")
@@ -483,38 +558,124 @@ async def list_conversations(limit: int = 10, offset: int = 0):
             has_more = True
             conversations = conversations[:limit]
 
-        result = []
-        for c in conversations:
-            # Get first bot message as summary
-            msg_statement = (
-                select(Message)
-                .where(Message.conversation_id == c.id)
-                .where(Message.role == "bot")
-                .order_by(Message.id)
-            )
-            first_bot_msg = session.exec(msg_statement).first()
-            summary = ""
-            if first_bot_msg:
-                # Extract first 200 characters, truncate if needed
-                summary = first_bot_msg.content[:200]
-                if len(first_bot_msg.content) > 200:
-                    summary += "..."
-            
-            # Get PDF URL from FileRecord
-            file_record = session.exec(
-                select(FileRecord).where(FileRecord.conversation_id == c.id)
-            ).first()
-            pdf_url = file_record.poe_url if file_record else None
-            
-            result.append({
-                "id": c.id,
-                "title": c.title,
-                "created_at": c.created_at,
-                "summary": summary,
-                "pdf_url": pdf_url
-            })
-        
+        result = _build_conversations_data(session, conversations)
+
         return {"conversations": result, "has_more": has_more, "total": total}
+
+
+@app.get("/search")
+async def search_conversations(q: str, search_type: str = "all"):
+    """Search conversations by title.
+
+    - `q` - search query string
+    - `search_type` - search type: "exact" for exact match, "fuzzy" for fuzzy match, "all" for both
+
+    Returns:
+    * `exact_matches` - exact search results (max 5)
+    * `fuzzy_matches` - fuzzy search results (max 5)
+    """
+    if not q or not q.strip():
+        return {"exact_matches": [], "fuzzy_matches": []}
+
+    query = q.strip()
+    exact_matches = []
+    fuzzy_matches = []
+
+    with Session(engine) as session:
+        # Exact search: title contains the query (case-insensitive)
+        exact_stmt = (
+            select(Conversation)
+            .where(Conversation.title.ilike(f"%{query}%"))
+            .order_by(Conversation.created_at.desc())
+            .limit(5)
+        )
+        exact_convs = session.exec(exact_stmt).all()
+
+        # Build exact matches with relevance scores
+        exact_relevance_scores = [
+            _calculate_relevance(c.title or "", query)
+            for c in exact_convs
+        ]
+        exact_matches = _build_conversations_data(
+            session,
+            exact_convs,
+            include_relevance=True,
+            relevance_scores=exact_relevance_scores
+        )
+
+        # Fuzzy search: split query into words and match any word (but exclude exact matches)
+        query_words = [w.lower() for w in query.split() if len(w) > 1]
+        fuzzy_convs = []
+        fuzzy_relevance_scores = []
+
+        if query_words:
+            # Find conversations that contain at least one query word but not the full exact query
+            fuzzy_stmt = (
+                select(Conversation)
+                .where(~Conversation.title.ilike(f"%{query}%"))  # Exclude exact matches
+                .order_by(Conversation.created_at.desc())
+            )
+            all_fuzzy = session.exec(fuzzy_stmt).all()
+
+            # Calculate relevance score for each fuzzy match
+            fuzzy_candidates = []
+            for c in all_fuzzy:
+                title = c.title or ""
+                title_lower = title.lower()
+
+                # Calculate relevance based on matched words
+                relevance = 0
+                for word in query_words:
+                    if word in title_lower:
+                        # Higher relevance for longer matched words
+                        relevance += len(word)
+                        # Extra boost for exact word boundary matches
+                        if re.search(r'\b' + re.escape(word) + r'\b', title_lower):
+                            relevance += 5
+
+                if relevance > 0:
+                    fuzzy_candidates.append((c, relevance))
+
+            # Sort by relevance and take top 5
+            fuzzy_candidates.sort(key=lambda x: (-x[1], x[0].created_at))
+            fuzzy_candidates = fuzzy_candidates[:5]
+
+            fuzzy_convs = [c for c, _ in fuzzy_candidates]
+            fuzzy_relevance_scores = [r for _, r in fuzzy_candidates]
+
+            fuzzy_matches = _build_conversations_data(
+                session,
+                fuzzy_convs,
+                include_relevance=True,
+                relevance_scores=fuzzy_relevance_scores
+            )
+
+        # Filter results based on search_type
+        if search_type == "exact":
+            return {"exact_matches": exact_matches, "fuzzy_matches": []}
+        elif search_type == "fuzzy":
+            return {"exact_matches": [], "fuzzy_matches": fuzzy_matches}
+        else:  # "all" or any other value
+            return {"exact_matches": exact_matches, "fuzzy_matches": fuzzy_matches}
+
+
+def _calculate_relevance(title: str, query: str) -> int:
+    """Calculate relevance score for exact match."""
+    if not title:
+        return 0
+
+    title_lower = title.lower()
+    query_lower = query.lower()
+
+    # Exact match gets highest score
+    if query_lower == title_lower:
+        return 100
+
+    # Contains exact query gets high score
+    if query_lower in title_lower:
+        return 50
+
+    return 0
 
 
 # Static file serving

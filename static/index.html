@@ -141,13 +141,16 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 15px;
+      gap: 20px;
+      padding: 10px 0;
     }
 
     .browse-controls {
       display: flex;
       gap: 10px;
       align-items: center;
+      flex-wrap: wrap;
     }
 
     .view-toggle-btn {
@@ -157,6 +160,12 @@
       cursor: pointer;
       border-radius: 4px;
       font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .view-toggle-btn:hover {
+      border-color: #1677ff;
+      color: #1677ff;
     }
 
     .view-toggle-btn.active {
@@ -293,6 +302,12 @@
       const [loadingMore, setLoadingMore] = useState(false);
       const [columnCount, setColumnCount] = useState(3);
 
+      // Search state
+      const [searchQuery, setSearchQuery] = useState("");
+      const [searchResults, setSearchResults] = useState({ exact_matches: [], fuzzy_matches: [] });
+      const [isSearching, setIsSearching] = useState(false);
+      const [showSearchResults, setShowSearchResults] = useState(false);
+
       // 动态计算列数
       useEffect(() => {
         function updateColumnCount() {
@@ -397,7 +412,98 @@
         return columns;
       }
 
+      // Search function
+      async function handleSearch() {
+        if (!searchQuery.trim()) {
+          setShowSearchResults(false);
+          return;
+        }
+
+        setIsSearching(true);
+        setShowSearchResults(true);
+
+        try {
+          const params = new URLSearchParams();
+          params.append("q", searchQuery);
+          const res = await fetch(`${BASE_URL}/search?${params.toString()}`);
+
+          if (!res.ok) {
+            message.error("搜索失败");
+            return;
+          }
+
+          const data = await res.json();
+          setSearchResults(data);
+        } catch (err) {
+          message.error("网络错误");
+        } finally {
+          setIsSearching(false);
+        }
+      }
+
+      // Clear search and show all conversations
+      function clearSearch() {
+        setSearchQuery("");
+        setSearchResults({ exact_matches: [], fuzzy_matches: [] });
+        setShowSearchResults(false);
+        setOffset(0);
+        loadConversations(false);
+      }
+
       const masonryColumns = viewMode === 'masonry' ? getMasonryColumns(conversations, columnCount) : [];
+      const displayConversations = showSearchResults ? [] : conversations;
+
+      // Render papers in masonry or list view
+      function renderPapers(papers) {
+        if (viewMode === 'masonry') {
+          const columns = getMasonryColumns(papers, columnCount);
+          return (
+            <div style={{ display: 'flex', gap: '20px' }}>
+              {columns.map((column, colIndex) => (
+                <div key={colIndex} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {column.map(paper => (
+                    <PaperCard key={paper.id} paper={paper} goToPaper={goToPaper} />
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        } else {
+          return (
+            <div className={`paper-grid ${viewMode}`}>
+              {papers.map(paper => (
+                <PaperCard key={paper.id} paper={paper} goToPaper={goToPaper} />
+              ))}
+            </div>
+          );
+        }
+      }
+
+      // Paper Card Component
+      function PaperCard({ paper, goToPaper }) {
+        return (
+          <div
+            className="paper-card"
+            onClick={() => goToPaper(paper.id)}
+          >
+            <div className="paper-title">{paper.title || "未命名论文"}</div>
+            <div className="paper-time">{formatDate(paper.created_at)}</div>
+            <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
+            {paper.pdf_url && (
+              <div style={{ marginTop: 10 }}>
+                <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                  📄 下载 PDF
+                </a>
+              </div>
+            )}
+            {paper.relevance !== undefined && (
+              <div style={{ marginTop: 10, fontSize: 12, color: '#999' }}>
+                相关度: {paper.relevance}
+              </div>
+            )}
+          </div>
+        );
+      }
 
       return (
         <div style={{ minHeight: "100vh" }}>
@@ -408,8 +514,36 @@
                 {readOnly && <Tag color="red">只读模式</Tag>}
               </div>
               <div className="browse-header">
-                <span>已翻译 {totalCount} 篇论文</span>
-                <div className="browse-controls">
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flex: 1 }}>
+                  <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                  {/* Search bar integrated with controls */}
+                  <Input
+                    placeholder="搜索论文标题..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    onPressEnter={handleSearch}
+                    style={{ width: 250 }}
+                    allowClear
+                  />
+                  {!showSearchResults ? (
+                    <Button
+                      type="primary"
+                      size="small"
+                      onClick={handleSearch}
+                      loading={isSearching}
+                    >
+                      搜索
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      onClick={clearSearch}
+                    >
+                      清除
+                    </Button>
+                  )}
+                </div>
+                <div className="browse-controls" style={{ flex: "none" }}>
                   <button
                     className={`view-toggle-btn ${viewMode === "masonry" ? "active" : ""}`}
                     onClick={() => setViewMode("masonry")}
@@ -422,10 +556,7 @@
                   >
                     列表
                   </button>
-                </div>
-                {/* 新论文按钮单独区域 */}
-                {!readOnly && (
-                  <div style={{ marginTop: 10 }}>
+                  {!readOnly && (
                     <button
                       className="view-toggle-btn"
                       style={{ background: "#52c41a", color: "white", borderColor: "#52c41a" }}
@@ -433,67 +564,52 @@
                     >
                       翻译新论文
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           <div className="container">
-            {conversations.length === 0 ? (
+            {/* Show exact matches section */}
+            {showSearchResults && searchResults.exact_matches.length > 0 && (
+              <>
+                <div style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#1677ff" }}>
+                  🔍 严格匹配 ({searchResults.exact_matches.length})
+                </div>
+                {renderPapers(searchResults.exact_matches)}
+              </>
+            )}
+
+            {/* Show fuzzy matches section */}
+            {showSearchResults && searchResults.fuzzy_matches.length > 0 && (
+              <>
+                <div style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#faad14" }}>
+                  🔎 模糊匹配 ({searchResults.fuzzy_matches.length})
+                </div>
+                {renderPapers(searchResults.fuzzy_matches)}
+              </>
+            )}
+
+            {/* Show no search results */}
+            {showSearchResults && searchResults.exact_matches.length === 0 && searchResults.fuzzy_matches.length === 0 && (
+              <div className="empty-state">
+                <p>未找到匹配的论文</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>尝试使用不同的关键词搜索</p>
+              </div>
+            )}
+
+            {/* Show all conversations when not searching */}
+            {!showSearchResults && conversations.length === 0 ? (
               <div className="empty-state">
                 <p>暂无翻译论文</p>
                 <p style={{ fontSize: 14, color: "#ccc" }}>上传 PDF 文件开始翻译</p>
               </div>
-            ) : (
+            ) : null}
+
+            {!showSearchResults && conversations.length > 0 && (
               <>
-                {viewMode === "masonry" ? (
-                  <div style={{ display: 'flex', gap: '20px' }}>
-                    {masonryColumns.map((column, colIndex) => (
-                      <div key={colIndex} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        {column.map(paper => (
-                          <div
-                            key={paper.id}
-                            className="paper-card"
-                            onClick={() => goToPaper(paper.id)}
-                          >
-                            <div className="paper-title">{paper.title || "未命名论文"}</div>
-                            <div className="paper-time">{formatDate(paper.created_at)}</div>
-                            <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
-                            {paper.pdf_url && (
-                              <div style={{ marginTop: 10 }}>
-                                <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
-                                  📄 下载 PDF
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={`paper-grid ${viewMode}`}>
-                    {conversations.map(paper => (
-                      <div
-                        key={paper.id}
-                        className="paper-card"
-                        onClick={() => goToPaper(paper.id)}
-                      >
-                        <div className="paper-title">{paper.title || "未命名论文"}</div>
-                        <div className="paper-time">{formatDate(paper.created_at)}</div>
-                        <div className="paper-summary">{paper.summary || "暂无摘要"}</div>
-                        {paper.pdf_url && (
-                          <div style={{ marginTop: 10 }}>
-                            <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
-                              📄 下载 PDF
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {renderPapers(conversations)}
 
                 {hasMore && (
                   <div style={{ textAlign: 'center', margin: '20px 0' }}>
@@ -823,13 +939,13 @@
 
         if (contentEl) {
           renderMathInElement(contentEl, {
-          delimiters: [
+            delimiters: [
               { left: "\\[", right: "\\]", display: true },
-            { left: "\\(", right: "\\)", display: false }
-          ],
-          throwOnError: false,
-          strict: false
-        });
+              { left: "\\(", right: "\\)", display: false }
+            ],
+            throwOnError: false,
+            strict: false
+          });
         }
 
         const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
