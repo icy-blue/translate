@@ -1,0 +1,276 @@
+/* ==========================================
+   全局样式
+   ========================================== */
+body {
+  margin: 0;
+  background: #f5f7fa;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* ==========================================
+   头部样式
+   ========================================== */
+.header-box {
+  background: white;
+  padding: 20px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+}
+
+/* ==========================================
+   布局样式
+   ========================================== */
+.layout {
+  display: flex;
+  gap: 30px;
+  margin-top: 20px;
+}
+
+.content {
+  flex: 1;
+}
+
+.content h1,
+.content h2,
+.content h3 {
+  scroll-margin-top: 220px;
+}
+
+/* ==========================================
+   侧边栏样式
+   ========================================== */
+.sidebar {
+  width: 260px;
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  height: 80vh;
+  overflow-y: auto;
+  position: sticky;
+  top: 120px;
+}
+
+.toc-item {
+  cursor: pointer;
+  margin: 6px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.toc-item.active {
+  color: #1677ff;
+  font-weight: 600;
+}
+
+.level-1 {
+  font-weight: 600;
+}
+
+.level-2 {
+  padding-left: 16px;
+}
+
+.level-3 {
+  padding-left: 32px;
+}
+
+/* ==========================================
+   消息块样式
+   ========================================== */
+.message-block {
+  margin-bottom: 30px;
+  padding: 25px;
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #eee;
+}
+
+.user-message-block {
+  margin-bottom: 30px;
+  padding: 25px;
+  background: #f0f0f0;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+}
+
+.title-block {
+  margin-bottom: 30px;
+  padding: 25px;
+  background: #fafafa;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  font-size: 24px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.math-block {
+  margin: 20px 0;
+}
+
+.status-bar {
+  background: #e6f4ff;
+  color: #1677ff;
+  padding: 10px;
+  border-radius: 6px;
+  margin-top: 10px;
+}
+
+/* ==========================================
+   浏览页样式
+   ========================================== */
+.browse-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  gap: 20px;
+  padding: 10px 0;
+}
+
+.browse-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.view-toggle-btn {
+  padding: 6px 12px;
+  border: 1px solid #d9d9d9;
+  background: white;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.view-toggle-btn:hover {
+  border-color: #1677ff;
+  color: #1677ff;
+}
+
+.view-toggle-btn.active {
+  background: #1677ff;
+  color: white;
+  border-color: #1677ff;
+}
+
+/* ==========================================
+   瀑布流/网格布局
+   ========================================== */
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.paper-grid.masonry {
+  display: block;
+  column-count: 3;
+  column-gap: 20px;
+}
+
+.paper-grid.masonry .paper-card {
+  break-inside: avoid;
+  margin-bottom: 20px;
+}
+
+.paper-grid.list {
+  grid-template-columns: 1fr;
+}
+
+.masonry-container {
+  display: flex;
+  gap: 20px;
+}
+
+.masonry-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ==========================================
+   论文卡片样式
+   ========================================== */
+.paper-card {
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #eee;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.paper-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  transform: translateY(-4px);
+}
+
+.paper-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1677ff;
+  margin-bottom: 10px;
+  word-break: break-word;
+  flex-grow: 0;
+}
+
+.paper-time {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 12px;
+}
+
+.paper-summary {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.5;
+  word-break: break-word;
+  flex-grow: 1;
+}
+
+/* ==========================================
+   空状态样式
+   ========================================== */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #999;
+}
+
+.empty-state p {
+  font-size: 16px;
+  margin-bottom: 20px;
+}
+
+/* ==========================================
+   响应式设计
+   ========================================== */
+@media (max-width: 1200px) {
+  .paper-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .paper-grid.masonry {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .paper-grid,
+  .paper-grid.masonry {
+    grid-template-columns: 1fr;
+    column-count: 1;
+  }
+}

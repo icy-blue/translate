@@ -24,262 +24,20 @@
   <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <style>
-    body {
-      margin: 0;
-      background: #f5f7fa;
-    }
-
-    .header-box {
-      background: white;
-      padding: 20px;
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-
-    .layout {
-      display: flex;
-      gap: 30px;
-      margin-top: 20px;
-    }
-
-    .sidebar {
-      width: 260px;
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-      height: 80vh;
-      overflow-y: auto;
-      position: sticky;
-      top: 120px;
-    }
-
-    .toc-item {
-      cursor: pointer;
-      margin: 6px 0;
-      font-size: 14px;
-      color: #555;
-    }
-
-    .toc-item.active {
-      color: #1677ff;
-      font-weight: 600;
-    }
-
-    .level-1 {
-      font-weight: 600;
-    }
-
-    .level-2 {
-      padding-left: 16px;
-    }
-
-    .level-3 {
-      padding-left: 32px;
-    }
-
-    .content h1,
-    .content h2,
-    .content h3 {
-      scroll-margin-top: 220px;
-    }
-
-
-    .content {
-      flex: 1;
-    }
-
-    .message-block {
-      margin-bottom: 30px;
-      padding: 25px;
-      background: white;
-      border-radius: 10px;
-      border: 1px solid #eee;
-    }
-
-    .user-message-block {
-      margin-bottom: 30px;
-      padding: 25px;
-      background: #f0f0f0;
-      border-radius: 10px;
-      border: 1px solid #ddd;
-    }
-
-    .title-block {
-      margin-bottom: 30px;
-      padding: 25px;
-      background: #fafafa;
-      border-radius: 10px;
-      border: 1px solid #ddd;
-      font-size: 24px;
-      font-weight: 600;
-      text-align: center;
-    }
-
-    .math-block {
-      margin: 20px 0;
-    }
-
-    .status-bar {
-      background: #e6f4ff;
-      color: #1677ff;
-      padding: 10px;
-      border-radius: 6px;
-      margin-top: 10px;
-    }
-
-    /* Browse page styles */
-    .browse-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-      gap: 20px;
-      padding: 10px 0;
-    }
-
-    .browse-controls {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .view-toggle-btn {
-      padding: 6px 12px;
-      border: 1px solid #d9d9d9;
-      background: white;
-      cursor: pointer;
-      border-radius: 4px;
-      font-size: 14px;
-      transition: all 0.2s;
-    }
-
-    .view-toggle-btn:hover {
-      border-color: #1677ff;
-      color: #1677ff;
-    }
-
-    .view-toggle-btn.active {
-      background: #1677ff;
-      color: white;
-      border-color: #1677ff;
-    }
-
-    .paper-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 20px;
-    }
-
-    .paper-grid.masonry {
-      display: block;
-      column-count: 3;
-      column-gap: 20px;
-    }
-
-    .paper-grid.masonry .paper-card {
-      break-inside: avoid;
-      margin-bottom: 20px;
-    }
-
-    .paper-grid.list {
-      grid-template-columns: 1fr;
-    }
-
-    .masonry-container {
-      display: flex;
-      gap: 20px;
-    }
-
-    .masonry-column {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    .paper-card {
-      background: white;
-      border-radius: 10px;
-      border: 1px solid #eee;
-      padding: 20px;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .paper-card:hover {
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-      transform: translateY(-4px);
-    }
-
-    .paper-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #1677ff;
-      margin-bottom: 10px;
-      word-break: break-word;
-      flex-grow: 0;
-    }
-
-    .paper-time {
-      font-size: 12px;
-      color: #999;
-      margin-bottom: 12px;
-    }
-
-    .paper-summary {
-      font-size: 13px;
-      color: #666;
-      line-height: 1.5;
-      word-break: break-word;
-      flex-grow: 1;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: #999;
-    }
-
-    .empty-state p {
-      font-size: 16px;
-      margin-bottom: 20px;
-    }
-
-    @media (max-width: 1200px) {
-      .paper-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-      .paper-grid.masonry {
-        column-count: 2;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .paper-grid,
-      .paper-grid.masonry {
-        grid-template-columns: 1fr;
-        column-count: 1;
-      }
-    }
-  </style>
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 
 <body>
   <div id="root"></div>
 
+  <!-- Math Utils -->
+  <script src="/static/math-utils.js"></script>
+
   <script type="text/babel">
+    // ==========================================
+    // 1. 常量与配置
+    // ==========================================
 
     const { useState, useEffect } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag } = antd;
@@ -287,28 +45,94 @@
 
     const BASE_URL = "";
 
-    // BrowsePage Component
+    // ==========================================
+    // 2. 工具函数
+    // ==========================================
+
+    /**
+     * 格式化日期时间
+     */
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    /**
+     * 瀑布流布局：将项目分配到指定数量的列中
+     */
+    function getMasonryColumns(items, cols) {
+      const columns = Array.from({ length: cols }, () => []);
+      items.forEach((item, index) => {
+        const colIndex = index % cols;
+        columns[colIndex].push(item);
+      });
+      return columns;
+    }
+
+    // ==========================================
+    // 3. 组件定义
+    // ==========================================
+
+    // ==========================================
+    // 3.1 App - 主应用组件，处理路由
+    // ==========================================
+    function App() {
+      /**
+       * 检测当前页面是浏览页还是聊天页
+       */
+      function getCurrentPage() {
+        // match /chat or /chat/{id}
+        const match = window.location.pathname.match(/^\/chat(?:\/(.+))?$/);
+        if (match) {
+          return { page: "chat", conversationId: match[1] || null };
+        }
+        return { page: "browse" };
+      }
+
+      const currentPageInfo = getCurrentPage();
+
+      // 如果是浏览页，直接返回BrowsePage组件
+      if (currentPageInfo.page === "browse") {
+        return <BrowsePage />;
+      }
+
+      // 否则显示聊天页面（ChatPage）
+      return <ChatPage conversationId={currentPageInfo.conversationId} />;
+    }
+
+    // ==========================================
+    // 3.2 BrowsePage - 论文库浏览页面
+    // ==========================================
     function BrowsePage() {
+      // ===== 常量 =====
       const PAGE_SIZE = 10; // 与后端默认保持一致
 
+      // ===== 数据状态 =====
       const [conversations, setConversations] = useState([]);
       const [totalCount, setTotalCount] = useState(0);
+
+      // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
       const [viewMode, setViewMode] = useState("masonry"); // 'masonry' or 'list'
       const [readOnly, setReadOnly] = useState(false);
-
       const [offset, setOffset] = useState(0);
       const [hasMore, setHasMore] = useState(false);
       const [loadingMore, setLoadingMore] = useState(false);
       const [columnCount, setColumnCount] = useState(3);
 
-      // Search state
+      // ===== 搜索状态 =====
       const [searchQuery, setSearchQuery] = useState("");
       const [searchResults, setSearchResults] = useState({ exact_matches: [], fuzzy_matches: [] });
       const [isSearching, setIsSearching] = useState(false);
       const [showSearchResults, setShowSearchResults] = useState(false);
 
-      // 动态计算列数
+      // ===== 响应式布局 =====
       useEffect(() => {
         function updateColumnCount() {
           const width = window.innerWidth;
@@ -326,13 +150,15 @@
         return () => window.removeEventListener('resize', updateColumnCount);
       }, []);
 
+      // ===== 初始化 =====
       useEffect(() => {
-        // load the first page on mount
+        // 加载第一页
         loadConversations(false);
-        // load config
+        // 加载配置
         loadConfig();
       }, []);
 
+      // ===== 数据加载函数 =====
       async function loadConversations(append = false) {
         if (!append) {
           setLoading(true);
@@ -386,33 +212,7 @@
         }
       }
 
-      function goToPaper(conversationId) {
-        window.history.pushState({}, "", `/chat/${conversationId}`);
-        window.location.reload();
-      }
-
-      function formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString("zh-CN", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit"
-        });
-      }
-
-      // 动态计算每列应该有哪些卡片
-      function getMasonryColumns(items, cols) {
-        const columns = Array.from({ length: cols }, () => []);
-        items.forEach((item, index) => {
-          const colIndex = index % cols;
-          columns[colIndex].push(item);
-        });
-        return columns;
-      }
-
-      // Search function
+      // ===== 搜索功能 =====
       async function handleSearch() {
         if (!searchQuery.trim()) {
           setShowSearchResults(false);
@@ -441,7 +241,6 @@
         }
       }
 
-      // Clear search and show all conversations
       function clearSearch() {
         setSearchQuery("");
         setSearchResults({ exact_matches: [], fuzzy_matches: [] });
@@ -450,10 +249,19 @@
         loadConversations(false);
       }
 
+      // ===== 导航功能 =====
+      function goToPaper(conversationId) {
+        window.history.pushState({}, "", `/chat/${conversationId}`);
+        window.location.reload();
+      }
+
+      // ===== 渲染功能 =====
       const masonryColumns = viewMode === 'masonry' ? getMasonryColumns(conversations, columnCount) : [];
       const displayConversations = showSearchResults ? [] : conversations;
 
-      // Render papers in masonry or list view
+      /**
+       * 渲染论文列表（瀑布流或列表视图）
+       */
       function renderPapers(papers) {
         if (viewMode === 'masonry') {
           const columns = getMasonryColumns(papers, columnCount);
@@ -479,7 +287,9 @@
         }
       }
 
-      // Paper Card Component
+      /**
+       * 论文卡片组件
+       */
       function PaperCard({ paper, goToPaper }) {
         return (
           <div
@@ -505,6 +315,7 @@
         );
       }
 
+      // ===== JSX 渲染 =====
       return (
         <div style={{ minHeight: "100vh" }}>
           <div className="header-box">
@@ -625,33 +436,14 @@
       );
     }
 
-    function App() {
-
-      // ✅ 检测当前page是浏览页还是聊天页
-      function getCurrentPage() {
-        // match /chat or /chat/{id}
-        const match = window.location.pathname.match(/^\/chat(?:\/(.+))?$/);
-        if (match) {
-          return { page: "chat", conversationId: match[1] || null };
-        }
-        return { page: "browse" };
-      }
-
-      const currentPageInfo = getCurrentPage();
-
-      // 如果是浏览页，直接返回BrowsePage组件
-      if (currentPageInfo.page === "browse") {
-        return <BrowsePage />;
-      }
-
-      // ✅ 否则显示原来的聊天页面（ChatPage）
-      return <ChatPage conversationId={currentPageInfo.conversationId} />;
-    }
-
-    // ChatPage Component (原来的App功能)
+    // ==========================================
+    // 3.3 ChatPage - 论文翻译页面
+    // ==========================================
     function ChatPage({ conversationId: initialConversationId }) {
-
-      // ✅ 从 URL 读取 conversationId
+      // ===== 路由与页面状态 =====
+      /**
+       * 从 URL 读取 conversationId
+       */
       function getConversationIdFromUrl() {
         const match = window.location.pathname.match(/\/chat\/(.+)/);
         return match ? match[1] : null;
@@ -662,26 +454,30 @@
       }
 
       const [conversationId, setConversationId] = useState(getConversationIdFromUrl());
+
+      // ===== 数据状态 =====
       const [blocks, setBlocks] = useState([]);
+      const [paperTitle, setPaperTitle] = useState("");
+
+      // ===== UI 状态 =====
+      const [loading, setLoading] = useState(false);
+      const [configModalVisible, setConfigModalVisible] = useState(false);
       const [toc, setToc] = useState([]);
       const [activeHeading, setActiveHeading] = useState(null);
-      const [loading, setLoading] = useState(false);
-      // paper title extracted by backend
-      const [paperTitle, setPaperTitle] = useState("");
-      // 每次自动继续的次数
-      const [continueCount, setContinueCount] = useState(4);
-      // 自定义对话
-      const [customModalVisible, setCustomModalVisible] = useState(false);
-      const [customMessage, setCustomMessage] = useState("");
-      const [saveToRecord, setSaveToRecord] = useState(true);
-      // Poe 配置设置
-      const [configModalVisible, setConfigModalVisible] = useState(false);
+
+      // ===== 配置状态 =====
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
-      // 只读模式
       const [readOnly, setReadOnly] = useState(false);
 
+      // ===== 其他状态 =====
+      const [continueCount, setContinueCount] = useState(4);
+      const [customModalVisible, setCustomModalVisible] = useState(false);
+      const [customMessage, setCustomMessage] = useState("");
+      const [saveToRecord, setSaveToRecord] = useState(true);
+
+      // ===== 模型选项 =====
       const modelOptions = [
         { label: "GPT-5.4", value: "GPT-5.4" },
         { label: "GPT-5.2", value: "GPT-5.2" },
@@ -693,10 +489,12 @@
         { label: "GLM-4.7-Flash", value: "GLM-4.7-Flash" },
         { label: "GPT-5-Chat", value: "GPT-5-Chat"},
         { label: "GPT-5", value: "GPT-5"},
-        
       ];
 
-      // 保存配置到 localStorage
+      // ===== 配置管理 =====
+      /**
+       * 保存配置到 localStorage
+       */
       const saveConfig = () => {
         localStorage.setItem("poe_api_key", poeApiKey);
         localStorage.setItem("poe_model", poeModel);
@@ -705,7 +503,10 @@
         setConfigModalVisible(false);
       };
 
-      // update document title when paperTitle changes
+      // ===== 初始化与副作用 =====
+      /**
+       * 更新文档标题
+       */
       useEffect(() => {
         if (paperTitle) {
           document.title = `论文翻译 - ${paperTitle}`;
@@ -714,7 +515,9 @@
         }
       }, [paperTitle]);
 
-      // ✅ 页面加载时如果 URL 有 id 自动加载历史
+      /**
+       * 页面加载时如果 URL 有 id 自动加载历史
+       */
       useEffect(() => {
         const id = getConversationIdFromUrl();
         if (id) {
@@ -724,6 +527,58 @@
         loadConfig();
       }, []);
 
+      /**
+       * 渲染数学公式和生成目录
+       */
+      useEffect(() => {
+        const contentEl = document.querySelector(".content");
+
+        if (contentEl) {
+          renderMathInElement(contentEl, {
+            delimiters: [
+              { left: "\\[", right: "\\]", display: true },
+              { left: "\\(", right: "\\)", display: false }
+            ],
+            throwOnError: false,
+            strict: false
+          });
+        }
+
+        const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
+        const newToc = [];
+
+        headings.forEach((heading, index) => {
+          const id = "heading-" + index;
+          heading.id = id;
+          newToc.push({
+            id,
+            text: heading.innerText,
+            level: Number(heading.tagName.slice(1))
+          });
+        });
+
+        setToc(newToc);
+      }, [blocks]);
+
+      /**
+       * 监听滚动，高亮当前目录项
+       */
+      useEffect(() => {
+        const handleScroll = () => {
+          const headings = document.querySelectorAll(".content h1, .content h2");
+          let current = null;
+          headings.forEach(heading => {
+            if (heading.getBoundingClientRect().top <= 120) {
+              current = heading.id;
+            }
+          });
+          setActiveHeading(current);
+        };
+        window.addEventListener("scroll", handleScroll);
+        return () => window.removeEventListener("scroll", handleScroll);
+      }, []);
+
+      // ===== 数据加载函数 =====
       async function loadConversation(id) {
         setPaperTitle("");
         setLoading(true);
@@ -761,226 +616,7 @@
         }
       }
 
-      // ✅ 数学处理函数
-      function normalizeLatex(text) {
-        const lines = text.split("\n");
-        for(let x of lines){
-          console.log(x);
-        }
-        const out = [];
-        let i = 0;
-
-        while (i < lines.length) {
-          const line = lines[i];
-          const trimmed = line.trim();
-
-          // 处理跨多行块公式: [ ... ] 或 \[ ... \]
-          if (
-            trimmed === "[" ||
-            trimmed === "\\[" ||
-            (
-              (trimmed.startsWith("[") || trimmed.startsWith("\\[")) &&
-              !trimmed.includes(trimmed.startsWith("\\[") ? "\\]" : "]")
-            )
-          ) {
-            const isEscaped = trimmed.startsWith("\\[");
-            const closeToken = isEscaped ? "\\]" : "]";
-
-            const formulaLines = [line];
-            let j = i + 1;
-            let found = false;
-
-            while (j < lines.length) {
-              formulaLines.push(lines[j]);
-              if (lines[j].includes(closeToken)) {
-                found = true;
-                break;
-              }
-              j++;
-            }
-
-            if (!found) {
-              out.push(...formulaLines);
-              i = j;
-              continue;
-            }
-
-            const full = formulaLines.join("\n");
-            let startIdx, endIdx, formula;
-
-            if (isEscaped) {
-              startIdx = full.indexOf("\\[");
-              endIdx = full.lastIndexOf("\\]");
-              formula = full.slice(startIdx + 2, endIdx).trim();
-            } else {
-              startIdx = full.indexOf("[");
-              endIdx = full.lastIndexOf("]");
-              formula = full.slice(startIdx + 1, endIdx).trim();
-            }
-
-            // 只在看起来像数学公式时才转
-            if (looksLikeMath(formula)) {
-              out.push(`\\[\n${formula}\n\\]`);
-            } else {
-              out.push(...formulaLines);
-            }
-
-            i = j + 1;
-            continue;
-          }
-
-          // 处理单行块公式: [ ... ] 或 \[ ... \]
-          if (
-            (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
-            (trimmed.startsWith("\\[") && trimmed.endsWith("\\]"))
-          ) {
-            let formula = "";
-
-            if (trimmed.startsWith("\\[")) {
-              formula = trimmed.slice(2, -2).trim();
-            } else {
-              formula = trimmed.slice(1, -1).trim();
-            }
-
-            if (looksLikeMath(formula)) {
-              out.push(`\\[${formula}\\]`);
-            } else {
-              out.push(line);
-            }
-
-            i++;
-            continue;
-          }
-
-          // 处理行内公式:
-          // - 保留已有 \( ... \)
-          // - 将疑似数学的裸 ( ... ) 转成 \( ... \)
-          out.push(normalizeInlineMath(line));
-          i++;
-        }
-
-        return out.join("\n");
-      }
-
-      // 判断一段内容是否“像数学公式”
-      function looksLikeMath(formula) {
-        if (!formula) return false;
-
-        return /\\[a-zA-Z]+|[_^]|[=+\-*/]|\\frac|\\sum|\\int|\\sqrt|[A-Za-z]\([A-Za-z0-9]+\)|\{|\}|[0-9]/.test(formula);
-      }
-
-      // 把行内的裸 ( ... ) 转成 \( ... \)，但尽量避免误伤普通文本
-      function normalizeInlineMath(line) {
-        if (!line) return line;
-
-        // 先保护已有的 \( ... \)
-        const preserved = [];
-        let text = line.replace(/\\\((?:\\.|[^\\])*?\\\)/g, (m) => {
-          const token = `@@INLINE_LATEX_${preserved.length}@@`;
-          preserved.push(m);
-          return token;
-        });
-
-        // 再处理裸 ( ... )
-        text = text.replace(/\(([^()\n]+)\)/g, (match, content) => {
-          const formula = content.trim();
-          if (looksLikeMath(formula)) {
-            return `\\(${formula}\\)`;
-          }
-          return match;
-        });
-
-        // 还原已有的 \( ... \)
-        text = text.replace(/@@INLINE_LATEX_(\d+)@@/g, (_, idx) => preserved[Number(idx)]);
-
-        return text;
-      }
-
-      // 2. 保护数学块，避免 marked 解析其中内容
-      function protectMath(text) {
-        const mathStore = [];
-        let protectedText = text;
-
-        // 先保护块公式 \[ ... \]
-        protectedText = protectedText.replace(/\\\[[\s\S]*?\\\]/g, (match) => {
-          const token = `@@MATH_BLOCK_${mathStore.length}@@`;
-          mathStore.push(match);
-          return token;
-        });
-
-        // 再保护行内公式 \( ... \)
-        protectedText = protectedText.replace(/\\\([\s\S]*?\\\)/g, (match) => {
-          const token = `@@MATH_INLINE_${mathStore.length}@@`;
-          mathStore.push(match);
-          return token;
-        });
-
-        return { protectedText, mathStore };
-      }
-
-      // 3. 恢复数学块
-      function restoreMath(html, mathStore) {
-        return html.replace(/@@MATH_(?:BLOCK|INLINE)_(\d+)@@/g, (_, index) => {
-          return mathStore[Number(index)];
-        });
-      }
-
-      // 4. 总渲染函数
-      function renderMarkdownWithMath(content) {
-        const normalized = normalizeLatex(content);
-        const { protectedText, mathStore } = protectMath(normalized);
-        const html = marked.parse(protectedText);
-        return restoreMath(html, mathStore);
-      }
-
-      useEffect(() => {
-
-        const contentEl = document.querySelector(".content");
-
-        if (contentEl) {
-          renderMathInElement(contentEl, {
-            delimiters: [
-              { left: "\\[", right: "\\]", display: true },
-              { left: "\\(", right: "\\)", display: false }
-            ],
-            throwOnError: false,
-            strict: false
-          });
-        }
-
-        const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
-        const newToc = [];
-
-        headings.forEach((heading, index) => {
-          const id = "heading-" + index;
-          heading.id = id;
-          newToc.push({
-            id,
-            text: heading.innerText,
-            level: Number(heading.tagName.slice(1))
-          });
-        });
-
-        setToc(newToc);
-
-      }, [blocks]);
-
-      useEffect(() => {
-        const handleScroll = () => {
-          const headings = document.querySelectorAll(".content h1, .content h2");
-          let current = null;
-          headings.forEach(heading => {
-            if (heading.getBoundingClientRect().top <= 120) {
-              current = heading.id;
-            }
-          });
-          setActiveHeading(current);
-        };
-        window.addEventListener("scroll", handleScroll);
-        return () => window.removeEventListener("scroll", handleScroll);
-      }, []);
-
-      // ✅ 上传
+      // ===== 上传功能 =====
       const uploadProps = {
         name: "file",
         accept: ".pdf",
@@ -1036,7 +672,10 @@
         }
       };
 
-      // ✅ 单次翻译请求
+      // ===== 翻译功能 =====
+      /**
+       * 单次翻译请求
+       */
       const doContinue = async () => {
         const formData = new FormData();
         formData.append("api_key", poeApiKey);
@@ -1061,7 +700,9 @@
         return true;
       };
 
-      // ✅ 继续翻译（会根据 continueCount 调用多次）
+      /**
+       * 继续翻译（会根据 continueCount 调用多次）
+       */
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
@@ -1074,7 +715,9 @@
         setLoading(false);
       };
 
-      // 自定义对话提交
+      /**
+       * 自定义对话提交
+       */
       const handleCustomSubmit = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
@@ -1114,6 +757,7 @@
         setCustomMessage("");
       };
 
+      // ===== JSX 渲染 =====
       return (
         <>
           <div className="header-box">
@@ -1209,8 +853,7 @@
                     key={block.id}
                     className={block.role === "user" ? "user-message-block" : "message-block"}
                     dangerouslySetInnerHTML={{
-                      // __html: marked.parse(processLatex(block.content))
-                      __html: renderMarkdownWithMath(block.content)
+                      __html: MathUtils.renderMarkdownWithMath(block.content)
                     }}
                   />
                 ))}
@@ -1278,6 +921,10 @@
         </>
       );
     }
+
+    // ==========================================
+    // 4. 入口渲染
+    // ==========================================
 
     ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   </script>
