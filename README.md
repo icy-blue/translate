@@ -2,9 +2,13 @@
 
 一个基于 FastAPI + Poe AI 的 PDF 论文翻译服务，支持逐章翻译、会话管理和断点续翻。
 
+## Demo
+
+[https://translate.icydev.cn](https://translate.icydev.cn)
+
 ## 页面
 
-![瀑布流](static/conversations.jpg)
+![搜索](static/search.jpg)
 
 ![列表](static/conversations2.jpg)
 
