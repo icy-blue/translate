@@ -858,12 +858,13 @@
 
                 </div>
 
-                <Button
-                  onClick={handleShare}
-                  disabled={loading}
-                >
-                  🔗 分享
-                </Button>
+                {conversationId && (
+                  <Button
+                    onClick={handleShare}
+                  >
+                    🔗 分享
+                  </Button>
+                )}
               </div>
             </div>
           </div>
