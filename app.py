@@ -2,7 +2,7 @@ import uuid
 import tempfile
 import hashlib
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import fastapi_poe as fp
@@ -28,7 +28,7 @@ class Conversation(SQLModel, table=True):
     title: Optional[str] = None
     original_filename: Optional[str] = None
     status: str = "active"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Message(SQLModel, table=True):
@@ -36,7 +36,7 @@ class Message(SQLModel, table=True):
     conversation_id: str = Field(index=True)
     role: str
     content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class FileRecord(SQLModel, table=True):
@@ -49,12 +49,12 @@ class FileRecord(SQLModel, table=True):
     # fingerprint for deduplication
     fingerprint: Optional[str] = Field(default=None, index=True)
 
-    # Poe CDN attachment info    
+    # Poe CDN attachment info
     poe_url: str
     content_type: str
     poe_name: str
 
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 app = FastAPI()
@@ -440,12 +440,24 @@ async def get_conversation(conversation_id: str):
         return {
             "id": conversation.id,
             "title": conversation.title,
-            "created_at": conversation.created_at,
+            "created_at": _ensure_utc_timezone(conversation.created_at),
             "messages": [
                 {"role": m.role, "content": m.content}
                 for m in messages if keep(m)
             ]
         }
+
+
+# Helper: ensure datetime has timezone info
+def _ensure_utc_timezone(dt: datetime) -> datetime:
+    """Ensure a datetime object has UTC timezone info.
+
+    For old data without timezone, treat as UTC.
+    For new data with timezone, return as-is.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 # Helper: build conversation data object from Conversation model
@@ -485,7 +497,7 @@ def _build_conversation_data(session: Session, conversation: Conversation, inclu
     result = {
         "id": conversation.id,
         "title": conversation.title,
-        "created_at": conversation.created_at,
+        "created_at": _ensure_utc_timezone(conversation.created_at),
         "summary": summary,
         "pdf_url": pdf_url
     }
