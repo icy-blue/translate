@@ -267,3 +267,96 @@ body {
     column-count: 1;
   }
 }
+
+/* ==========================================
+   手机端适配 (576px 以下)
+   ========================================== */
+@media (max-width: 576px) {
+  /* 容器调整 */
+  .container {
+    padding: 10px;
+  }
+
+  /* 头部盒调整 */
+  .header-box {
+    padding: 8px 12px;
+  }
+
+  /* 浏览页头部调整 */
+  .browse-header {
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .browse-header span {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  /* 浏览页控件调整 */
+  .browse-controls {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* 内容区域调整 */
+  .content h1,
+  .content h2,
+  .content h3 {
+    scroll-margin-top: 160px;
+  }
+
+  /* 消息块调整 */
+  .message-block,
+  .user-message-block {
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .title-block {
+    padding: 16px;
+    font-size: 18px;
+  }
+
+  /* 布局调整 */
+  .layout {
+    gap: 0;
+    margin-top: 10px;
+  }
+
+  /* 目录抽屉中的目录项 */
+  .ant-drawer .toc-item {
+    padding: 12px 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .ant-drawer .toc-item.level-1 {
+    font-weight: 600;
+    color: #333;
+  }
+
+  .ant-drawer .toc-item.level-2 {
+    padding-left: 16px;
+    color: #555;
+  }
+
+  .ant-drawer .toc-item.level-3 {
+    padding-left: 32px;
+    color: #666;
+    font-size: 13px;
+  }
+
+  .ant-drawer .toc-item.active {
+    color: #1677ff;
+    background: #f0f7ff;
+    margin: 0 -24px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  /* 浮动按钮 */
+  .ant-btn-circle {
+    box-shadow: 0 4px 12px rgba(22, 119, 255, 0.4);
+  }
+}
