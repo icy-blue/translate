@@ -726,6 +726,7 @@
 
           const data = await res.json();
           setLoading(false);
+          hide();
 
           if (!res.ok) {
             message.error(data.detail || "上传失败");
