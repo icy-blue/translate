@@ -470,6 +470,7 @@
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
       const [readOnly, setReadOnly] = useState(false);
+      const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
       // ===== 其他状态 =====
       const [continueCount, setContinueCount] = useState(4);
@@ -499,8 +500,29 @@
         localStorage.setItem("poe_api_key", poeApiKey);
         localStorage.setItem("poe_model", poeModel);
         localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
+      };
+
+      /**
+       * 复制链接到剪贴板
+       */
+      const handleShare = () => {
+        let shareUrl = window.location.href;
+        const urlBase = localStorage.getItem("urlbase");
+        
+        if (urlBase) {
+          const pathname = window.location.pathname;
+          const baseUrl = urlBase.replace(/\/$/, "");
+          shareUrl = baseUrl + pathname;
+        }
+        
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          message.success("链接已复制到剪贴板");
+        }).catch(() => {
+          message.error("复制失败");
+        });
       };
 
       // ===== 初始化与副作用 =====
@@ -624,6 +646,7 @@
         customRequest: async ({ file }) => {
           if (!poeApiKey) { message.error("请先配置 API Key"); return; }
 
+          const hide = message.loading("正在上传...", 0);
           const formData = new FormData();
           formData.append("file", file);
           formData.append("api_key", poeApiKey);
@@ -668,7 +691,6 @@
 
           const msgsNew = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
           setBlocks(msgsNew.length ? msgsNew : [{ id: Date.now(), role: "bot", content: "无回复" }]);
-          setLoading(false);
         }
       };
 
@@ -707,12 +729,14 @@
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
 
+        const hide = message.loading("正在翻译...", 0);
         setLoading(true);
         for (let i = 0; i < continueCount; i++) {
           const ok = await doContinue();
           if (!ok) break;
         }
         setLoading(false);
+        hide();
       };
 
       /**
@@ -723,6 +747,7 @@
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
         if (!customMessage.trim()) { message.warning("请输入消息"); return; }
 
+        const hide = message.loading("正在翻译...", 0);
         setLoading(true);
         const formData = new FormData();
         formData.append("api_key", poeApiKey);
@@ -737,6 +762,7 @@
 
         const data = await res.json();
         setLoading(false);
+        hide();
 
         if (!res.ok) {
           message.error(data.detail || "请求失败");
@@ -763,25 +789,33 @@
           <div className="header-box">
             <div className="container">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h2>📄 论文翻译 - Poe API</h2>
-                {readOnly && <Tag color="red">只读模式</Tag>}
+                <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                  <h2>📄 论文翻译 - Poe API</h2>
+
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                  {readOnly && <Tag color="red">只读模式</Tag>}
+                </div>
               </div>
 
-              <div style={{ marginTop: 15 }}>
-                <Button
-                  style={{ marginRight: 10, color: "#1677ff", borderColor: "#1677ff" }}
-                  onClick={() => window.location.href = "/"}
-                >
-                  ← 论文库
-                </Button>
-
-                <Button
-                  style={{ marginRight: 10 }}
-                  onClick={() => setConfigModalVisible(true)}
-                  disabled={loading}
-                >
-                  ⚙️ 配置
-                </Button>
+              <div style={{ marginTop: 15, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <Button
+                    style={{ marginRight: 10, color: "#1677ff", borderColor: "#1677ff" }}
+                    onClick={() => window.location.href = "/"}
+                  >
+                    ← 论文库
+                  </Button>
+                
+                {!readOnly && (
+                  <Button
+                    style={{ marginRight: 10 }}
+                    onClick={() => setConfigModalVisible(true)}
+                    disabled={loading}
+                  >
+                    ⚙️ 配置
+                  </Button>
+                )}
 
                 {/* upload button only when no conversation in progress */}
                 {!readOnly && !conversationId && (
@@ -822,7 +856,14 @@
                   </>
                 )}
 
-                {loading && <div className="status-bar">⏳ 正在翻译...</div>}
+                </div>
+
+                <Button
+                  onClick={handleShare}
+                  disabled={loading}
+                >
+                  🔗 分享
+                </Button>
               </div>
             </div>
           </div>
@@ -908,7 +949,7 @@
                 options={modelOptions}
               />
             </div>
-            <div>
+            <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
@@ -916,6 +957,17 @@
                 onChange={setPoeModel}
                 options={modelOptions}
               />
+            </div>
+            <div>
+              <label style={{ display: "block", marginBottom: 8 }}>分享链接基础路径 (URL Base)：</label>
+              <Input
+                placeholder="留空则使用当前页面URL，例如: https://a.com"
+                value={urlBase}
+                onChange={e => setUrlBase(e.target.value)}
+              />
+              <div style={{ fontSize: 12, color: "#999", marginTop: 5 }}>
+                设置后分享链接将使用此基础路径，例如当前页是 /chat/abc，URL Base 为 https://a.com，则分享链接为 https://a.com/chat/abc
+              </div>
             </div>
           </Modal>
         </>
