@@ -135,6 +135,7 @@
       const [searchResults, setSearchResults] = useState({ exact_matches: [], fuzzy_matches: [] });
       const [isSearching, setIsSearching] = useState(false);
       const [showSearchResults, setShowSearchResults] = useState(false);
+      const [searchBarExpanded, setSearchBarExpanded] = useState(false);
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -330,28 +331,71 @@
                 {readOnly && <Tag color="red">只读模式</Tag>}
               </div>
               <div className="browse-header" style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center' }}>
-                <div style={{ display: "flex", gap: 10, alignItems: isMobile ? 'flex-start' : "center", flex: 1, flexDirection: isMobile ? 'column' : 'row' }}>
-                  <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
-                  {/* Search bar - 手机端全宽，桌面端固定宽度 */}
-                  <Input.Search
-                    placeholder="搜索论文标题..."
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    onSearch={handleSearch}
-                    style={{ width: isMobile ? '100%' : 250 }}
-                    allowClear
-                    enterButton={!showSearchResults}
-                    loading={isSearching}
-                    addonAfter={
-                      showSearchResults ? (
-                        <Button size="small" onClick={clearSearch}>
-                          清除
-                        </Button>
-                      ) : null
-                    }
-                  />
-                </div>
-                <div className="browse-controls" style={{ flex: "none", marginTop: isMobile ? 10 : 0 }}>
+                {/* 手机端：第一行 - 统计信息和搜索按钮 */}
+                {isMobile ? (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                    <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {!readOnly && (
+                        <button
+                          className="view-toggle-btn"
+                          style={{ background: "#52c41a", color: "white", borderColor: "#52c41a", padding: "4px 12px", fontSize: "13px" }}
+                          onClick={() => { window.location.href = "/chat"; }}
+                        >
+                          翻译新论文
+                        </button>
+                      )}
+                      <Button
+                        style={{ padding: "4px 12px", fontSize: "13px" }}
+                        onClick={() => {setSearchBarExpanded(!searchBarExpanded); clearSearch();}}
+                      >
+                        🔍
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flex: 1 }}>
+                    <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                  </div>
+                )}
+
+                {/* 手机端搜索栏 */}
+                {isMobile && searchBarExpanded && (
+                  <div style={{ width: "100%", display: "flex", gap: 8 }}>
+                    <Input.Search
+                      placeholder="搜索论文标题..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      onSearch={handleSearch}
+                      style={{ flex: 1 }}
+                      allowClear
+                      enterButton="搜索"
+                      loading={isSearching}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div className="browse-controls" style={{ flex: "none", display: isMobile ? 'none' : 'flex', alignItems: "center", gap: "10px" }}>
+                  {/* 桌面端搜索组件 */}
+                  {!isMobile && (
+                    <Input.Search
+                      placeholder="搜索论文标题..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      onSearch={handleSearch}
+                      style={{ width: 250 }}
+                      allowClear
+                      enterButton={!showSearchResults}
+                      loading={isSearching}
+                      addonAfter={
+                        showSearchResults ? (
+                          <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
+                            清除
+                          </Button>
+                        ) : null
+                      }
+                    />
+                  )}
                   {/* 桌面端显示视图切换按钮 */}
                   {!isMobile && (
                     <>
@@ -803,12 +847,17 @@
         <>
           <div className="header-box">
             <div className="container">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-                  <h2>📄 论文翻译 - Poe API</h2>
-
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "5px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "20px", flex: 1, minWidth: 0 }}>
+                  <h2 className="header-title">
+                    {paperTitle
+                      ? isMobile
+                        ? paperTitle
+                        : "📄 论文翻译 - " + paperTitle
+                      : "📄 论文翻译 - Poe API"}
+                  </h2>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
                   {readOnly && <Tag color="red">只读模式</Tag>}
                 </div>
               </div>

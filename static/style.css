@@ -9,7 +9,7 @@ body {
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 10px 20px;
 }
 
 /* ==========================================
@@ -22,6 +22,19 @@ body {
   top: 0;
   z-index: 1000;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+}
+
+/* 通用标题样式 */
+.header-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: 1.5rem;
+  min-width: 0;
+  flex: 1;
 }
 
 /* ==========================================
@@ -123,7 +136,6 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
   gap: 20px;
   padding: 10px 0;
 }
@@ -286,6 +298,7 @@ body {
   .browse-header {
     gap: 8px;
     margin-top: 4px;
+    margin-bottom: 4px;
   }
 
   .browse-header span {
@@ -303,7 +316,7 @@ body {
   .content h1,
   .content h2,
   .content h3 {
-    scroll-margin-top: 160px;
+    scroll-margin-top: 140px;
   }
 
   /* 消息块调整 */
@@ -350,13 +363,29 @@ body {
   .ant-drawer .toc-item.active {
     color: #1677ff;
     background: #f0f7ff;
-    margin: 0 -24px;
     padding-left: 24px;
     padding-right: 24px;
+  }
+
+  .ant-drawer-body {
+    padding: 0 24px;
   }
 
   /* 浮动按钮 */
   .ant-btn-circle {
     box-shadow: 0 4px 12px rgba(22, 119, 255, 0.4);
+  }
+
+  /* 移动端标题调整 */
+  .header-title {
+    font-size: 1.2rem;
+    max-width: calc(100% - 20px); /* 为标签留出空间 */
+  }
+
+  /* 移动端只读模式标签调整 */
+  .header-box .ant-tag {
+    font-size: 12px;
+    padding: 2px 8px;
+    line-height: 1.2;
   }
 }
