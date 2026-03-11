@@ -388,4 +388,64 @@ body {
     padding: 2px 8px;
     line-height: 1.2;
   }
+
+  /* 修复:内容区域允许收缩 */
+  .content {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+
+  /* 修复:消息块文字换行 */
+  .message-block,
+  .user-message-block {
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    min-width: 0;
+  }
+
+  /* 修复:KaTeX 数学公式容器 - 防止溢出 */
+  .katex-display {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden !important;
+    margin: 10px 0;
+    padding: 5px 0;
+    display: block;
+    max-height: none !important;
+  }
+
+  /* 确保 KaTeX 内部元素不产生纵向滚动 */
+  .katex-display > span {
+    overflow-y: hidden !important;
+    max-height: none !important;
+  }
+
+  /* 修复:行内公式允许换行 */
+  .katex {
+    white-space: normal;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* 修复:代码块和预格式化文本横向滚动 */
+  .message-block pre,
+  .user-message-block pre,
+  .message-block code,
+  .user-message-block code {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  /* 修复:表格横向滚动 */
+  .message-block table,
+  .user-message-block table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
