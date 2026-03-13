@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlmodel
+pydantic-settings
+fastapi-poe
+python-multipart
+gunicorn
+# psycopg2 # if you use postgresql
