@@ -80,8 +80,27 @@ async def upload_pdf(
         with open(tmp.name, "rb") as f:
             pdf_attachment = await upload_file(f, api_key, file.filename)
 
+    # For title extraction, create a new PDF with only the first page
+    title_extraction_attachment = None
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        if len(reader.pages) > 0:
+            writer = PdfWriter()
+            writer.add_page(reader.pages[0])
+            first_page_pdf_bytes = io.BytesIO()
+            writer.write(first_page_pdf_bytes)
+            first_page_pdf_bytes.seek(0)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_first_page:
+                tmp_first_page.write(first_page_pdf_bytes.getvalue())
+                tmp_first_page.flush()
+                with open(tmp_first_page.name, "rb") as f:
+                    title_extraction_attachment = await upload_file(f, api_key, f"first_page_{file.filename}")
+    except Exception as e:
+        print(f"Error processing PDF for title extraction: {e}")
+        title_extraction_attachment = pdf_attachment
+
     # Extract the title and get the initial translation
-    extracted_title = await extract_title_from_pdf(pdf_attachment, api_key, title_model)
+    extracted_title = await extract_title_from_pdf(title_extraction_attachment or pdf_attachment, api_key, title_model)
     initial_prompt = settings.initial_prompt
     message = fp.ProtocolMessage(role="user", content=initial_prompt, attachments=[pdf_attachment])
     response_text = await get_bot_response([message], poe_model, api_key)
