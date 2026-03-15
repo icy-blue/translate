@@ -13,6 +13,7 @@
   <!-- Ant Design -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/antd/4.24.16/antd.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/antd/4.24.16/antd.min.js"></script>
+  <script src="https://unpkg.com/@ant-design/icons@4.7.0/dist/index.umd.js"></script>
 
   <!-- Markdown -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -41,7 +42,8 @@
     // ==========================================
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu } = antd;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip } = antd;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined } = icons;
     const { TextArea } = Input;
 
     const BASE_URL = "";
@@ -353,11 +355,9 @@
                         </button>
                       )}
                       <Button
-                        style={{ padding: "4px 12px", fontSize: "13px" }}
+                        icon={<SearchOutlined />}
                         onClick={() => {setSearchBarExpanded(!searchBarExpanded); clearSearch();}}
-                      >
-                        🔍
-                      </Button>
+                      />
                     </div>
                   </div>
                 ) : (
@@ -368,13 +368,13 @@
                     </div>
                     
                     {/* 中间：搜索组件 */}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 2 }}>
                       <Input.Search
                         placeholder="搜索论文标题..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         onSearch={handleSearch}
-                        style={{ width: 250 }}
+                        style={{ flex: 1, minWidth: 150, maxWidth: 1200 }}
                         allowClear
                         enterButton={!showSearchResults}
                         loading={isSearching}
@@ -390,26 +390,28 @@
                     
                     {/* 右侧：控制按钮 */}
                     <div className="browse-controls" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", flex: 1, gap: "10px" }}>
-                      <button
-                        className={`view-toggle-btn ${viewMode === "masonry" ? "active" : ""}`}
-                        onClick={() => setViewMode("masonry")}
-                      >
-                        瀑布流
-                      </button>
-                      <button
-                        className={`view-toggle-btn ${viewMode === "list" ? "active" : ""}`}
-                        onClick={() => setViewMode("list")}
-                      >
-                        列表
-                      </button>
+                      <Tooltip title="瀑布流">
+                        <Button
+                          className={viewMode === "masonry" ? "ant-btn-primary" : ""}
+                          icon={<AppstoreOutlined />}
+                          onClick={() => setViewMode("masonry")}
+                        />
+                      </Tooltip>
+                      <Tooltip title="列表">
+                        <Button
+                          className={viewMode === "list" ? "ant-btn-primary" : ""}
+                          icon={<BarsOutlined />}
+                          onClick={() => setViewMode("list")}
+                        />
+                      </Tooltip>
                       {!readOnly && (
-                        <button
-                          className="view-toggle-btn"
-                          style={{ background: "#52c41a", color: "white", borderColor: "#52c41a" }}
-                          onClick={() => { window.location.href = "/chat"; }}
-                        >
-                          翻译新论文
-                        </button>
+                        <Tooltip title="翻译新论文">
+                          <Button
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            onClick={() => { window.location.href = "/chat"; }}
+                          />
+                        </Tooltip>
                       )}
                     </div>
                   </>
@@ -862,8 +864,8 @@
                     {paperTitle
                       ? isMobile
                         ? paperTitle
-                        : "📄 论文翻译 - " + paperTitle
-                      : "📄 论文翻译 - Poe API"}
+                        : <><FileTextOutlined /> {paperTitle}</>
+                      : <><FileTextOutlined /> 论文翻译</>}
                   </h2>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
@@ -874,26 +876,28 @@
               <div style={{ marginTop: 15, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <Button
+                    icon={<ArrowLeftOutlined />}
                     style={{ color: "#1677ff", borderColor: "#1677ff" }}
                     onClick={() => window.location.href = "/"}
                   >
-                    ← 论文库
+                    {!isMobile && "论文库"}
                   </Button>
                 
                 {/* 桌面端显示完整按钮 */}
                 {!readOnly && !isMobile && (
                   <Button
+                    icon={<SettingOutlined />}
                     onClick={() => setConfigModalVisible(true)}
                     disabled={loading}
                   >
-                    ⚙️ 配置
+                    配置
                   </Button>
                 )}
 
                 {/* upload button only when no conversation in progress */}
                 {!readOnly && !conversationId && (
                   <Upload {...uploadProps} disabled={loading}>
-                    <Button type="primary" loading={loading}>
+                    <Button icon={<UploadOutlined />} type="primary" loading={loading}>
                       {loading ? "处理中..." : "上传 PDF"}
                     </Button>
                   </Upload>
@@ -911,6 +915,7 @@
                     />
 
                     <Button
+                      icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
                       disabled={loading || !conversationId}
@@ -919,6 +924,7 @@
                     </Button>
 
                     <Button
+                      icon={<MessageOutlined />}
                       onClick={() => setCustomModalVisible(true)}
                       disabled={loading || !conversationId}
                     >
@@ -932,6 +938,7 @@
                   <>
                     <Button
                       type="primary"
+                      icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
                       disabled={loading}
@@ -942,8 +949,8 @@
                     <Dropdown
                       overlay={(
                         <Menu>
-                          <Menu.Item onClick={() => setConfigModalVisible(true)}>
-                            ⚙️ 配置
+                          <Menu.Item icon={<SettingOutlined />} onClick={() => setConfigModalVisible(true)}>
+                            配置
                           </Menu.Item>
                           <Menu.Item>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -958,14 +965,14 @@
                               />
                             </div>
                           </Menu.Item>
-                          <Menu.Item onClick={() => setCustomModalVisible(true)} disabled={!conversationId}>
-                            💬 自定义对话
+                          <Menu.Item icon={<MessageOutlined />} onClick={() => setCustomModalVisible(true)} disabled={!conversationId}>
+                            自定义对话
                           </Menu.Item>
                         </Menu>
                       )}
                       placement="bottomLeft"
                     >
-                      <Button>⋮ 更多</Button>
+                      <Button icon={<MoreOutlined />} />
                     </Dropdown>
                   </>
                 )}
@@ -974,9 +981,10 @@
 
                 {conversationId && (
                   <Button
+                    icon={<ShareAltOutlined />}
                     onClick={handleShare}
                   >
-                    🔗 分享
+                    分享
                   </Button>
                 )}
               </div>
