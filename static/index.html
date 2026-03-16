@@ -43,7 +43,7 @@
 
     const { useState, useEffect } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined } = icons;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined } = icons;
     const { TextArea } = Input;
 
     const BASE_URL = "";
@@ -346,18 +346,20 @@
                     <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
                     <div style={{ display: "flex", gap: 8 }}>
                       {!readOnly && (
-                        <button
-                          className="view-toggle-btn"
-                          style={{ background: "#52c41a", color: "white", borderColor: "#52c41a", padding: "4px 12px", fontSize: "13px" }}
-                          onClick={() => { window.location.href = "/chat"; }}
-                        >
-                          翻译新论文
-                        </button>
+                        <Tooltip title="翻译新论文">
+                          <Button
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            onClick={() => { window.location.href = "/chat"; }}
+                          />
+                        </Tooltip>
                       )}
-                      <Button
-                        icon={<SearchOutlined />}
-                        onClick={() => {setSearchBarExpanded(!searchBarExpanded); clearSearch();}}
-                      />
+                      <Tooltip title="搜索">
+                        <Button
+                          icon={<SearchOutlined />}
+                          onClick={() => {setSearchBarExpanded(!searchBarExpanded); clearSearch();}}
+                        />
+                      </Tooltip>
                     </div>
                   </div>
                 ) : (
@@ -518,6 +520,7 @@
       // ===== 数据状态 =====
       const [blocks, setBlocks] = useState([]);
       const [paperTitle, setPaperTitle] = useState("");
+      const [pdfUrl, setPdfUrl] = useState("");
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -672,6 +675,7 @@
       // ===== 数据加载函数 =====
       async function loadConversation(id) {
         setPaperTitle("");
+        setPdfUrl("");
         setLoading(true);
         const res = await fetch(`${BASE_URL}/conversation/${id}`);
         if (!res.ok) {
@@ -682,6 +686,9 @@
         const data = await res.json();
         if (data.title) {
           setPaperTitle(data.title);
+        }
+        if (data.pdf_url) {
+          setPdfUrl(data.pdf_url);
         }
         // filter out continuation markers and rely on backend to remove the initial prompt
         const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
@@ -724,6 +731,7 @@
 
           setLoading(true);
           setBlocks([]);
+          setPdfUrl("");
           // 提取文件名（去掉.pdf后缀）作为临时标题
           const tempTitle = file.name.replace(/\.pdf$/i, "");
           setPaperTitle(tempTitle);
@@ -740,6 +748,10 @@
           if (!res.ok) {
             message.error(data.detail || "上传失败");
             return;
+          }
+
+          if (data.pdf_url) {
+            setPdfUrl(data.pdf_url);
           }
 
           // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
@@ -979,14 +991,28 @@
 
                 </div>
 
-                {conversationId && (
-                  <Button
-                    icon={<ShareAltOutlined />}
-                    onClick={handleShare}
-                  >
-                    分享
-                  </Button>
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  {pdfUrl && (
+                    <Tooltip title={isMobile ? '下载论文' : ''}>
+                      <Button
+                        icon={<DownloadOutlined />}
+                        onClick={() => window.open(pdfUrl, '_blank')}
+                      >
+                        {!isMobile && '下载论文'}
+                      </Button>
+                    </Tooltip>
+                  )}
+                  {conversationId && (
+                    <Tooltip title={isMobile ? '分享' : ''}>
+                      <Button
+                        icon={<ShareAltOutlined />}
+                        onClick={handleShare}
+                      >
+                        {!isMobile && '分享'}
+                      </Button>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             </div>
           </div>

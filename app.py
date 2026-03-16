@@ -66,7 +66,8 @@ async def upload_pdf(
             "conversation_id": existing_file.conversation_id,
             "title": conversation.title if conversation else None,
             "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
-            "exists": True
+            "exists": True,
+            "pdf_url": existing_file.poe_url
         }
 
     # Generate unique IDs for the conversation and file
@@ -122,7 +123,8 @@ async def upload_pdf(
     return {
         "conversation_id": conversation_id,
         "title": final_title,
-        "messages": [{"role": "bot", "content": response_text}]
+        "messages": [{"role": "bot", "content": response_text}],
+        "pdf_url": pdf_attachment.url
     }
 
 # Common logic for continuing a conversation
@@ -185,6 +187,8 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
     messages = crud.get_messages(session, conversation_id)
+    file_record = crud.get_file_record(session, conversation_id)
+    pdf_url = file_record.poe_url if file_record else None
 
     def keep(m):
         return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
@@ -193,7 +197,8 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
         "id": conversation.id,
         "title": conversation.title,
         "created_at": _ensure_utc_timezone(conversation.created_at),
-        "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)]
+        "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
+        "pdf_url": pdf_url
     }
 
 # Helper to ensure datetime objects have UTC timezone information
