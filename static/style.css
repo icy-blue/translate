@@ -37,6 +37,28 @@ body {
   flex: 1;
 }
 
+.mode-badge.ant-tag {
+  margin-right: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: help;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.mode-badge-read.ant-tag {
+  background: #eef5ff;
+  border-color: #d7e4f6;
+  color: #5b7390;
+}
+
+.mode-badge-read.ant-tag:hover {
+  background: #e6f0ff;
+  border-color: #c7d8f1;
+  color: #476582;
+}
+
 /* ==========================================
    布局样式
    ========================================== */
@@ -52,8 +74,12 @@ body {
 
 .content h1,
 .content h2,
-.content h3 {
-  scroll-margin-top: 220px;
+.content h3{
+  scroll-margin-top: 180px;
+}
+
+.asset-section button{
+  scroll-margin-top: 160px;
 }
 
 /* ==========================================
@@ -98,7 +124,7 @@ body {
    消息块样式
    ========================================== */
 .message-block {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
   padding: 25px;
   background: white;
   border-radius: 10px;
@@ -106,7 +132,7 @@ body {
 }
 
 .user-message-block {
-  margin-bottom: 30px;
+  margin-bottom: 24px;
   padding: 25px;
   background: #f0f0f0;
   border-radius: 10px;
@@ -114,7 +140,7 @@ body {
 }
 
 .title-block {
-  margin-bottom: 30px;
+  margin-bottom: 24px;
   padding: 25px;
   background: #fafafa;
   border-radius: 10px;
@@ -129,7 +155,7 @@ body {
 }
 
 .asset-section {
-  margin-bottom: 30px;
+  margin-bottom: 24px;
   background: white;
   border-radius: 10px;
   border: 1px solid #eee;
@@ -453,7 +479,7 @@ body {
 }
 
 .tag-block {
-  margin-bottom: 30px;
+  margin-bottom: 24px;
   padding: 20px 24px;
   background: white;
   border-radius: 10px;
@@ -813,6 +839,10 @@ body {
     scroll-margin-top: 140px;
   }
 
+  .asset-section button{
+    scroll-margin-top: 120px;
+  }
+
   /* 消息块调整 */
   .message-block,
   .user-message-block {
@@ -907,8 +937,8 @@ body {
     max-width: calc(100% - 20px); /* 为标签留出空间 */
   }
 
-  /* 移动端只读模式标签调整 */
-  .header-box .ant-tag {
+  /* 移动端阅读模式标签调整 */
+  .header-box .mode-badge.ant-tag {
     font-size: 12px;
     padding: 2px 8px;
     line-height: 1.2;

@@ -216,6 +216,18 @@
       });
     }
 
+    const READ_MODE_TOOLTIP = "当前为阅读模式。如需切换为编辑模式，请先修改后端 .env 中的 READ_ONLY 配置，并重启后端后生效。";
+    const ASSET_DIRECTION_TOOLTIP = "解析有错误？";
+    const ASSET_DIRECTION_MODAL_TITLE = "解析有错误？试试调整解析配置";
+
+    function ReadModeBadge() {
+      return (
+        <Tooltip title={READ_MODE_TOOLTIP}>
+          <Tag className="mode-badge mode-badge-read">阅读模式</Tag>
+        </Tooltip>
+      );
+    }
+
     function getBrowserLanguage() {
       const lang = (navigator.language || "zh-CN").toLowerCase();
       return lang.startsWith("zh") ? "zh" : "en";
@@ -970,7 +982,7 @@
             <div className="container">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <h2>📚 论文库</h2>
-                {readOnly && <Tag color="red">只读模式</Tag>}
+                {readOnly && <ReadModeBadge />}
               </div>
               <div className="browse-header" style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: "space-between" }}>
                 {/* 手机端：第一行 - 统计信息和搜索按钮 */}
@@ -1789,17 +1801,19 @@
               <div className="asset-section-heading">
                 <span>{title} ({items.length})</span>
                 {!readOnly && (
-                  <button
-                    type="button"
-                    className="asset-section-help"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openAssetDirectionModal();
-                    }}
-                    aria-label={`调整${title}与表格/插图的 caption 方向`}
-                  >
-                    ?
-                  </button>
+                  <Tooltip title={ASSET_DIRECTION_TOOLTIP}>
+                    <button
+                      type="button"
+                      className="asset-section-help"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openAssetDirectionModal();
+                      }}
+                      aria-label={`解析有错误？调整${title}的 caption 位置`}
+                    >
+                      ?
+                    </button>
+                  </Tooltip>
                 )}
               </div>
               <div className={`asset-section-toggle ${expanded ? "expanded" : ""}`}>
@@ -1868,7 +1882,7 @@
                   </h2>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
-                  {readOnly && <Tag color="red">只读模式</Tag>}
+                  {readOnly && <ReadModeBadge />}
                 </div>
               </div>
 
@@ -2213,7 +2227,7 @@
           </Modal>
 
           <Modal
-            title="调整插图与表格 caption 方向"
+            title={ASSET_DIRECTION_MODAL_TITLE}
             open={assetDirectionModalVisible}
             onOk={handleAssetDirectionSubmit}
             onCancel={() => setAssetDirectionModalVisible(false)}
@@ -2222,7 +2236,7 @@
           >
             <div className="asset-direction-modal">
               <div className="asset-direction-intro">
-                请分别设置论文插图和论文表格的 caption 位置。保存后会重新处理当前论文的插图和表格。
+                如果插图或表格解析位置不对，可以在这里分别调整 caption 位置。保存后会重新处理当前论文的插图和表格。
               </div>
 
               <div className="asset-direction-card">
