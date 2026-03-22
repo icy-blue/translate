@@ -47,6 +47,14 @@
     const { TextArea } = Input;
 
     const BASE_URL = "";
+    const TAG_CATEGORY_META = {
+      L: { className: "tag-chip-learning" },
+      M: { className: "tag-chip-modality" },
+      T: { className: "tag-chip-task" },
+      S: { className: "tag-chip-system" },
+      A: { className: "tag-chip-application" },
+      P: { className: "tag-chip-property" },
+    };
 
     // ==========================================
     // 2. 工具函数
@@ -76,6 +84,27 @@
         columns[colIndex].push(item);
       });
       return columns;
+    }
+
+    function renderTagChips(tags, options = {}) {
+      const { emptyText = null, compact = false } = options;
+      if (!Array.isArray(tags) || tags.length === 0) {
+        return emptyText ? <span className="tag-empty-text">{emptyText}</span> : null;
+      }
+
+      return tags.map(tag => {
+        const meta = TAG_CATEGORY_META[tag.category_code] || {};
+        const chipClassName = ["tag-chip", meta.className, compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ");
+        return (
+          <span
+            key={tag.id || `${tag.tag_code}-${tag.tag_label}`}
+            className={chipClassName}
+            title={tag.tag_path || tag.tag_label}
+          >
+            {tag.tag_label}
+          </span>
+        );
+      });
     }
 
     // ==========================================
@@ -329,11 +358,16 @@
                   : "暂无摘要"
               }}
             />
-            {paper.pdf_url && (
-              <div style={{ marginTop: 10 }}>
-                <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
-                  📄 下载 PDF
-                </a>
+            {(paper.pdf_url || (paper.tags && paper.tags.length > 0)) && (
+              <div className="paper-footer">
+                {paper.pdf_url && (
+                  <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" className="paper-download-link" onClick={(e) => e.stopPropagation()}>
+                    下载 PDF
+                  </a>
+                )}
+                <div className="paper-tag-row">
+                  {renderTagChips(paper.tags, { compact: true })}
+                </div>
               </div>
             )}
             {paper.relevance !== undefined && (
@@ -546,6 +580,7 @@
       const [pdfUrl, setPdfUrl] = useState("");
       const [figures, setFigures] = useState([]);
       const [tables, setTables] = useState([]);
+      const [tags, setTags] = useState([]);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -559,6 +594,7 @@
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [readOnly, setReadOnly] = useState(false);
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
@@ -594,6 +630,7 @@
         localStorage.setItem("poe_api_key", poeApiKey);
         localStorage.setItem("poe_model", poeModel);
         localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
@@ -709,6 +746,7 @@
         setPdfUrl("");
         setFigures([]);
         setTables([]);
+        setTags([]);
         setFiguresExpanded(false);
         setTablesExpanded(false);
         setLoading(true);
@@ -727,6 +765,7 @@
         }
         setFigures(Array.isArray(data.figures) ? data.figures : []);
         setTables(Array.isArray(data.tables) ? data.tables : []);
+        setTags(Array.isArray(data.tags) ? data.tags : []);
         // filter out continuation markers and rely on backend to remove the initial prompt
         const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
         setBlocks(
@@ -765,12 +804,14 @@
           formData.append("api_key", poeApiKey);
           formData.append("poe_model", poeModel);
           formData.append("title_model", titleModel);
+          formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
           setLoading(true);
           setBlocks([]);
           setPdfUrl("");
           setFigures([]);
           setTables([]);
+          setTags([]);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           // 提取文件名（去掉.pdf后缀）作为临时标题
@@ -796,6 +837,7 @@
           }
           setFigures(Array.isArray(data.figures) ? data.figures : []);
           setTables(Array.isArray(data.tables) ? data.tables : []);
+          setTags(Array.isArray(data.tags) ? data.tags : []);
 
           // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
           if (data.exists) {
@@ -1057,6 +1099,14 @@
                   </Button>
                 )}
 
+                {!readOnly && isMobile && (
+                  <Button
+                    icon={<SettingOutlined />}
+                    onClick={() => setConfigModalVisible(true)}
+                    disabled={loading}
+                  />
+                )}
+
                 {/* upload button only when no conversation in progress */}
                 {!readOnly && !conversationId && (
                   <Upload {...uploadProps} disabled={loading}>
@@ -1191,6 +1241,14 @@
 
               <div className="content">
                 {paperTitle && <div className="title-block">{paperTitle}</div>}
+                {(paperTitle || conversationId) && (
+                  <div className="tag-block">
+                    <div className="tag-block-title">论文标签</div>
+                    <div className="tag-block-body">
+                      {renderTagChips(tags, { emptyText: "暂无 tag" })}
+                    </div>
+                  </div>
+                )}
                 {renderAssetSection({
                   id: "figures-section",
                   title: "论文插图",
@@ -1321,6 +1379,17 @@
                 onChange={setPoeModel}
                 options={modelOptions}
               />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <Checkbox
+                checked={extractTagsOnUpload}
+                onChange={e => setExtractTagsOnUpload(e.target.checked)}
+              >
+                上传后自动提取论文标签
+              </Checkbox>
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+              </div>
             </div>
             <div>
               <label style={{ display: "block", marginBottom: 8 }}>分享链接基础路径 (URL Base)：</label>

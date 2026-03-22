@@ -399,6 +399,114 @@ body {
   display: none;
 }
 
+.paper-footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.paper-download-link {
+  color: #1677ff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.paper-download-link:hover {
+  color: #0f5fd1;
+}
+
+.paper-tag-row,
+.tag-block-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.paper-tag-row {
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+
+.tag-block {
+  margin-bottom: 30px;
+  padding: 20px 24px;
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #eee;
+}
+
+.tag-block-title {
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1677ff;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.tag-chip-compact {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.tag-chip-learning {
+  background: #eef4ff;
+  border-color: #d7e5ff;
+  color: #245fb2;
+}
+
+.tag-chip-modality {
+  background: #edf8f7;
+  border-color: #d4ece9;
+  color: #146c63;
+}
+
+.tag-chip-task {
+  background: #eef7ef;
+  border-color: #d8eadb;
+  color: #2d6a39;
+}
+
+.tag-chip-system {
+  background: #f2f4f8;
+  border-color: #dde3ec;
+  color: #4d5f7a;
+}
+
+.tag-chip-application {
+  background: #fff4ea;
+  border-color: #f3dfca;
+  color: #9a5a16;
+}
+
+.tag-chip-property {
+  background: #f8f1ef;
+  border-color: #ebdcd7;
+  color: #8a4b45;
+}
+
+.tag-empty-text {
+  font-size: 13px;
+  color: #8a8a8a;
+}
+
 /* ==========================================
    空状态样式
    ========================================== */
@@ -486,6 +594,11 @@ body {
   .title-block {
     padding: 16px;
     font-size: 18px;
+  }
+
+  .tag-block {
+    margin-bottom: 16px;
+    padding: 16px;
   }
 
   .asset-section {

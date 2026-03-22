@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlmodel import Session, select, func
 from sqlalchemy import desc
 
-from models import Conversation, Message, FileRecord, PaperFigure, PaperTable
+from models import Conversation, Message, FileRecord, PaperFigure, PaperTable, PaperTag
 
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     """Fetch a conversation by its ID."""
@@ -41,6 +41,16 @@ def get_tables(session: Session, conversation_id: str) -> list[PaperTable]:
         select(PaperTable)
         .where(PaperTable.conversation_id == conversation_id)
         .order_by(PaperTable.table_index)
+    )
+    return session.exec(statement).all()
+
+
+def get_tags(session: Session, conversation_id: str) -> list[PaperTag]:
+    """Fetch all extracted paper tags for a conversation."""
+    statement = (
+        select(PaperTag)
+        .where(PaperTag.conversation_id == conversation_id)
+        .order_by(PaperTag.category_code, PaperTag.tag_code)
     )
     return session.exec(statement).all()
 
@@ -155,6 +165,30 @@ def replace_tables(
             image_data=table.get("image_data"),
             image_width=table["image_width"],
             image_height=table["image_height"],
+        ))
+
+    session.commit()
+
+
+def replace_tags(
+    session: Session,
+    conversation_id: str,
+    tags: list[dict]
+) -> None:
+    """Replace extracted tags for a conversation."""
+    existing_tags = get_tags(session, conversation_id)
+    for tag in existing_tags:
+        session.delete(tag)
+
+    for tag in tags:
+        session.add(PaperTag(
+            conversation_id=conversation_id,
+            category_code=tag["category_code"],
+            category_label=tag["category_label"],
+            tag_code=tag["tag_code"],
+            tag_label=tag["tag_label"],
+            tag_path=tag["tag_path"],
+            source=tag.get("source", "poe"),
         ))
 
     session.commit()

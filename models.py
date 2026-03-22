@@ -60,3 +60,15 @@ class PaperTable(SQLModel, table=True):
     image_width: int
     image_height: int
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PaperTag(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    conversation_id: str = Field(index=True)
+    category_code: str = Field(index=True)
+    category_label: str
+    tag_code: str = Field(index=True)
+    tag_label: str
+    tag_path: str
+    source: str = "poe"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -22,6 +22,7 @@
 - 🔍 **论文搜索**：支持按论文标题搜索，分为严格匹配和模糊匹配，按相关性排序
 - 🖼️ **论文插图提取**：上传 PDF 时自动提取带 `Fig.` / `Figure` caption 的图片，转成 WebP 二进制存入数据库，并在前端论文页展示
 - 📊 **论文表格提取**：自动识别带 `Table` caption 的表格区域，转成 WebP 二进制存入数据库，并在前端以可折叠区块展示
+- 🏷️ **论文标签提取**：基于后端维护的分层标签树，使用论文标题 + 摘要做紧凑分类，并在上传时返回 tags
 - 🗄️ **数据持久化**：使用 SQLite 数据库存储会话、消息和文件记录
 - 🔒 **只读模式**：支持设置只读模式，禁用上传、继续翻译和自定义对话功能，仅允许浏览已翻译的论文
 
@@ -124,6 +125,7 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 - **FileRecord**：文件记录（ID、会话ID、文件路径、Poe CDN 信息）
 - **PaperFigure**：论文插图记录（会话ID、页码、序号、caption、WebP 二进制、尺寸）
 - **PaperTable**：论文表格记录（会话ID、页码、序号、caption、WebP 二进制、尺寸）
+- **PaperTag**：论文标签记录（会话ID、分类组、标签代码、标签名、标签路径、来源）
 
 ### 文件位置
 
@@ -141,9 +143,26 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
    ↓
 4. 保存会话和第一段回复
    ↓
-5. 用户点击"继续"
+5. 基于标题 + 摘要提取论文 tags
    ↓
-6. 按照次数，重用 Poe CDN URL，直到完成
+6. 用户点击"继续"
+   ↓
+7. 按照次数，重用 Poe CDN URL，直到完成
+
+## 标签回填
+
+已有会话可使用 `scripts/backfill_tags.py` 回填标签：
+
+```bash
+python scripts/backfill_tags.py --api-key <your-poe-api-key>
+```
+
+常用参数：
+
+- `--conversation-id <id>`：只处理单个会话
+- `--limit N --offset N`：分批回填
+- 默认仅处理还没有任何 tag 的论文
+- `--all-records`：连已有 tags 的论文也重新分类
 ```
 
 ## 常见问题

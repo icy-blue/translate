@@ -25,8 +25,9 @@ from config import settings
 from database import engine
 from dependencies import get_db_session, check_read_only, get_api_key
 from models import SQLModel, Conversation, Message, PaperFigure, PaperTable
+from paper_tags import extract_abstract_for_tagging
 from pdf_figures import extract_pdf_figures, extract_pdf_tables
-from poe_utils import extract_title_from_pdf, get_bot_response, upload_file
+from poe_utils import classify_paper_tags, extract_title_from_pdf, get_bot_response, upload_file
 
 app = FastAPI()
 BASE_DIR = Path(__file__).resolve().parent
@@ -51,6 +52,8 @@ async def upload_pdf(
     file: UploadFile = File(...),
     poe_model: str = Form(default="GPT-5.2-Instant"),
     title_model: str = Form(default="GPT-5.2-Instant"),
+    tag_model: str = Form(default="GPT-5.2-Instant"),
+    extract_tags: bool = Form(default=False),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only)
@@ -71,6 +74,17 @@ async def upload_pdf(
         messages = crud.get_messages(session, existing_file.conversation_id)
         figures = _extract_and_store_figures(session, existing_file.conversation_id, file_bytes)
         tables = _extract_and_store_tables(session, existing_file.conversation_id, file_bytes)
+        tags = crud.get_tags(session, existing_file.conversation_id)
+        if extract_tags and not tags and conversation:
+            first_bot_message = next((message.content for message in messages if message.role == "bot"), "")
+            tags = await _extract_and_store_tags(
+                session,
+                existing_file.conversation_id,
+                conversation.title or existing_file.filename,
+                first_bot_message,
+                tag_model,
+                api_key,
+            )
         
         def keep(m):
             return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
@@ -83,6 +97,7 @@ async def upload_pdf(
             "pdf_url": existing_file.poe_url,
             "figures": _serialize_figures(figures),
             "tables": _serialize_tables(tables),
+            "tags": _serialize_tags(tags),
         }
 
     # Generate unique IDs for the conversation and file
@@ -136,6 +151,7 @@ async def upload_pdf(
     )
     figures = _extract_and_store_figures(session, conversation_id, file_bytes)
     tables = _extract_and_store_tables(session, conversation_id, file_bytes)
+    tags = await _extract_and_store_tags(session, conversation_id, final_title, response_text, tag_model, api_key) if extract_tags else []
 
     return {
         "conversation_id": conversation_id,
@@ -144,6 +160,7 @@ async def upload_pdf(
         "pdf_url": pdf_attachment.url,
         "figures": _serialize_figures(figures),
         "tables": _serialize_tables(tables),
+        "tags": _serialize_tags(tags),
     }
 
 # Common logic for continuing a conversation
@@ -209,6 +226,7 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
     file_record = crud.get_file_record(session, conversation_id)
     figures = crud.get_figures(session, conversation_id)
     tables = crud.get_tables(session, conversation_id)
+    tags = crud.get_tags(session, conversation_id)
     pdf_url = file_record.poe_url if file_record else None
 
     def keep(m):
@@ -222,6 +240,7 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
         "pdf_url": pdf_url,
         "figures": _serialize_figures(figures),
         "tables": _serialize_tables(tables),
+        "tags": _serialize_tags(tags),
     }
 
 
@@ -301,13 +320,15 @@ def _build_conversation_data(session: Session, conversation: Conversation, inclu
 
     file_record = crud.get_file_record(session, conversation.id)
     pdf_url = file_record.poe_url if file_record else None
+    tags = crud.get_tags(session, conversation.id)
 
     result = {
         "id": conversation.id,
         "title": conversation.title,
         "created_at": _ensure_utc_timezone(conversation.created_at),
         "summary": summary,
-        "pdf_url": pdf_url
+        "pdf_url": pdf_url,
+        "tags": _serialize_tags(tags),
     }
     if include_relevance:
         result["relevance"] = relevance_score
@@ -346,6 +367,21 @@ def _serialize_tables(tables) -> list[dict]:
     ]
 
 
+def _serialize_tags(tags) -> list[dict]:
+    return [
+        {
+            "id": tag.id,
+            "category_code": tag.category_code,
+            "category_label": tag.category_label,
+            "tag_code": tag.tag_code,
+            "tag_label": tag.tag_label,
+            "tag_path": tag.tag_path,
+            "source": tag.source,
+        }
+        for tag in tags
+    ]
+
+
 def _extract_and_store_figures(
     session: Session,
     conversation_id: str,
@@ -376,6 +412,29 @@ def _extract_and_store_tables(
         print(f"Error extracting tables for conversation {conversation_id}: {e}")
         session.rollback()
         return crud.get_tables(session, conversation_id)
+
+
+async def _extract_and_store_tags(
+    session: Session,
+    conversation_id: str,
+    title: str,
+    first_bot_message: str,
+    tag_model: str,
+    api_key: str,
+):
+    abstract = extract_abstract_for_tagging(first_bot_message)
+    if not title or not abstract:
+        return crud.get_tags(session, conversation_id)
+
+    try:
+        extracted_tags = await classify_paper_tags(title, abstract, tag_model, api_key)
+        if extracted_tags:
+            crud.replace_tags(session, conversation_id, extracted_tags)
+        return crud.get_tags(session, conversation_id)
+    except Exception as exc:
+        print(f"Error extracting tags for conversation {conversation_id}: {exc}")
+        session.rollback()
+        return crud.get_tags(session, conversation_id)
 
 
 def _ensure_asset_columns():
