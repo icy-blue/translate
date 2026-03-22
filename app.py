@@ -71,9 +71,9 @@ def on_startup():
 @app.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
-    poe_model: str = Form(default="GPT-5.2-Instant"),
-    title_model: str = Form(default="GPT-5.2-Instant"),
-    tag_model: str = Form(default="GPT-5.2-Instant"),
+    poe_model: str = Form(default=settings.poe_model),
+    title_model: str = Form(default=settings.poe_model),
+    tag_model: str = Form(default=settings.poe_model),
     extract_tags: bool = Form(default=False),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
@@ -219,7 +219,7 @@ async def _continue_conversation(conversation_id: str, new_user_message: str, po
 @app.post("/continue/{conversation_id}")
 async def continue_translation(
     conversation_id: str,
-    poe_model: str = Form(default="GPT-5.2-Instant"),
+    poe_model: str = Form(default=settings.poe_model),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only)
@@ -232,7 +232,7 @@ async def custom_message(
     conversation_id: str,
     message: str = Form(...),
     save_to_record: bool = Form(...),
-    poe_model: str = Form(default="GPT-5.2-Instant"),
+    poe_model: str = Form(default=settings.poe_model),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only)
@@ -964,10 +964,10 @@ async def serve_chat_paths(path: str):
     return FileResponse("static/index.html")
 
 @app.get("/chat")
-async def serve_chat_paths():
+async def serve_chat_root():
     return FileResponse("static/index.html")
 
 # System configuration endpoint
 @app.get("/config")
 async def get_config():
-    return {"read_only": settings.read_only}
+    return {"read_only": settings.read_only, "default_poe_model": settings.poe_model}

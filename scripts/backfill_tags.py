@@ -16,6 +16,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import crud
+from config import settings
 from database import engine
 from models import FileRecord, Message, PaperTag
 from paper_tags import extract_abstract_for_tagging
@@ -33,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--poe-model",
-        default="GPT-5.2-Instant",
+        default=settings.poe_model,
         help="Poe bot/model used for compact tag classification.",
     )
     parser.add_argument(
