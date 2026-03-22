@@ -36,6 +36,9 @@ REGION_GROUP_GAP = 40
 TABLE_REGION_GROUP_GAP = 56
 TABLE_COLUMN_PADDING = 24
 SINGLE_COLUMN_TABLE_RATIO = 0.55
+MAX_VECTOR_REGION_AREA_RATIO = 0.16
+MAX_VECTOR_REGION_WIDTH_RATIO = 0.78
+MAX_VECTOR_REGION_HEIGHT_RATIO = 0.22
 
 
 def extract_pdf_figures(file_bytes: bytes, preferred_direction: str | None = None) -> list[dict]:
@@ -140,6 +143,7 @@ def extract_pdf_tables(file_bytes: bytes, preferred_direction: str | None = None
 
 def _collect_graphic_regions(page: fitz.Page, blocks: list[dict]) -> list[dict]:
     regions = []
+    page_area = page.rect.width * page.rect.height
 
     for block in blocks:
         if block.get("type") != 1:
@@ -152,6 +156,16 @@ def _collect_graphic_regions(page: fitz.Page, blocks: list[dict]) -> list[dict]:
     for bbox in page.cluster_drawings():
         rect = fitz.Rect(bbox)
         if rect.width < MIN_DRAWING_WIDTH or rect.height < MIN_DRAWING_HEIGHT:
+            continue
+        if _is_oversized_vector_region(rect, page.rect, page_area):
+            continue
+        regions.append({"bbox": rect, "kind": "drawing"})
+
+    for drawing in page.get_drawings():
+        rect = fitz.Rect(drawing["rect"])
+        if rect.width < MIN_DRAWING_WIDTH or rect.height < MIN_DRAWING_HEIGHT:
+            continue
+        if _is_oversized_vector_region(rect, page.rect, page_area):
             continue
         regions.append({"bbox": rect, "kind": "drawing"})
 
@@ -920,6 +934,16 @@ def _axis_gap(start_a: float, end_a: float, start_b: float, end_b: float) -> flo
 
 def _overlap_length(start_a: float, end_a: float, start_b: float, end_b: float) -> float:
     return max(0.0, min(end_a, end_b) - max(start_a, start_b))
+
+
+def _is_oversized_vector_region(rect: fitz.Rect, page_rect: fitz.Rect, page_area: float) -> bool:
+    area = rect.width * rect.height
+    if area > page_area * MAX_VECTOR_REGION_AREA_RATIO:
+        return True
+
+    width_ratio = rect.width / max(1.0, page_rect.width)
+    height_ratio = rect.height / max(1.0, page_rect.height)
+    return width_ratio >= MAX_VECTOR_REGION_WIDTH_RATIO and height_ratio >= MAX_VECTOR_REGION_HEIGHT_RATIO
 
 
 def _render_rect_as_webp(page: fitz.Page, rect: fitz.Rect) -> tuple[bytes, int, int]:
