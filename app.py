@@ -298,6 +298,10 @@ async def serve_root():
 async def serve_chat_paths(path: str):
     return FileResponse("static/index.html")
 
+@app.get("/chat")
+async def serve_chat_paths():
+    return FileResponse("static/index.html")
+
 # System configuration endpoint
 @app.get("/config")
 async def get_config():
