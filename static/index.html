@@ -221,6 +221,74 @@
       return lang.startsWith("zh") ? "zh" : "en";
     }
 
+    const BROWSE_SEARCH_PARAM_KEYS = ["q", "tag_code", "ccf_category", "venue_filter", "year"];
+
+    function normalizeBrowseSearchState(state = {}) {
+      const filters = state.filters || {};
+      const normalizeList = (value) => Array.from(new Set(
+        (Array.isArray(value) ? value : [])
+          .map(item => String(item || "").trim())
+          .filter(Boolean)
+      ));
+
+      return {
+        query: String(state.query || "").trim(),
+        filters: {
+          tagCodes: normalizeList(filters.tagCodes),
+          ccfCategories: normalizeList(filters.ccfCategories),
+          venues: normalizeList(filters.venues),
+          years: normalizeList(filters.years),
+        },
+      };
+    }
+
+    function getBrowseSearchStateFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      return normalizeBrowseSearchState({
+        query: params.get("q") || "",
+        filters: {
+          tagCodes: params.getAll("tag_code"),
+          ccfCategories: params.getAll("ccf_category"),
+          venues: params.getAll("venue_filter"),
+          years: params.getAll("year"),
+        },
+      });
+    }
+
+    function hasBrowseSearchState(state = {}) {
+      const normalized = normalizeBrowseSearchState(state);
+      const filters = normalized.filters;
+      return Boolean(
+        normalized.query ||
+        filters.tagCodes.length ||
+        filters.ccfCategories.length ||
+        filters.venues.length ||
+        filters.years.length
+      );
+    }
+
+    function syncBrowseSearchStateToUrl(state = {}, options = {}) {
+      const normalized = normalizeBrowseSearchState(state);
+      const url = new URL(window.location.href);
+
+      BROWSE_SEARCH_PARAM_KEYS.forEach(key => url.searchParams.delete(key));
+
+      if (normalized.query) {
+        url.searchParams.set("q", normalized.query);
+      }
+      normalized.filters.tagCodes.forEach(value => url.searchParams.append("tag_code", value));
+      normalized.filters.ccfCategories.forEach(value => url.searchParams.append("ccf_category", value));
+      normalized.filters.venues.forEach(value => url.searchParams.append("venue_filter", value));
+      normalized.filters.years.forEach(value => url.searchParams.append("year", value));
+
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextUrl !== currentUrl) {
+        const method = options.replace ? "replaceState" : "pushState";
+        window.history[method]({}, "", nextUrl);
+      }
+    }
+
     // ==========================================
     // 3. 组件定义
     // ==========================================
@@ -256,6 +324,7 @@
     // 3.2 BrowsePage - 论文库浏览页面
     // ==========================================
     function BrowsePage() {
+      const initialBrowseState = getBrowseSearchStateFromUrl();
       const EMPTY_SEARCH_FILTERS = {
         tagCodes: [],
         ccfCategories: [],
@@ -283,23 +352,23 @@
       const [columnCount, setColumnCount] = useState(3);
 
       // ===== 搜索状态 =====
-      const [searchQuery, setSearchQuery] = useState("");
+      const [searchQuery, setSearchQuery] = useState(initialBrowseState.query);
       const [searchResults, setSearchResults] = useState({ exact_matches: [], fuzzy_matches: [] });
       const [isSearching, setIsSearching] = useState(false);
       const [searchStatus, setSearchStatus] = useState("idle"); // 'idle' | 'loading' | 'success' | 'error'
       const [showSearchResults, setShowSearchResults] = useState(false);
-      const [searchBarExpanded, setSearchBarExpanded] = useState(false);
+      const [searchBarExpanded, setSearchBarExpanded] = useState(window.innerWidth <= 576 && hasBrowseSearchState(initialBrowseState));
       const [tagLibrary, setTagLibrary] = useState([]);
       const [searchFilterLibrary, setSearchFilterLibrary] = useState({ ccf_categories: [], venues: [], years: [] });
-      const [selectedTagCodes, setSelectedTagCodes] = useState([]);
-      const [selectedCcfCategories, setSelectedCcfCategories] = useState([]);
-      const [selectedVenueFilters, setSelectedVenueFilters] = useState([]);
-      const [selectedYears, setSelectedYears] = useState([]);
+      const [selectedTagCodes, setSelectedTagCodes] = useState(initialBrowseState.filters.tagCodes);
+      const [selectedCcfCategories, setSelectedCcfCategories] = useState(initialBrowseState.filters.ccfCategories);
+      const [selectedVenueFilters, setSelectedVenueFilters] = useState(initialBrowseState.filters.venues);
+      const [selectedYears, setSelectedYears] = useState(initialBrowseState.filters.years);
       const [tagPickerVisible, setTagPickerVisible] = useState(false);
-      const [draftTagCodes, setDraftTagCodes] = useState([]);
-      const [draftCcfCategories, setDraftCcfCategories] = useState([]);
-      const [draftVenueFilters, setDraftVenueFilters] = useState([]);
-      const [draftYears, setDraftYears] = useState([]);
+      const [draftTagCodes, setDraftTagCodes] = useState(initialBrowseState.filters.tagCodes);
+      const [draftCcfCategories, setDraftCcfCategories] = useState(initialBrowseState.filters.ccfCategories);
+      const [draftVenueFilters, setDraftVenueFilters] = useState(initialBrowseState.filters.venues);
+      const [draftYears, setDraftYears] = useState(initialBrowseState.filters.years);
       const [activeTagCategory, setActiveTagCategory] = useState("L");
       const [tagKeyword, setTagKeyword] = useState("");
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
@@ -326,16 +395,6 @@
       }, []);
 
       // ===== 初始化 =====
-      useEffect(() => {
-        // 加载第一页
-        loadConversations(false);
-        // 加载配置
-        loadConfig();
-        loadTagLibrary();
-        loadSearchFilterLibrary();
-      }, []);
-
-      // ===== 数据加载函数 =====
       function resolveSearchFilters(options = {}) {
         return {
           tagCodes: options.tagCodes !== undefined ? options.tagCodes : selectedTagCodes,
@@ -348,6 +407,79 @@
       function getSelectedFilterCount(filters = resolveSearchFilters()) {
         return filters.tagCodes.length + filters.ccfCategories.length + filters.venues.length + filters.years.length;
       }
+
+      function applyBrowseSearchState(state = {}, options = {}) {
+        const normalized = normalizeBrowseSearchState(state);
+        const filters = normalized.filters;
+
+        setSearchQuery(normalized.query);
+        setSelectedTagCodes(filters.tagCodes);
+        setSelectedCcfCategories(filters.ccfCategories);
+        setSelectedVenueFilters(filters.venues);
+        setSelectedYears(filters.years);
+        setDraftTagCodes(filters.tagCodes);
+        setDraftCcfCategories(filters.ccfCategories);
+        setDraftVenueFilters(filters.venues);
+        setDraftYears(filters.years);
+        setTagKeyword("");
+        setSearchBarExpanded(window.innerWidth <= 576 && hasBrowseSearchState(normalized));
+        setOffset(0);
+
+        if (normalized.query) {
+          handleSearch({
+            query: normalized.query,
+            tagCodes: filters.tagCodes,
+            ccfCategories: filters.ccfCategories,
+            venues: filters.venues,
+            years: filters.years,
+            syncUrl: options.syncUrl,
+            replaceUrl: options.replaceUrl,
+          });
+          return;
+        }
+
+        setSearchResults({ exact_matches: [], fuzzy_matches: [] });
+        setShowSearchResults(false);
+        setSearchStatus("idle");
+
+        if (getSelectedFilterCount(filters) > 0) {
+          if (options.syncUrl !== false) {
+            syncBrowseSearchStateToUrl({
+              query: "",
+              filters,
+            }, { replace: options.replaceUrl });
+          }
+          loadConversations(false, filters);
+          return;
+        }
+
+        if (options.syncUrl !== false) {
+          syncBrowseSearchStateToUrl({
+            query: "",
+            filters: EMPTY_SEARCH_FILTERS,
+          }, { replace: options.replaceUrl });
+        }
+        loadConversations(false, EMPTY_SEARCH_FILTERS);
+      }
+
+      // ===== 初始化 =====
+      useEffect(() => {
+        applyBrowseSearchState(initialBrowseState, { syncUrl: false });
+        loadConfig();
+        loadTagLibrary();
+        loadSearchFilterLibrary();
+      }, []);
+
+      useEffect(() => {
+        function handlePopState() {
+          applyBrowseSearchState(getBrowseSearchStateFromUrl(), { syncUrl: false });
+        }
+
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
+      }, []);
+
+      // ===== 数据加载函数 =====
 
       function appendSearchFilterParams(params, filters) {
         filters.tagCodes.forEach(tagCode => params.append("tag_code", tagCode));
@@ -447,17 +579,29 @@
 
       // ===== 搜索功能 =====
       async function handleSearch(options = {}) {
-        const queryValue = options.query !== undefined ? options.query : searchQuery.trim();
+        const queryValue = (options.query !== undefined ? options.query : searchQuery).trim();
         const filters = resolveSearchFilters(options);
         const selectedFilterCount = getSelectedFilterCount(filters);
+        const shouldSyncUrl = options.syncUrl !== false;
+
+        setSearchQuery(queryValue);
+
+        if (shouldSyncUrl) {
+          syncBrowseSearchStateToUrl({
+            query: queryValue,
+            filters,
+          }, { replace: options.replaceUrl });
+        }
 
         if (!queryValue && selectedFilterCount === 0) {
+          setSearchResults({ exact_matches: [], fuzzy_matches: [] });
           setShowSearchResults(false);
           setSearchStatus("idle");
           return;
         }
 
         if (!queryValue && selectedFilterCount > 0) {
+          setSearchResults({ exact_matches: [], fuzzy_matches: [] });
           setShowSearchResults(false);
           setSearchStatus("idle");
           setOffset(0);
@@ -517,6 +661,7 @@
         setShowSearchResults(false);
         setSearchStatus("idle");
         setOffset(0);
+        syncBrowseSearchStateToUrl({ query: "", filters: EMPTY_SEARCH_FILTERS });
         loadConversations(false, EMPTY_SEARCH_FILTERS);
       }
 
