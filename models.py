@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, LargeBinary
+from sqlalchemy import Column, LargeBinary, Text
 from sqlmodel import SQLModel, Field
 
 
@@ -72,3 +72,31 @@ class PaperTag(SQLModel, table=True):
     tag_path: str
     source: str = "poe"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PaperSemanticScholarResult(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    conversation_id: str = Field(index=True)
+    status: str = Field(index=True)
+    paper_id: Optional[str] = Field(default=None, index=True)
+    corpus_id: Optional[int] = Field(default=None, index=True)
+    matched_title: Optional[str] = None
+    url: Optional[str] = None
+    abstract: Optional[str] = Field(default=None, sa_column=Column(Text))
+    year: Optional[int] = None
+    venue: Optional[str] = None
+    publication_date: Optional[str] = None
+    is_open_access: Optional[bool] = None
+    match_score: Optional[float] = None
+    citation_count: Optional[int] = None
+    reference_count: Optional[int] = None
+    authors_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    external_ids_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    publication_types_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    publication_venue_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    journal_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    open_access_pdf_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    raw_response_json: str = Field(sa_column=Column(Text))
+    source: str = "semantic_scholar"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
