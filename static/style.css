@@ -150,8 +150,33 @@ body {
 }
 
 .asset-section-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 18px;
   font-weight: 600;
+  color: #1677ff;
+}
+
+.asset-section-help {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #c8d7f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #5b6f90;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.asset-section-help:hover {
+  border-color: #1677ff;
   color: #1677ff;
 }
 
@@ -211,6 +236,44 @@ body {
   line-height: 1.6;
   color: #333;
   word-break: break-word;
+}
+
+.asset-direction-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.asset-direction-intro {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #4b5563;
+}
+
+.asset-direction-card {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid #e5ecf6;
+  background: #fafcff;
+}
+
+.asset-direction-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.asset-direction-card-desc {
+  margin-top: 4px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.asset-direction-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 

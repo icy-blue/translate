@@ -42,7 +42,7 @@
     // ==========================================
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image } = antd;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
     const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined } = icons;
     const { TextArea } = Input;
 
@@ -567,6 +567,10 @@
       const [customModalVisible, setCustomModalVisible] = useState(false);
       const [customMessage, setCustomMessage] = useState("");
       const [saveToRecord, setSaveToRecord] = useState(true);
+      const [assetDirectionModalVisible, setAssetDirectionModalVisible] = useState(false);
+      const [figureDirectionValue, setFigureDirectionValue] = useState("above");
+      const [tableDirectionValue, setTableDirectionValue] = useState("above");
+      const [assetDirectionSubmitting, setAssetDirectionSubmitting] = useState(false);
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -904,6 +908,44 @@
         setCustomMessage("");
       };
 
+      const openAssetDirectionModal = () => {
+        setAssetDirectionModalVisible(true);
+      };
+
+      const handleAssetDirectionSubmit = async () => {
+        if (!conversationId) {
+          message.warning("请先上传论文");
+          return;
+        }
+
+        setAssetDirectionSubmitting(true);
+        const hide = message.loading("正在重新处理...", 0);
+
+        try {
+          const formData = new FormData();
+          formData.append("figure_caption_direction", figureDirectionValue);
+          formData.append("table_caption_direction", tableDirectionValue);
+
+          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/reprocess_assets`, {
+            method: "POST",
+            body: formData
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            message.error(data.detail || "重新处理失败");
+            return;
+          }
+
+          await loadConversation(conversationId);
+          setAssetDirectionModalVisible(false);
+          message.success("重处理完成");
+        } finally {
+          setAssetDirectionSubmitting(false);
+          hide();
+        }
+      };
+
       function renderAssetSection({ id, title, items, expanded, setExpanded, type }) {
         if (!items.length) {
           return null;
@@ -920,7 +962,22 @@
               onClick={() => setExpanded(!expanded)}
               type="button"
             >
-              <div className="asset-section-heading">{title} ({items.length})</div>
+              <div className="asset-section-heading">
+                <span>{title} ({items.length})</span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="asset-section-help"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAssetDirectionModal();
+                    }}
+                    aria-label={`调整${title}与表格/插图的 caption 方向`}
+                  >
+                    ?
+                  </button>
+                )}
+              </div>
               <div className={`asset-section-toggle ${expanded ? "expanded" : ""}`}>
                 <CaretRightOutlined />
                 <span>{expanded ? "收起" : "展开"}</span>
@@ -1274,6 +1331,47 @@
               />
               <div style={{ fontSize: 12, color: "#999", marginTop: 5 }}>
                 设置后分享链接将使用此基础路径，例如当前页是 /chat/abc，URL Base 为 https://a.com，则分享链接为 https://a.com/chat/abc
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            title="调整插图与表格 caption 方向"
+            open={assetDirectionModalVisible}
+            onOk={handleAssetDirectionSubmit}
+            onCancel={() => setAssetDirectionModalVisible(false)}
+            okText="重新处理"
+            confirmLoading={assetDirectionSubmitting}
+          >
+            <div className="asset-direction-modal">
+              <div className="asset-direction-intro">
+                请分别设置论文插图和论文表格的 caption 位置。保存后会重新处理当前论文的插图和表格。
+              </div>
+
+              <div className="asset-direction-card">
+                <div className="asset-direction-card-title">插图设置</div>
+                <div className="asset-direction-card-desc">这一组选项只影响“论文插图”。</div>
+                <Radio.Group
+                  value={figureDirectionValue}
+                  onChange={(event) => setFigureDirectionValue(event.target.value)}
+                  className="asset-direction-group"
+                >
+                  <Radio value="above">插图 caption 在上，图片内容在下</Radio>
+                  <Radio value="below">插图 caption 在下，图片内容在上</Radio>
+                </Radio.Group>
+              </div>
+
+              <div className="asset-direction-card">
+                <div className="asset-direction-card-title">表格设置</div>
+                <div className="asset-direction-card-desc">这一组选项只影响“论文表格”。</div>
+                <Radio.Group
+                  value={tableDirectionValue}
+                  onChange={(event) => setTableDirectionValue(event.target.value)}
+                  className="asset-direction-group"
+                >
+                  <Radio value="above">表格 caption 在上，表格内容在下</Radio>
+                  <Radio value="below">表格 caption 在下，表格内容在上</Radio>
+                </Radio.Group>
               </div>
             </div>
           </Modal>

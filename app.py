@@ -4,9 +4,12 @@ import hashlib
 import io
 import re
 import tempfile
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import fastapi_poe as fp
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
@@ -232,6 +235,60 @@ async def get_table_asset(table_id: int, session: Session = Depends(get_db_sessi
     table = session.get(PaperTable, table_id)
     return _build_asset_response(table)
 
+
+@app.post("/conversation/{conversation_id}/reprocess_assets")
+async def reprocess_assets(
+    conversation_id: str,
+    asset_type: Optional[str] = Form(default=None),
+    caption_direction: Optional[str] = Form(default=None),
+    figure_caption_direction: Optional[str] = Form(default=None),
+    table_caption_direction: Optional[str] = Form(default=None),
+    session: Session = Depends(get_db_session),
+    _read_only: None = Depends(check_read_only),
+):
+    if asset_type is not None or caption_direction is not None:
+        if asset_type not in {"figure", "table"}:
+            raise HTTPException(status_code=400, detail="asset_type must be 'figure' or 'table'.")
+        if caption_direction not in {"above", "below"}:
+            raise HTTPException(status_code=400, detail="caption_direction must be 'above' or 'below'.")
+        if asset_type == "figure":
+            figure_caption_direction = caption_direction
+        else:
+            table_caption_direction = caption_direction
+
+    for field_name, value in {
+        "figure_caption_direction": figure_caption_direction,
+        "table_caption_direction": table_caption_direction,
+    }.items():
+        if value is not None and value not in {"above", "below"}:
+            raise HTTPException(status_code=400, detail=f"{field_name} must be 'above' or 'below'.")
+    if figure_caption_direction is None and table_caption_direction is None:
+        raise HTTPException(status_code=400, detail="At least one caption direction must be provided.")
+
+    file_record = crud.get_file_record(session, conversation_id)
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File record not found.")
+
+    try:
+        file_bytes = _download_pdf_bytes(file_record.poe_url)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    figures = crud.get_figures(session, conversation_id)
+    tables = crud.get_tables(session, conversation_id)
+
+    if figure_caption_direction is not None:
+        figures = _extract_and_store_figures(session, conversation_id, file_bytes, figure_caption_direction)
+    if table_caption_direction is not None:
+        tables = _extract_and_store_tables(session, conversation_id, file_bytes, table_caption_direction)
+
+    return {
+        "figure_caption_direction": figure_caption_direction,
+        "table_caption_direction": table_caption_direction,
+        "figures": _serialize_figures(figures),
+        "tables": _serialize_tables(tables),
+    }
+
 # Helper to ensure datetime objects have UTC timezone information
 def _ensure_utc_timezone(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
@@ -289,9 +346,14 @@ def _serialize_tables(tables) -> list[dict]:
     ]
 
 
-def _extract_and_store_figures(session: Session, conversation_id: str, file_bytes: bytes):
+def _extract_and_store_figures(
+    session: Session,
+    conversation_id: str,
+    file_bytes: bytes,
+    preferred_direction: str | None = None,
+):
     try:
-        extracted_figures = extract_pdf_figures(file_bytes)
+        extracted_figures = extract_pdf_figures(file_bytes, preferred_direction=preferred_direction)
         crud.replace_figures(session, conversation_id, extracted_figures)
         return crud.get_figures(session, conversation_id)
     except Exception as e:
@@ -300,9 +362,14 @@ def _extract_and_store_figures(session: Session, conversation_id: str, file_byte
         return crud.get_figures(session, conversation_id)
 
 
-def _extract_and_store_tables(session: Session, conversation_id: str, file_bytes: bytes):
+def _extract_and_store_tables(
+    session: Session,
+    conversation_id: str,
+    file_bytes: bytes,
+    preferred_direction: str | None = None,
+):
     try:
-        extracted_tables = extract_pdf_tables(file_bytes)
+        extracted_tables = extract_pdf_tables(file_bytes, preferred_direction=preferred_direction)
         crud.replace_tables(session, conversation_id, extracted_tables)
         return crud.get_tables(session, conversation_id)
     except Exception as e:
@@ -344,6 +411,21 @@ def _build_asset_response(asset):
     if asset.image_data is not None:
         return Response(content=bytes(asset.image_data), media_type=asset.image_mime_type or "image/webp")
     raise HTTPException(status_code=404, detail="Asset data not found.")
+
+
+def _download_pdf_bytes(url: str, timeout: int = 60) -> bytes:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "translate-reprocess/1.0",
+            "Accept": "application/pdf,*/*",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        raise RuntimeError(f"Failed to download PDF from {url}: {exc}") from exc
 
 # Helper to build a list of conversation data objects
 def _build_conversations_data(session: Session, conversations: list[Conversation], include_relevance: bool = False, relevance_scores: list[int] = None) -> list[dict]:

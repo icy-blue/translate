@@ -38,12 +38,12 @@ TABLE_COLUMN_PADDING = 24
 SINGLE_COLUMN_TABLE_RATIO = 0.55
 
 
-def extract_pdf_figures(file_bytes: bytes) -> list[dict]:
+def extract_pdf_figures(file_bytes: bytes, preferred_direction: str | None = None) -> list[dict]:
     """Extract figure images with captions from a PDF and encode them as WebP."""
     document = fitz.open(stream=file_bytes, filetype="pdf")
     extracted_figures: list[dict] = []
     figure_index = 1
-    preferred_direction = _infer_figure_preferred_direction(document)
+    preferred_direction = preferred_direction or _infer_figure_preferred_direction(document)
 
     try:
         for page_number in range(document.page_count):
@@ -87,12 +87,12 @@ def extract_pdf_figures(file_bytes: bytes) -> list[dict]:
     return extracted_figures
 
 
-def extract_pdf_tables(file_bytes: bytes) -> list[dict]:
+def extract_pdf_tables(file_bytes: bytes, preferred_direction: str | None = None) -> list[dict]:
     """Extract table snapshots with captions from a PDF and encode them as WebP."""
     document = fitz.open(stream=file_bytes, filetype="pdf")
     extracted_tables: list[dict] = []
     table_index = 1
-    preferred_direction = _infer_table_preferred_direction(document)
+    preferred_direction = preferred_direction or _infer_table_preferred_direction(document)
 
     try:
         for page_number in range(document.page_count):
