@@ -234,7 +234,8 @@
       }, []);
 
       // ===== 数据加载函数 =====
-      async function loadConversations(append = false) {
+      async function loadConversations(append = false, options = {}) {
+        const tagCodesValue = options.tagCodes !== undefined ? options.tagCodes : selectedTagCodes;
         if (!append) {
           setLoading(true);
         } else {
@@ -245,6 +246,7 @@
           const params = new URLSearchParams();
           params.append("limit", PAGE_SIZE);
           params.append("offset", append ? offset : 0);
+          tagCodesValue.forEach(tagCode => params.append("tag_code", tagCode));
           const res = await fetch(`${BASE_URL}/conversations?${params.toString()}`);
 
           if (!res.ok) {
@@ -312,6 +314,14 @@
         if (!queryValue && tagCodesValue.length === 0) {
           setShowSearchResults(false);
           setSearchStatus("idle");
+          return;
+        }
+
+        if (!queryValue && tagCodesValue.length > 0) {
+          setShowSearchResults(false);
+          setSearchStatus("idle");
+          setOffset(0);
+          await loadConversations(false, { tagCodes: tagCodesValue });
           return;
         }
 
@@ -511,7 +521,7 @@
                 {/* 手机端：第一行 - 统计信息和搜索按钮 */}
                 {isMobile ? (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                    <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                    <span>{showSearchResults ? "搜索结果" : (selectedTagCodes.length > 0 ? `标签筛选 ${totalCount} 篇论文` : `已翻译 ${totalCount} 篇论文`)}</span>
                     <div style={{ display: "flex", gap: 8 }}>
                       {!readOnly && (
                         <Tooltip title="翻译新论文">
@@ -534,7 +544,7 @@
                   <>
                     {/* 左侧：统计信息 */}
                     <div style={{ display: "flex", alignItems: "center", flex: 1, justifyContent: "flex-start" }}>
-                      <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                      <span>{showSearchResults ? "搜索结果" : (selectedTagCodes.length > 0 ? `标签筛选 ${totalCount} 篇论文` : `已翻译 ${totalCount} 篇论文`)}</span>
                     </div>
                     
                     {/* 中间：搜索组件 */}
@@ -553,7 +563,7 @@
                           enterButton={!showSearchResults}
                           loading={isSearching}
                           addonAfter={
-                            showSearchResults ? (
+                            (showSearchResults || selectedTagCodes.length > 0) ? (
                               <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
                                 清除
                               </Button>
@@ -662,8 +672,10 @@
             {/* Show all conversations when not searching */}
             {!showSearchResults && conversations.length === 0 ? (
               <div className="empty-state">
-                <p>暂无翻译论文</p>
-                <p style={{ fontSize: 14, color: "#ccc" }}>上传 PDF 文件开始翻译</p>
+                <p>{selectedTagCodes.length > 0 ? "暂无匹配论文" : "暂无翻译论文"}</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>
+                  {selectedTagCodes.length > 0 ? "可以调整标签筛选条件" : "上传 PDF 文件开始翻译"}
+                </p>
               </div>
             ) : null}
 
@@ -673,7 +685,7 @@
 
                 {hasMore && (
                   <div style={{ textAlign: 'center', margin: '20px 0' }}>
-                    <Button onClick={() => loadConversations(true)} loading={loadingMore}>
+                    <Button onClick={() => loadConversations(true, { tagCodes: selectedTagCodes })} loading={loadingMore}>
                       {loadingMore ? '加载中…' : '加载更多'}
                     </Button>
                   </div>
