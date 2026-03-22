@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend import crud
+import backend.crud as crud
 from backend.ccf_mapping import map_ccf_publication
 from backend.database import engine
 from backend.models import FileRecord, PaperSemanticScholarResult
