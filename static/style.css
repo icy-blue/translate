@@ -128,6 +128,91 @@ body {
   margin: 20px 0;
 }
 
+.asset-section {
+  margin-bottom: 30px;
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #eee;
+  overflow: hidden;
+}
+
+.asset-section-header {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.asset-section-heading {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1677ff;
+}
+
+.asset-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 13px;
+  transition: transform 0.2s ease;
+}
+
+.asset-section-toggle .anticon {
+  transition: transform 0.2s ease;
+}
+
+.asset-section-toggle.expanded .anticon {
+  transform: rotate(90deg);
+}
+
+.asset-section-body {
+  padding: 0 24px 24px;
+}
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #fafcff;
+  border: 1px solid #e8eef6;
+}
+
+.asset-image .ant-image-img,
+.asset-image img {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.asset-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.asset-caption {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  word-break: break-word;
+}
+
 
 /* ==========================================
    浏览页样式
@@ -283,6 +368,10 @@ body {
     grid-template-columns: 1fr;
     column-count: 1;
   }
+
+  .asset-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ==========================================
@@ -334,6 +423,23 @@ body {
   .title-block {
     padding: 16px;
     font-size: 18px;
+  }
+
+  .asset-section {
+    margin-bottom: 16px;
+  }
+
+  .asset-section-header {
+    padding: 16px;
+    align-items: flex-start;
+  }
+
+  .asset-section-body {
+    padding: 0 16px 16px;
+  }
+
+  .asset-card {
+    padding: 12px;
   }
 
   /* 布局调整 */

@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from sqlmodel import Session, select, func
 from sqlalchemy import desc
 
-from models import Conversation, Message, FileRecord
+from models import Conversation, Message, FileRecord, PaperFigure, PaperTable
 
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     """Fetch a conversation by its ID."""
@@ -19,6 +21,26 @@ def get_messages(session: Session, conversation_id: str) -> list[Message]:
         select(Message)
         .where(Message.conversation_id == conversation_id)
         .order_by(Message.id)
+    )
+    return session.exec(statement).all()
+
+
+def get_figures(session: Session, conversation_id: str) -> list[PaperFigure]:
+    """Fetch all extracted figures for a conversation."""
+    statement = (
+        select(PaperFigure)
+        .where(PaperFigure.conversation_id == conversation_id)
+        .order_by(PaperFigure.figure_index)
+    )
+    return session.exec(statement).all()
+
+
+def get_tables(session: Session, conversation_id: str) -> list[PaperTable]:
+    """Fetch all extracted tables for a conversation."""
+    statement = (
+        select(PaperTable)
+        .where(PaperTable.conversation_id == conversation_id)
+        .order_by(PaperTable.table_index)
     )
     return session.exec(statement).all()
 
@@ -83,6 +105,58 @@ def create_messages(
         role="bot",
         content=bot_content
     ))
+    session.commit()
+
+
+def replace_figures(
+    session: Session,
+    conversation_id: str,
+    figures: list[dict]
+) -> None:
+    """Replace extracted figures for a conversation."""
+    existing_figures = get_figures(session, conversation_id)
+    for figure in existing_figures:
+        session.delete(figure)
+
+    for figure in figures:
+        session.add(PaperFigure(
+            conversation_id=conversation_id,
+            page_number=figure["page_number"],
+            figure_index=figure["figure_index"],
+            figure_label=figure.get("figure_label"),
+            caption=figure["caption"],
+            image_mime_type=figure.get("image_mime_type"),
+            image_data=figure.get("image_data"),
+            image_width=figure["image_width"],
+            image_height=figure["image_height"],
+        ))
+
+    session.commit()
+
+
+def replace_tables(
+    session: Session,
+    conversation_id: str,
+    tables: list[dict]
+) -> None:
+    """Replace extracted tables for a conversation."""
+    existing_tables = get_tables(session, conversation_id)
+    for table in existing_tables:
+        session.delete(table)
+
+    for table in tables:
+        session.add(PaperTable(
+            conversation_id=conversation_id,
+            page_number=table["page_number"],
+            table_index=table["table_index"],
+            table_label=table.get("table_label"),
+            caption=table["caption"],
+            image_mime_type=table.get("image_mime_type"),
+            image_data=table.get("image_data"),
+            image_width=table["image_width"],
+            image_height=table["image_height"],
+        ))
+
     session.commit()
 
 def get_paged_conversations(session: Session, offset: int, limit: int) -> list[Conversation]:

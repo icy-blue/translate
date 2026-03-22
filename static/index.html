@@ -42,7 +42,7 @@
     // ==========================================
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip } = antd;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image } = antd;
     const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined } = icons;
     const { TextArea } = Input;
 
@@ -521,12 +521,16 @@
       const [blocks, setBlocks] = useState([]);
       const [paperTitle, setPaperTitle] = useState("");
       const [pdfUrl, setPdfUrl] = useState("");
+      const [figures, setFigures] = useState([]);
+      const [tables, setTables] = useState([]);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
       const [configModalVisible, setConfigModalVisible] = useState(false);
       const [toc, setToc] = useState([]);
       const [activeHeading, setActiveHeading] = useState(null);
+      const [figuresExpanded, setFiguresExpanded] = useState(false);
+      const [tablesExpanded, setTablesExpanded] = useState(false);
 
       // ===== 配置状态 =====
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
@@ -638,28 +642,28 @@
           });
         }
 
-        const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
+        const headings = document.querySelectorAll(".content .toc-anchor, .content h1, .content h2, .content h3");
         const newToc = [];
 
         headings.forEach((heading, index) => {
-          const id = "heading-" + index;
+          const id = heading.dataset.tocId || heading.id || ("heading-" + index);
           heading.id = id;
           newToc.push({
             id,
-            text: heading.innerText,
-            level: Number(heading.tagName.slice(1))
+            text: heading.dataset.tocText || heading.innerText,
+            level: Number(heading.dataset.tocLevel || heading.tagName.slice(1))
           });
         });
 
         setToc(newToc);
-      }, [blocks]);
+      }, [blocks, figures.length, tables.length]);
 
       /**
        * 监听滚动，高亮当前目录项
        */
       useEffect(() => {
         const handleScroll = () => {
-          const headings = document.querySelectorAll(".content h1, .content h2");
+          const headings = document.querySelectorAll(".content .toc-anchor, .content h1, .content h2");
           let current = null;
           headings.forEach(heading => {
             if (heading.getBoundingClientRect().top <= 120) {
@@ -676,6 +680,10 @@
       async function loadConversation(id) {
         setPaperTitle("");
         setPdfUrl("");
+        setFigures([]);
+        setTables([]);
+        setFiguresExpanded(false);
+        setTablesExpanded(false);
         setLoading(true);
         const res = await fetch(`${BASE_URL}/conversation/${id}`);
         if (!res.ok) {
@@ -690,6 +698,8 @@
         if (data.pdf_url) {
           setPdfUrl(data.pdf_url);
         }
+        setFigures(Array.isArray(data.figures) ? data.figures : []);
+        setTables(Array.isArray(data.tables) ? data.tables : []);
         // filter out continuation markers and rely on backend to remove the initial prompt
         const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
         setBlocks(
@@ -732,6 +742,10 @@
           setLoading(true);
           setBlocks([]);
           setPdfUrl("");
+          setFigures([]);
+          setTables([]);
+          setFiguresExpanded(false);
+          setTablesExpanded(false);
           // 提取文件名（去掉.pdf后缀）作为临时标题
           const tempTitle = file.name.replace(/\.pdf$/i, "");
           setPaperTitle(tempTitle);
@@ -753,6 +767,8 @@
           if (data.pdf_url) {
             setPdfUrl(data.pdf_url);
           }
+          setFigures(Array.isArray(data.figures) ? data.figures : []);
+          setTables(Array.isArray(data.tables) ? data.tables : []);
 
           // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
           if (data.exists) {
@@ -864,6 +880,61 @@
         setCustomModalVisible(false);
         setCustomMessage("");
       };
+
+      function renderAssetSection({ id, title, items, expanded, setExpanded, type }) {
+        if (!items.length) {
+          return null;
+        }
+
+        return (
+          <div className="asset-section">
+            <button
+              id={id}
+              data-toc-id={id}
+              data-toc-text={title}
+              data-toc-level="1"
+              className="asset-section-header toc-anchor"
+              onClick={() => setExpanded(!expanded)}
+              type="button"
+            >
+              <div className="asset-section-heading">{title} ({items.length})</div>
+              <div className={`asset-section-toggle ${expanded ? "expanded" : ""}`}>
+                <CaretRightOutlined />
+                <span>{expanded ? "收起" : "展开"}</span>
+              </div>
+            </button>
+            {expanded && (
+              <div className="asset-section-body">
+                <Image.PreviewGroup>
+                  <div className="asset-grid">
+                    {items.map(item => {
+                      const label = type === "figure"
+                        ? (item.figure_label || `Figure ${item.figure_index}`)
+                        : (item.table_label || `Table ${item.table_index}`);
+                      return (
+                        <div
+                          key={item.id || `${type}-${item.page_number}-${item.figure_index || item.table_index}`}
+                          className="asset-card"
+                        >
+                          <Image
+                            src={item.image_url}
+                            alt={item.caption || label}
+                            className="asset-image"
+                          />
+                          <div className="asset-meta">
+                            {label + ` · 第 ${item.page_number} 页`}
+                          </div>
+                          <div className="asset-caption">{item.caption || "未识别到 caption"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Image.PreviewGroup>
+              </div>
+            )}
+          </div>
+        );
+      }
 
       // ===== JSX 渲染 =====
       return (
@@ -1040,6 +1111,22 @@
 
               <div className="content">
                 {paperTitle && <div className="title-block">{paperTitle}</div>}
+                {renderAssetSection({
+                  id: "figures-section",
+                  title: "论文插图",
+                  items: figures,
+                  expanded: figuresExpanded,
+                  setExpanded: setFiguresExpanded,
+                  type: "figure"
+                })}
+                {renderAssetSection({
+                  id: "tables-section",
+                  title: "论文表格",
+                  items: tables,
+                  expanded: tablesExpanded,
+                  setExpanded: setTablesExpanded,
+                  type: "table"
+                })}
                 {blocks.map(block => (
                   <div
                     key={block.id}

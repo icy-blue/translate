@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import hashlib
 import io
 import re
 import tempfile
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import fastapi_poe as fp
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text
 from pypdf import PdfReader, PdfWriter
 from sqlmodel import Session, select
 
@@ -17,10 +21,13 @@ import crud
 from config import settings
 from database import engine
 from dependencies import get_db_session, check_read_only, get_api_key
-from models import SQLModel, Conversation, Message
+from models import SQLModel, Conversation, Message, PaperFigure, PaperTable
+from pdf_figures import extract_pdf_figures, extract_pdf_tables
 from poe_utils import extract_title_from_pdf, get_bot_response, upload_file
 
 app = FastAPI()
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +40,7 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     SQLModel.metadata.create_all(engine)
+    _ensure_asset_columns()
 
 # Endpoint to handle PDF uploads and start the translation process
 @app.post("/upload")
@@ -58,6 +66,8 @@ async def upload_pdf(
     if existing_file:
         conversation = crud.get_conversation(session, existing_file.conversation_id)
         messages = crud.get_messages(session, existing_file.conversation_id)
+        figures = _extract_and_store_figures(session, existing_file.conversation_id, file_bytes)
+        tables = _extract_and_store_tables(session, existing_file.conversation_id, file_bytes)
         
         def keep(m):
             return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
@@ -67,7 +77,9 @@ async def upload_pdf(
             "title": conversation.title if conversation else None,
             "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
             "exists": True,
-            "pdf_url": existing_file.poe_url
+            "pdf_url": existing_file.poe_url,
+            "figures": _serialize_figures(figures),
+            "tables": _serialize_tables(tables),
         }
 
     # Generate unique IDs for the conversation and file
@@ -119,12 +131,16 @@ async def upload_pdf(
         initial_prompt,
         response_text
     )
+    figures = _extract_and_store_figures(session, conversation_id, file_bytes)
+    tables = _extract_and_store_tables(session, conversation_id, file_bytes)
 
     return {
         "conversation_id": conversation_id,
         "title": final_title,
         "messages": [{"role": "bot", "content": response_text}],
-        "pdf_url": pdf_attachment.url
+        "pdf_url": pdf_attachment.url,
+        "figures": _serialize_figures(figures),
+        "tables": _serialize_tables(tables),
     }
 
 # Common logic for continuing a conversation
@@ -188,6 +204,8 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
 
     messages = crud.get_messages(session, conversation_id)
     file_record = crud.get_file_record(session, conversation_id)
+    figures = crud.get_figures(session, conversation_id)
+    tables = crud.get_tables(session, conversation_id)
     pdf_url = file_record.poe_url if file_record else None
 
     def keep(m):
@@ -198,8 +216,21 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
         "title": conversation.title,
         "created_at": _ensure_utc_timezone(conversation.created_at),
         "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
-        "pdf_url": pdf_url
+        "pdf_url": pdf_url,
+        "figures": _serialize_figures(figures),
+        "tables": _serialize_tables(tables),
     }
+
+
+@app.get("/assets/figures/{figure_id}")
+async def get_figure_asset(figure_id: int, session: Session = Depends(get_db_session)):
+    figure = session.get(PaperFigure, figure_id)
+    return _build_asset_response(figure)
+
+@app.get("/assets/tables/{table_id}")
+async def get_table_asset(table_id: int, session: Session = Depends(get_db_session)):
+    table = session.get(PaperTable, table_id)
+    return _build_asset_response(table)
 
 # Helper to ensure datetime objects have UTC timezone information
 def _ensure_utc_timezone(dt: datetime) -> datetime:
@@ -224,6 +255,95 @@ def _build_conversation_data(session: Session, conversation: Conversation, inclu
     if include_relevance:
         result["relevance"] = relevance_score
     return result
+
+
+def _serialize_figures(figures) -> list[dict]:
+    return [
+        {
+            "id": figure.id,
+            "page_number": figure.page_number,
+            "figure_index": figure.figure_index,
+            "figure_label": figure.figure_label,
+            "caption": figure.caption,
+            "image_url": f"/assets/figures/{figure.id}",
+            "image_width": figure.image_width,
+            "image_height": figure.image_height,
+        }
+        for figure in figures
+    ]
+
+
+def _serialize_tables(tables) -> list[dict]:
+    return [
+        {
+            "id": table.id,
+            "page_number": table.page_number,
+            "table_index": table.table_index,
+            "table_label": table.table_label,
+            "caption": table.caption,
+            "image_url": f"/assets/tables/{table.id}",
+            "image_width": table.image_width,
+            "image_height": table.image_height,
+        }
+        for table in tables
+    ]
+
+
+def _extract_and_store_figures(session: Session, conversation_id: str, file_bytes: bytes):
+    try:
+        extracted_figures = extract_pdf_figures(file_bytes)
+        crud.replace_figures(session, conversation_id, extracted_figures)
+        return crud.get_figures(session, conversation_id)
+    except Exception as e:
+        print(f"Error extracting figures for conversation {conversation_id}: {e}")
+        session.rollback()
+        return crud.get_figures(session, conversation_id)
+
+
+def _extract_and_store_tables(session: Session, conversation_id: str, file_bytes: bytes):
+    try:
+        extracted_tables = extract_pdf_tables(file_bytes)
+        crud.replace_tables(session, conversation_id, extracted_tables)
+        return crud.get_tables(session, conversation_id)
+    except Exception as e:
+        print(f"Error extracting tables for conversation {conversation_id}: {e}")
+        session.rollback()
+        return crud.get_tables(session, conversation_id)
+
+
+def _ensure_asset_columns():
+    dialect = engine.dialect.name
+    binary_type = "BYTEA" if dialect == "postgresql" else "BLOB"
+
+    required_columns = {
+        "paperfigure": {
+            "image_mime_type": "VARCHAR",
+            "image_data": binary_type,
+        },
+        "papertable": {
+            "image_mime_type": "VARCHAR",
+            "image_data": binary_type,
+        },
+    }
+
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        for table_name, columns in required_columns.items():
+            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, column_type in columns.items():
+                if column_name in existing_columns:
+                    continue
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+            if "image_url" in existing_columns:
+                connection.execute(text(f"ALTER TABLE {table_name} DROP COLUMN image_url"))
+
+
+def _build_asset_response(asset):
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    if asset.image_data is not None:
+        return Response(content=bytes(asset.image_data), media_type=asset.image_mime_type or "image/webp")
+    raise HTTPException(status_code=404, detail="Asset data not found.")
 
 # Helper to build a list of conversation data objects
 def _build_conversations_data(session: Session, conversations: list[Conversation], include_relevance: bool = False, relevance_scores: list[int] = None) -> list[dict]:

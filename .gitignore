@@ -6,3 +6,4 @@ uploads/
 translations.db
 .env
 GEMINI.md
+_temp/

@@ -6,4 +6,6 @@ fastapi-poe
 python-multipart
 gunicorn
 pypdf
+pymupdf
+pillow
 # psycopg2-binary # if you use postgresql

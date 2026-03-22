@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import Column, LargeBinary
 from sqlmodel import SQLModel, Field
+
 
 class Conversation(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -10,12 +14,14 @@ class Conversation(SQLModel, table=True):
     status: str = "active"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     conversation_id: str = Field(index=True)
     role: str
     content: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 
 class FileRecord(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -26,3 +32,31 @@ class FileRecord(SQLModel, table=True):
     content_type: str
     poe_name: str
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PaperFigure(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    conversation_id: str = Field(index=True)
+    page_number: int
+    figure_index: int
+    figure_label: Optional[str] = None
+    caption: str
+    image_mime_type: Optional[str] = None
+    image_data: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
+    image_width: int
+    image_height: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PaperTable(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    conversation_id: str = Field(index=True)
+    page_number: int
+    table_index: int
+    table_label: Optional[str] = None
+    caption: str
+    image_mime_type: Optional[str] = None
+    image_data: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
+    image_width: int
+    image_height: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
