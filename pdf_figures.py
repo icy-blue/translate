@@ -33,6 +33,7 @@ RENDER_SCALE = 2.0
 CONTEXT_TEXT_GAP = 14
 CLIP_PADDING = 8
 REGION_GROUP_GAP = 40
+TABLE_REGION_GROUP_GAP = 56
 TABLE_COLUMN_PADDING = 24
 SINGLE_COLUMN_TABLE_RATIO = 0.55
 
@@ -42,6 +43,7 @@ def extract_pdf_figures(file_bytes: bytes) -> list[dict]:
     document = fitz.open(stream=file_bytes, filetype="pdf")
     extracted_figures: list[dict] = []
     figure_index = 1
+    preferred_direction = _infer_figure_preferred_direction(document)
 
     try:
         for page_number in range(document.page_count):
@@ -53,7 +55,12 @@ def extract_pdf_figures(file_bytes: bytes) -> list[dict]:
             used_region_indexes: set[int] = set()
 
             for caption in caption_blocks:
-                matched_indexes = _match_graphic_region_indexes(caption, graphic_regions, used_region_indexes)
+                matched_indexes = _match_graphic_region_indexes(
+                    caption,
+                    graphic_regions,
+                    used_region_indexes,
+                    preferred_direction=preferred_direction,
+                )
                 if not matched_indexes:
                     continue
 
@@ -85,6 +92,7 @@ def extract_pdf_tables(file_bytes: bytes) -> list[dict]:
     document = fitz.open(stream=file_bytes, filetype="pdf")
     extracted_tables: list[dict] = []
     table_index = 1
+    preferred_direction = _infer_table_preferred_direction(document)
 
     try:
         for page_number in range(document.page_count):
@@ -98,7 +106,12 @@ def extract_pdf_tables(file_bytes: bytes) -> list[dict]:
             used_region_indexes: set[int] = set()
 
             for caption in caption_blocks:
-                matched_indexes = _match_table_region_indexes(caption, table_regions, used_region_indexes)
+                matched_indexes = _match_table_region_indexes(
+                    caption,
+                    table_regions,
+                    used_region_indexes,
+                    preferred_direction=preferred_direction,
+                )
                 if not matched_indexes:
                     continue
 
@@ -205,7 +218,7 @@ def _collect_table_caption_blocks(blocks: list[dict]) -> list[dict]:
         caption_blocks.append(caption)
 
     caption_blocks.sort(key=lambda block: (block["bbox"].y0, block["bbox"].x0))
-    return caption_blocks
+    return _extend_table_captions(caption_blocks, blocks)
 
 
 def _find_caption_match(text: str, pattern: re.Pattern[str]):
@@ -279,6 +292,8 @@ def _collect_non_caption_text_regions(blocks: list[dict]) -> list[fitz.Rect]:
 
 def _collect_table_regions(page: fitz.Page, blocks: list[dict]) -> list[dict]:
     regions: list[dict] = []
+    top_margin_limit = page.rect.y0 + 28
+    bottom_margin_limit = page.rect.y1 - 28
 
     for block in blocks:
         if block.get("type") != 0:
@@ -303,6 +318,15 @@ def _collect_table_regions(page: fitz.Page, blocks: list[dict]) -> list[dict]:
             continue
 
         line_count = len(content_lines)
+        if line_count <= 2 and (bbox.y1 <= top_margin_limit or bbox.y0 >= bottom_margin_limit):
+            continue
+
+        if line_count <= 2 and bbox.width < 120 and bbox.height < 20 and _digit_ratio(text) < 0.2:
+            continue
+
+        if _is_line_number_polluted_paragraph(content_lines):
+            continue
+
         digit_ratio = _digit_ratio(text)
         if _is_paragraph_like(text, line_count) and digit_ratio < 0.05:
             continue
@@ -359,6 +383,26 @@ def _has_caption_style_suffix(text: str, match_end: int) -> bool:
     return False
 
 
+def _is_line_number_polluted_paragraph(lines: list[dict]) -> bool:
+    if len(lines) < 4:
+        return False
+
+    polluted_lines = 0
+    numeric_only_lines = 0
+    alpha_chars = 0
+    for line in lines:
+        text = line["text"]
+        alpha_chars += sum(1 for char in text if char.isalpha())
+        if re.search(r"\b\d{2,4}\s+\d{2,4}\s*$", text):
+            polluted_lines += 1
+        if re.fullmatch(r"\d{2,4}", text):
+            numeric_only_lines += 1
+
+    if polluted_lines >= max(3, len(lines) // 2) and alpha_chars > 40:
+        return True
+    return numeric_only_lines >= max(3, len(lines) // 3) and alpha_chars > 40
+
+
 def _extract_block_text(block: dict) -> str:
     lines: list[str] = []
     for line in block.get("lines", []):
@@ -372,7 +416,41 @@ def _normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _match_graphic_region_indexes(caption: dict, regions: list[dict], used_region_indexes: set[int]) -> list[int]:
+def _match_graphic_region_indexes(
+    caption: dict,
+    regions: list[dict],
+    used_region_indexes: set[int],
+    preferred_direction: str | None = None,
+) -> list[int]:
+    above_matches = _match_graphic_region_indexes_in_direction(caption, regions, used_region_indexes, "above")
+    below_matches = _match_graphic_region_indexes_in_direction(caption, regions, used_region_indexes, "below")
+
+    if preferred_direction == "above" and above_matches:
+        return above_matches
+    if preferred_direction == "below" and below_matches:
+        return below_matches
+
+    if not above_matches and not below_matches:
+        return []
+    if above_matches and not below_matches:
+        return above_matches
+    if below_matches and not above_matches:
+        return below_matches
+
+    above_score = _score_graphic_group(above_matches, regions)
+    below_score = _score_graphic_group(below_matches, regions)
+
+    if above_score >= below_score - 0.5:
+        return above_matches
+    return below_matches
+
+
+def _match_graphic_region_indexes_in_direction(
+    caption: dict,
+    regions: list[dict],
+    used_region_indexes: set[int],
+    direction: str,
+) -> list[int]:
     caption_bbox = caption["bbox"]
     candidates: list[tuple[int, fitz.Rect, float]] = []
 
@@ -381,7 +459,10 @@ def _match_graphic_region_indexes(caption: dict, regions: list[dict], used_regio
             continue
 
         region_bbox = region["bbox"]
-        vertical_gap = caption_bbox.y0 - region_bbox.y1
+        if direction == "above":
+            vertical_gap = caption_bbox.y0 - region_bbox.y1
+        else:
+            vertical_gap = region_bbox.y0 - caption_bbox.y1
         if vertical_gap < -6 or vertical_gap > MAX_CAPTION_GAP:
             continue
 
@@ -393,27 +474,46 @@ def _match_graphic_region_indexes(caption: dict, regions: list[dict], used_regio
     if not candidates:
         return []
 
-    anchor_index, anchor_bbox, _ = min(candidates, key=lambda item: item[2])
-    matched_indexes = {anchor_index}
-    group_rect = fitz.Rect(anchor_bbox)
-    changed = True
+    best_indexes: list[int] = []
+    best_score: float | None = None
 
-    while changed:
-        changed = False
-        for index, region_bbox, _ in candidates:
-            if index in matched_indexes:
-                continue
-            if _is_region_adjacent(group_rect, region_bbox):
-                matched_indexes.add(index)
-                group_rect |= region_bbox
-                changed = True
+    for anchor_index, anchor_bbox, anchor_gap in candidates:
+        matched_indexes = {anchor_index}
+        group_rect = fitz.Rect(anchor_bbox)
+        changed = True
 
-    return sorted(matched_indexes)
+        while changed:
+            changed = False
+            for index, region_bbox, _ in candidates:
+                if index in matched_indexes:
+                    continue
+                if _is_region_adjacent(group_rect, region_bbox):
+                    matched_indexes.add(index)
+                    group_rect |= region_bbox
+                    changed = True
+
+        indexes = sorted(matched_indexes)
+        score = _score_graphic_group(indexes, regions) - (anchor_gap * 0.02)
+        if best_score is None or score > best_score:
+            best_indexes = indexes
+            best_score = score
+
+    return best_indexes
 
 
-def _match_table_region_indexes(caption: dict, regions: list[dict], used_region_indexes: set[int]) -> list[int]:
+def _match_table_region_indexes(
+    caption: dict,
+    regions: list[dict],
+    used_region_indexes: set[int],
+    preferred_direction: str | None = None,
+) -> list[int]:
     above_matches = _match_table_region_indexes_in_direction(caption, regions, used_region_indexes, "above")
     below_matches = _match_table_region_indexes_in_direction(caption, regions, used_region_indexes, "below")
+
+    if preferred_direction == "above" and above_matches:
+        return above_matches
+    if preferred_direction == "below" and below_matches:
+        return below_matches
 
     if not above_matches and not below_matches:
         return []
@@ -428,6 +528,105 @@ def _match_table_region_indexes(caption: dict, regions: list[dict], used_region_
     if above_score >= below_score - 0.75:
         return above_matches
     return below_matches
+
+
+def _infer_table_preferred_direction(document: fitz.Document) -> str | None:
+    above_votes = 0
+    below_votes = 0
+
+    for page_number in range(document.page_count):
+        page = document[page_number]
+        blocks = page.get_text("dict").get("blocks", [])
+        caption_blocks = _collect_table_caption_blocks(blocks)
+        if not caption_blocks:
+            continue
+
+        table_regions = _collect_table_regions(page, blocks)
+        used_region_indexes: set[int] = set()
+
+        for caption in caption_blocks:
+            above_matches = _match_table_region_indexes_in_direction(caption, table_regions, used_region_indexes, "above")
+            below_matches = _match_table_region_indexes_in_direction(caption, table_regions, used_region_indexes, "below")
+
+            if above_matches and not below_matches:
+                above_votes += 1
+            elif below_matches and not above_matches:
+                below_votes += 1
+
+            matched_indexes = _match_table_region_indexes(caption, table_regions, used_region_indexes)
+            used_region_indexes.update(matched_indexes)
+
+    if above_votes == 0 and below_votes == 0:
+        return None
+    if above_votes == below_votes:
+        return None
+    if above_votes > below_votes:
+        return "above"
+    return "below"
+
+
+def _infer_figure_preferred_direction(document: fitz.Document) -> str | None:
+    above_votes = 0
+    below_votes = 0
+
+    for page_number in range(document.page_count):
+        page = document[page_number]
+        blocks = page.get_text("dict").get("blocks", [])
+        caption_blocks = _collect_caption_blocks(blocks, FIGURE_CAPTION_PATTERN)
+        if not caption_blocks:
+            continue
+
+        graphic_regions = _collect_graphic_regions(page, blocks)
+        for caption in caption_blocks:
+            above_matches = _match_graphic_region_indexes_in_direction(caption, graphic_regions, set(), "above")
+            below_matches = _match_graphic_region_indexes_in_direction(caption, graphic_regions, set(), "below")
+
+            if above_matches and not below_matches:
+                above_votes += 1
+                continue
+            if below_matches and not above_matches:
+                below_votes += 1
+                continue
+
+            if not above_matches or not below_matches:
+                continue
+
+            above_score = _score_graphic_group(above_matches, graphic_regions)
+            below_score = _score_graphic_group(below_matches, graphic_regions)
+            if above_score >= below_score + 0.75:
+                above_votes += 1
+            elif below_score >= above_score + 0.75:
+                below_votes += 1
+
+    if above_votes == 0 and below_votes == 0:
+        return None
+    if above_votes == below_votes:
+        return None
+    if above_votes > below_votes:
+        return "above"
+    return "below"
+
+
+def _score_graphic_group(indexes: list[int], regions: list[dict]) -> float:
+    score = 0.0
+    area = 0.0
+
+    for index in indexes:
+        bbox = regions[index]["bbox"]
+        area += bbox.width * bbox.height
+        if regions[index]["kind"] == "image":
+            score += 2.0
+        else:
+            score += 1.4
+        if bbox.width >= 140:
+            score += 0.5
+        if bbox.height >= 60:
+            score += 0.5
+
+    if len(indexes) >= 2:
+        score += 0.8
+    score += min(area / 12000.0, 6.0)
+    return score
 
 
 def _match_table_region_indexes_in_direction(
@@ -460,22 +659,31 @@ def _match_table_region_indexes_in_direction(
     if not candidates:
         return []
 
-    anchor_index, anchor_bbox, _ = min(candidates, key=lambda item: item[2])
-    matched_indexes = {anchor_index}
-    group_rect = fitz.Rect(anchor_bbox)
-    changed = True
+    best_indexes: list[int] = []
+    best_score: float | None = None
 
-    while changed:
-        changed = False
-        for index, region_bbox, _ in candidates:
-            if index in matched_indexes:
-                continue
-            if _is_region_adjacent(group_rect, region_bbox):
-                matched_indexes.add(index)
-                group_rect |= region_bbox
-                changed = True
+    for anchor_index, anchor_bbox, anchor_gap in candidates:
+        matched_indexes = {anchor_index}
+        group_rect = fitz.Rect(anchor_bbox)
+        changed = True
 
-    return sorted(matched_indexes)
+        while changed:
+            changed = False
+            for index, region_bbox, _ in candidates:
+                if index in matched_indexes:
+                    continue
+                if _is_table_region_adjacent(group_rect, region_bbox):
+                    matched_indexes.add(index)
+                    group_rect |= region_bbox
+                    changed = True
+
+        indexes = sorted(matched_indexes)
+        score = _score_table_group(indexes, regions) - (anchor_gap * 0.02)
+        if best_score is None or score > best_score:
+            best_indexes = indexes
+            best_score = score
+
+    return best_indexes
 
 
 def _has_horizontal_match(image_bbox: fitz.Rect, caption_bbox: fitz.Rect) -> bool:
@@ -594,6 +802,64 @@ def _is_region_adjacent(group_rect: fitz.Rect, candidate_rect: fitz.Rect) -> boo
     if vertical_overlap > 0 and horizontal_gap <= REGION_GROUP_GAP:
         return True
     return False
+
+
+def _is_table_region_adjacent(group_rect: fitz.Rect, candidate_rect: fitz.Rect) -> bool:
+    horizontal_gap = _axis_gap(group_rect.x0, group_rect.x1, candidate_rect.x0, candidate_rect.x1)
+    vertical_gap = _axis_gap(group_rect.y0, group_rect.y1, candidate_rect.y0, candidate_rect.y1)
+    horizontal_overlap = _overlap_length(group_rect.x0, group_rect.x1, candidate_rect.x0, candidate_rect.x1)
+    vertical_overlap = _overlap_length(group_rect.y0, group_rect.y1, candidate_rect.y0, candidate_rect.y1)
+
+    if horizontal_overlap > 0 and vertical_gap <= TABLE_REGION_GROUP_GAP:
+        return True
+    if vertical_overlap > 0 and horizontal_gap <= REGION_GROUP_GAP:
+        return True
+    return False
+
+
+def _extend_table_captions(caption_blocks: list[dict], blocks: list[dict]) -> list[dict]:
+    text_blocks = []
+    for block in blocks:
+        if block.get("type") != 0:
+            continue
+        text = _normalize_whitespace(_extract_block_text(block))
+        if not text:
+            continue
+        text_blocks.append({
+            "bbox": fitz.Rect(block["bbox"]),
+            "text": text,
+        })
+
+    extended_captions = []
+    for caption in caption_blocks:
+        extended_bbox = fitz.Rect(caption["bbox"])
+        extended_text = caption["text"]
+
+        for block in text_blocks:
+            bbox = block["bbox"]
+            if _is_nearly_same_rect(bbox, caption["bbox"]):
+                continue
+            if bbox.y0 < extended_bbox.y1 - 1:
+                continue
+            if bbox.y0 - extended_bbox.y1 > 18:
+                continue
+            if bbox.width > min(140.0, extended_bbox.width * 0.33):
+                continue
+            if not _has_horizontal_match(bbox, extended_bbox):
+                continue
+            if TABLE_CAPTION_PATTERN.match(block["text"]):
+                continue
+
+            extended_bbox |= bbox
+            extended_text = _normalize_whitespace(f"{extended_text} {block['text']}")
+
+        extended_captions.append({
+            "bbox": extended_bbox,
+            "label": caption["label"],
+            "text": extended_text,
+        })
+
+    return extended_captions
 
 
 def _score_table_group(indexes: list[int], regions: list[dict]) -> float:
