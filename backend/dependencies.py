@@ -1,8 +1,8 @@
 from fastapi import Depends, HTTPException, Form
 from sqlmodel import Session
 
-from config import settings
-from database import engine
+from .config import settings
+from .database import engine
 
 def get_db_session():
     """FastAPI dependency to get a DB session."""

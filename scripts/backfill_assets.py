@@ -16,11 +16,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import crud
-from app import _ensure_asset_columns
-from database import engine
-from models import FileRecord
-from pdf_figures import extract_pdf_figures, extract_pdf_tables
+from backend import crud
+from backend.database import engine
+from backend.main import _ensure_asset_columns
+from backend.models import FileRecord
+from backend.pdf_figures import extract_pdf_figures, extract_pdf_tables
 
 
 def parse_args() -> argparse.Namespace:

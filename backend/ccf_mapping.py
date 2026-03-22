@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parents[1]
 CCF_PUBLICATIONS_PATH = ROOT_DIR / "data" / "ccf_publications.json"
 
 

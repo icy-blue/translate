@@ -1,7 +1,7 @@
 from typing import Optional
 import fastapi_poe as fp
-from config import settings
-from paper_tags import (
+from .config import settings
+from .paper_tags import (
     build_category_selection_prompt,
     build_tag_payloads,
     build_tagging_followup_prompt,

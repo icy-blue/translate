@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlmodel import Session, select, func
 from sqlalchemy import desc
 
-from models import (
+from .models import (
     Conversation,
     Message,
     FileRecord,

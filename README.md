@@ -31,6 +31,8 @@
 - PDF 与资产处理：pypdf + PyMuPDF + Pillow
 - 前端：`static/index.html`（React + Ant Design CDN）
 
+后端 Python 模块统一放在 `backend/`，根目录 `app.py` 仅作为启动兼容入口（`uvicorn app:app`）。
+
 ## 快速启动
 
 ### 1) 环境准备
@@ -102,14 +104,16 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 ```text
 translate/
 ├── app.py
-├── config.py
-├── models.py
-├── crud.py
-├── dependencies.py
-├── poe_utils.py
-├── paper_tags.py
-├── pdf_figures.py
-├── ccf_mapping.py
+├── backend/
+│   ├── main.py
+│   ├── config.py
+│   ├── models.py
+│   ├── crud.py
+│   ├── dependencies.py
+│   ├── poe_utils.py
+│   ├── paper_tags.py
+│   ├── pdf_figures.py
+│   └── ccf_mapping.py
 ├── static/
 ├── scripts/
 ├── data/

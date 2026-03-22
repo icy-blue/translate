@@ -20,10 +20,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import crud
-from ccf_mapping import map_ccf_publication
-from database import engine
-from models import FileRecord, PaperSemanticScholarResult
+from backend import crud
+from backend.ccf_mapping import map_ccf_publication
+from backend.database import engine
+from backend.models import FileRecord, PaperSemanticScholarResult
 
 
 SEMANTIC_SCHOLAR_MATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search/match"

@@ -13,8 +13,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from database import engine
-from models import Conversation, PaperSemanticScholarResult
+from backend.database import engine
+from backend.models import Conversation, PaperSemanticScholarResult
 
 
 DEFAULT_OUTPUT = Path("data/paper_semantic_scholar_results.csv")

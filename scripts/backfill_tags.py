@@ -15,12 +15,12 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import crud
-from config import settings
-from database import engine
-from models import FileRecord, Message, PaperTag
-from paper_tags import extract_abstract_for_tagging
-from poe_utils import classify_paper_tags
+from backend import crud
+from backend.config import settings
+from backend.database import engine
+from backend.models import FileRecord, Message, PaperTag
+from backend.paper_tags import extract_abstract_for_tagging
+from backend.poe_utils import classify_paper_tags
 
 
 def parse_args() -> argparse.Namespace:
