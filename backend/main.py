@@ -823,6 +823,7 @@ def _build_search_filter_payload(session: Session) -> dict:
     ).all()
 
     return {
+        "total_conversations": total_conversations,
         "ccf_categories": [
             {"value": "A", "label": "CCF-A", "count": ccf_counts.get("A", 0)},
             {"value": "B", "label": "CCF-B", "count": ccf_counts.get("B", 0)},
@@ -922,8 +923,9 @@ async def search_conversations(
     normalized_ccf_categories = _normalize_string_filters(ccf_category)
     normalized_venue_filters = _normalize_string_filters(venue_filter)
     normalized_years = _normalize_year_filters(year)
+    total_conversations = session.exec(select(func.count(Conversation.id))).one()
     if not (q and q.strip()) and not normalized_tag_codes and not normalized_ccf_categories and not normalized_venue_filters and not normalized_years:
-        return {"exact_matches": [], "fuzzy_matches": []}
+        return {"exact_matches": [], "fuzzy_matches": [], "total_conversations": total_conversations}
 
     query = q.strip()
     base_statement = _build_filtered_conversation_statement(
@@ -964,7 +966,8 @@ async def search_conversations(
 
     return {
         "exact_matches": exact_matches if search_type != "fuzzy" else [],
-        "fuzzy_matches": fuzzy_matches if search_type != "exact" else []
+        "fuzzy_matches": fuzzy_matches if search_type != "exact" else [],
+        "total_conversations": total_conversations,
     }
 
 
