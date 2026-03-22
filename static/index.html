@@ -676,6 +676,8 @@
           setSearchResults({ exact_matches: [], fuzzy_matches: [] });
           setShowSearchResults(false);
           setSearchStatus("idle");
+          setOffset(0);
+          await loadConversations(false, EMPTY_SEARCH_FILTERS);
           return;
         }
 
@@ -1264,7 +1266,6 @@
                         style={{ flex: 1 }}
                         allowClear
                       />
-                      <Button onClick={clearSearch}>重置</Button>
                     </div>
                   </>
                 ) : (
