@@ -93,8 +93,7 @@
       }
 
       return tags.map(tag => {
-        const meta = TAG_CATEGORY_META[tag.category_code] || {};
-        const chipClassName = ["tag-chip", meta.className, compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ");
+        const chipClassName = getPaperTagChipClassName(tag, { compact });
         return (
           <span
             key={tag.id || `${tag.tag_code}-${tag.tag_label}`}
@@ -192,6 +191,40 @@
           </span>
         )
       ));
+    }
+
+    function getPaperTagChipClassName(tag, options = {}) {
+      const { compact = false } = options;
+      const meta = TAG_CATEGORY_META[tag?.category_code] || {};
+      return ["tag-chip", meta.className, compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ");
+    }
+
+      function renderRemovableChipItems(items, options = {}) {
+        const { emptyText = null, compact = false } = options;
+        if (!Array.isArray(items) || items.length === 0) {
+          return emptyText ? <span className="tag-empty-text">{emptyText}</span> : null;
+        }
+
+      return items.map(item => {
+        const chipNode = (
+          <button
+            key={item.key}
+            type="button"
+            className={[item.className || "tag-chip", "tag-chip-action", compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ")}
+            onClick={item.onRemove}
+            title={item.tooltip ? undefined : item.title}
+          >
+            {item.icon && <span className="tag-chip-icon">{item.icon}</span>}
+            <span className="tag-chip-action-text">{item.label}</span>
+            <span className="tag-chip-remove">×</span>
+          </button>
+        );
+        return item.tooltip ? (
+          <Tooltip key={item.key} title={item.title}>
+            {chipNode}
+          </Tooltip>
+        ) : chipNode;
+      });
     }
 
     function renderSelectedTagPills(tagCodes, options = {}) {
@@ -358,6 +391,7 @@
       const [loading, setLoading] = useState(false);
       const [viewMode, setViewMode] = useState("masonry"); // 'masonry' or 'list'
       const [readOnly, setReadOnly] = useState(false);
+      const [configModalVisible, setConfigModalVisible] = useState(false);
       const [offset, setOffset] = useState(0);
       const [hasMore, setHasMore] = useState(false);
       const [loadingMore, setLoadingMore] = useState(false);
@@ -369,9 +403,9 @@
       const [isSearching, setIsSearching] = useState(false);
       const [searchStatus, setSearchStatus] = useState("idle"); // 'idle' | 'loading' | 'success' | 'error'
       const [showSearchResults, setShowSearchResults] = useState(false);
-      const [searchBarExpanded, setSearchBarExpanded] = useState(window.innerWidth <= 576 && hasBrowseSearchState(initialBrowseState));
       const [tagLibrary, setTagLibrary] = useState([]);
       const [searchFilterLibrary, setSearchFilterLibrary] = useState({ ccf_categories: [], venues: [], years: [] });
+      const [libraryTotalCount, setLibraryTotalCount] = useState(0);
       const [selectedTagCodes, setSelectedTagCodes] = useState(initialBrowseState.filters.tagCodes);
       const [selectedCcfCategories, setSelectedCcfCategories] = useState(initialBrowseState.filters.ccfCategories);
       const [selectedVenueFilters, setSelectedVenueFilters] = useState(initialBrowseState.filters.venues);
@@ -384,6 +418,25 @@
       const [activeTagCategory, setActiveTagCategory] = useState("L");
       const [tagKeyword, setTagKeyword] = useState("");
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
+      const [mobileSearchDirty, setMobileSearchDirty] = useState(false);
+      const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
+      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
+      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
+      const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
+
+      const modelOptions = [
+        { label: "GPT-5.4", value: "GPT-5.4" },
+        { label: "GPT-5.2", value: "GPT-5.2" },
+        { label: "GPT-5.2-Instant", value: "GPT-5.2-Instant" },
+        { label: "GPT-5.3-Instant", value: "GPT-5.3-Instant" },
+        { label: "Minimax-M2.5", value: "Minimax-M2.5" },
+        { label: "Kimi-K2.5-FW", value: "Kimi-K2.5-FW" },
+        { label: "Qwen3.5-Flash", value: "Qwen3.5-Flash" },
+        { label: "GLM-4.7-Flash", value: "GLM-4.7-Flash" },
+        { label: "GPT-5-Chat", value: "GPT-5-Chat"},
+        { label: "GPT-5", value: "GPT-5"},
+      ];
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -434,8 +487,8 @@
         setDraftVenueFilters(filters.venues);
         setDraftYears(filters.years);
         setTagKeyword("");
-        setSearchBarExpanded(window.innerWidth <= 576 && hasBrowseSearchState(normalized));
         setOffset(0);
+        setMobileSearchDirty(false);
 
         if (normalized.query) {
           handleSearch({
@@ -572,6 +625,16 @@
         }
       }
 
+      const saveConfig = () => {
+        localStorage.setItem("poe_api_key", poeApiKey);
+        localStorage.setItem("poe_model", poeModel);
+        localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
+        localStorage.setItem("urlbase", urlBase);
+        message.success("配置已保存");
+        setConfigModalVisible(false);
+      };
+
       async function loadSearchFilterLibrary() {
         try {
           const res = await fetch(`${BASE_URL}/search/filters`);
@@ -584,6 +647,9 @@
             venues: Array.isArray(data.venues) ? data.venues : [],
             years: Array.isArray(data.years) ? data.years : [],
           });
+          if (typeof data.total_conversations === "number") {
+            setLibraryTotalCount(data.total_conversations);
+          }
         } catch (err) {
           console.error("Failed to load search filter library:", err);
         }
@@ -597,6 +663,7 @@
         const shouldSyncUrl = options.syncUrl !== false;
 
         setSearchQuery(queryValue);
+        setMobileSearchDirty(false);
 
         if (shouldSyncUrl) {
           syncBrowseSearchStateToUrl({
@@ -646,6 +713,9 @@
           }
 
           const data = await res.json();
+          if (typeof data.total_conversations === "number") {
+            setLibraryTotalCount(data.total_conversations);
+          }
           setSearchResults(data);
           setSearchStatus("success");
         } catch (err) {
@@ -660,6 +730,7 @@
 
       function clearSearch() {
         setSearchQuery("");
+        setMobileSearchDirty(false);
         setSelectedTagCodes([]);
         setSelectedCcfCategories([]);
         setSelectedVenueFilters([]);
@@ -823,12 +894,65 @@
         : pickerSections.filter(section => section.key === activeTagCategory);
 
       const selectedFilterCount = getSelectedFilterCount();
+      const browseSubtitle = `已翻译 ${libraryTotalCount || totalCount} 篇论文`;
+      const hasKeywordSearch = !!searchQuery.trim();
+      const exactResultCount = searchResults.exact_matches.length;
+      const fuzzyResultCount = searchResults.fuzzy_matches.length;
+      const totalSearchResultCount = exactResultCount + fuzzyResultCount;
+      const resultModeLabel = hasKeywordSearch && selectedFilterCount > 0
+        ? "标签 + 关键字搜索"
+        : hasKeywordSearch
+          ? "关键字搜索"
+          : "标签筛选";
+      const shouldShowResultSummary = (selectedFilterCount > 0 && !hasKeywordSearch)
+        || (showSearchResults && searchStatus === "success");
+      const appliedSelectedItems = buildAppliedSelectedItems();
+
+      function scrollToBrowseResultSection(sectionId) {
+        document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      function removeAppliedSelection(type, value) {
+        const nextFilters = {
+          tagCodes: type === "paper_tag" ? selectedTagCodes.filter(item => item !== value) : [...selectedTagCodes],
+          ccfCategories: type === "ccf" ? selectedCcfCategories.filter(item => item !== value) : [...selectedCcfCategories],
+          venues: type === "venue" ? selectedVenueFilters.filter(item => item !== value) : [...selectedVenueFilters],
+          years: type === "year" ? selectedYears.filter(item => item !== value) : [...selectedYears],
+        };
+
+        setSelectedTagCodes(nextFilters.tagCodes);
+        setSelectedCcfCategories(nextFilters.ccfCategories);
+        setSelectedVenueFilters(nextFilters.venues);
+        setSelectedYears(nextFilters.years);
+        setDraftTagCodes(nextFilters.tagCodes);
+        setDraftCcfCategories(nextFilters.ccfCategories);
+        setDraftVenueFilters(nextFilters.venues);
+        setDraftYears(nextFilters.years);
+
+        handleSearch({
+          query: searchQuery.trim(),
+          tagCodes: nextFilters.tagCodes,
+          ccfCategories: nextFilters.ccfCategories,
+          venues: nextFilters.venues,
+          years: nextFilters.years,
+        });
+      }
 
       useEffect(() => {
         if (!pickerSections.some(section => section.key === activeTagCategory) && pickerSections.length > 0) {
           setActiveTagCategory(pickerSections[0].key);
         }
       }, [tagLibrary, searchFilterLibrary, activeTagCategory]);
+
+      useEffect(() => {
+        if (!isMobile || !mobileSearchDirty) {
+          return;
+        }
+        const timer = window.setTimeout(() => {
+          handleSearch({ query: searchQuery.trim(), replaceUrl: true });
+        }, 1000);
+        return () => window.clearTimeout(timer);
+      }, [isMobile, mobileSearchDirty, searchQuery]);
 
       function buildDraftSelectedItems() {
         const items = [];
@@ -838,6 +962,7 @@
             key: `paper_tag:${tagCode}`,
             label: getLocalizedLabel(tag) || tagCode,
             title: tagCode,
+            className: getPaperTagChipClassName(tag),
             onRemove: () => toggleDraftSelection("paper_tag", tagCode),
           });
         });
@@ -847,6 +972,7 @@
             key: `ccf:${value}`,
             label: item?.label || `CCF-${value}`,
             title: item?.label || `CCF-${value}`,
+            className: ["tag-chip", value === "A" ? "tag-chip-ccf-a" : value === "B" ? "tag-chip-ccf-b" : value === "C" ? "tag-chip-ccf-c" : "tag-chip-ccf-none"].join(" "),
             onRemove: () => toggleDraftSelection("ccf", value),
           });
         });
@@ -856,6 +982,8 @@
             key: `venue:${value}`,
             label: item?.label || value,
             title: item?.title || item?.full_label || value,
+            className: "tag-chip tag-chip-venue",
+            tooltip: true,
             onRemove: () => toggleDraftSelection("venue", value),
           });
         });
@@ -865,10 +993,79 @@
             key: `year:${value}`,
             label: item?.label || value,
             title: item?.label || value,
+            className: "tag-chip tag-chip-year",
             onRemove: () => toggleDraftSelection("year", value),
           });
         });
         return items;
+      }
+
+      function buildAppliedSelectedItems() {
+        const searchItems = [];
+        const filterItems = [];
+        if (searchQuery.trim()) {
+          searchItems.push({
+            key: `query:${searchQuery.trim()}`,
+            label: `搜索：${searchQuery.trim()}`,
+            title: `关键词：${searchQuery.trim()}`,
+            className: "tag-chip tag-chip-keyword",
+            icon: <SearchOutlined />,
+            onRemove: () => {
+              handleSearch({
+                query: "",
+                tagCodes: selectedTagCodes,
+                ccfCategories: selectedCcfCategories,
+                venues: selectedVenueFilters,
+                years: selectedYears,
+              });
+            },
+          });
+        }
+        selectedTagCodes.forEach(tagCode => {
+          const tag = findTagByCode(tagCode);
+          filterItems.push({
+            key: `paper_tag:${tagCode}`,
+            label: getLocalizedLabel(tag) || tagCode,
+            title: tagCode,
+            className: getPaperTagChipClassName(tag),
+            onRemove: () => removeAppliedSelection("paper_tag", tagCode),
+          });
+        });
+        selectedCcfCategories.forEach(value => {
+          const item = findSearchFilterOption("ccf", value);
+          filterItems.push({
+            key: `ccf:${value}`,
+            label: item?.label || `CCF-${value}`,
+            title: item?.label || `CCF-${value}`,
+            className: ["tag-chip", value === "A" ? "tag-chip-ccf-a" : value === "B" ? "tag-chip-ccf-b" : value === "C" ? "tag-chip-ccf-c" : "tag-chip-ccf-none"].join(" "),
+            onRemove: () => removeAppliedSelection("ccf", value),
+          });
+        });
+        selectedVenueFilters.forEach(value => {
+          const item = findSearchFilterOption("venue", value);
+          filterItems.push({
+            key: `venue:${value}`,
+            label: item?.label || value,
+            title: item?.title || item?.full_label || value,
+            className: "tag-chip tag-chip-venue",
+            tooltip: true,
+            onRemove: () => removeAppliedSelection("venue", value),
+          });
+        });
+        selectedYears.forEach(value => {
+          const item = findSearchFilterOption("year", value);
+          filterItems.push({
+            key: `year:${value}`,
+            label: item?.label || value,
+            title: item?.label || value,
+            className: "tag-chip tag-chip-year",
+            onRemove: () => removeAppliedSelection("year", value),
+          });
+        });
+        return {
+          searchItems,
+          filterItems,
+        };
       }
 
       /**
@@ -980,42 +1177,99 @@
         <div style={{ minHeight: "100vh" }}>
           <div className="header-box">
             <div className="container">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <h2>📚 论文库</h2>
-                {readOnly && <ReadModeBadge />}
+              <div className="browse-title-row" style={{ alignItems: isMobile ? "center" : "center" }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <h2 className="header-title">
+                    <span>📚 论文库</span>
+                    <span className="header-subtitle">{browseSubtitle}</span>
+                  </h2>
+                </div>
+                <div className="browse-title-actions">
+                  {!isMobile && !readOnly && (
+                    <>
+                      <Tooltip title="瀑布流">
+                        <Button
+                          className={viewMode === "masonry" ? "ant-btn-primary" : ""}
+                          icon={<AppstoreOutlined />}
+                          onClick={() => setViewMode("masonry")}
+                        />
+                      </Tooltip>
+                      <Tooltip title="列表">
+                        <Button
+                          className={viewMode === "list" ? "ant-btn-primary" : ""}
+                          icon={<BarsOutlined />}
+                          onClick={() => setViewMode("list")}
+                        />
+                      </Tooltip>
+                    </>
+                  )}
+                  {!isMobile && readOnly && (
+                    <>
+                      <Tooltip title="瀑布流">
+                        <Button
+                          className={viewMode === "masonry" ? "ant-btn-primary" : ""}
+                          icon={<AppstoreOutlined />}
+                          onClick={() => setViewMode("masonry")}
+                        />
+                      </Tooltip>
+                      <Tooltip title="列表">
+                        <Button
+                          className={viewMode === "list" ? "ant-btn-primary" : ""}
+                          icon={<BarsOutlined />}
+                          onClick={() => setViewMode("list")}
+                        />
+                      </Tooltip>
+                      <ReadModeBadge />
+                    </>
+                  )}
+                  {isMobile && readOnly && <ReadModeBadge />}
+                </div>
               </div>
               <div className="browse-header" style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: "space-between" }}>
-                {/* 手机端：第一行 - 统计信息和搜索按钮 */}
                 {isMobile ? (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                    <span>{showSearchResults ? "搜索结果" : (selectedFilterCount > 0 ? `标签筛选 ${totalCount} 篇论文` : `已翻译 ${totalCount} 篇论文`)}</span>
-                    <div style={{ display: "flex", gap: 8 }}>
+                  <>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", width: "100%", gap: 8, marginBottom: 4 }}>
+                      {!readOnly && (
+                        <Tooltip title="配置">
+                          <Button
+                            icon={<SettingOutlined />}
+                            onClick={() => setConfigModalVisible(true)}
+                          />
+                        </Tooltip>
+                      )}
                       {!readOnly && (
                         <Tooltip title="翻译新论文">
                           <Button
                             type="primary"
                             icon={<PlusOutlined />}
                             onClick={() => { window.location.href = "/chat"; }}
-                          />
+                          >
+                            新建论文
+                          </Button>
                         </Tooltip>
                       )}
-                      <Tooltip title="搜索">
-                        <Button
-                          icon={<SearchOutlined />}
-                          onClick={() => {setSearchBarExpanded(!searchBarExpanded); clearSearch();}}
-                        />
-                      </Tooltip>
                     </div>
-                  </div>
+                    <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center" }}>
+                      <Button icon={<TagsOutlined />} onClick={openTagPicker}>
+                        {selectedFilterCount > 0 ? `筛选（${selectedFilterCount}）` : "筛选"}
+                      </Button>
+                      <Input
+                        placeholder="搜索论文标题..."
+                        value={searchQuery}
+                        onChange={e => {
+                          setSearchQuery(e.target.value);
+                          setMobileSearchDirty(true);
+                        }}
+                        onPressEnter={() => handleSearch({ query: searchQuery.trim() })}
+                        style={{ flex: 1 }}
+                        allowClear
+                      />
+                      <Button onClick={clearSearch}>重置</Button>
+                    </div>
+                  </>
                 ) : (
                   <>
-                    {/* 左侧：统计信息 */}
-                    <div style={{ display: "flex", alignItems: "center", flex: 1, justifyContent: "flex-start" }}>
-                      <span>{showSearchResults ? "搜索结果" : (selectedFilterCount > 0 ? `标签筛选 ${totalCount} 篇论文` : `已翻译 ${totalCount} 篇论文`)}</span>
-                    </div>
-                    
-                    {/* 中间：搜索组件 */}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 2 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
                         <Button icon={<TagsOutlined />} onClick={openTagPicker}>
                           {selectedFilterCount > 0 ? `已选标签 ${selectedFilterCount}` : "按标签搜索"}
@@ -1032,72 +1286,91 @@
                           addonAfter={
                             (showSearchResults || selectedFilterCount > 0) ? (
                               <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
-                                清除
+                                重置条件
                               </Button>
                             ) : null
                           }
                         />
                       </div>
                     </div>
-                    
-                    {/* 右侧：控制按钮 */}
-                    <div className="browse-controls" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", flex: 1, gap: "10px" }}>
-                      <Tooltip title="瀑布流">
-                        <Button
-                          className={viewMode === "masonry" ? "ant-btn-primary" : ""}
-                          icon={<AppstoreOutlined />}
-                          onClick={() => setViewMode("masonry")}
-                        />
-                      </Tooltip>
-                      <Tooltip title="列表">
-                        <Button
-                          className={viewMode === "list" ? "ant-btn-primary" : ""}
-                          icon={<BarsOutlined />}
-                          onClick={() => setViewMode("list")}
-                        />
-                      </Tooltip>
+                    <div className="browse-controls" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "10px", marginLeft: 16 }}>
+                      {!readOnly && (
+                        <Tooltip title="配置">
+                          <Button
+                            icon={<SettingOutlined />}
+                            onClick={() => setConfigModalVisible(true)}
+                          />
+                        </Tooltip>
+                      )}
                       {!readOnly && (
                         <Tooltip title="翻译新论文">
                           <Button
                             type="primary"
                             icon={<PlusOutlined />}
                             onClick={() => { window.location.href = "/chat"; }}
-                          />
+                          >
+                            新建论文
+                          </Button>
                         </Tooltip>
                       )}
                     </div>
                   </>
                 )}
 
-                {/* 手机端搜索栏 */}
-                {isMobile && searchBarExpanded && (
-                  <div style={{ width: "100%", display: "flex", gap: 8, flexDirection: "column" }}>
-                    <Button icon={<TagsOutlined />} onClick={openTagPicker}>
-                      {selectedFilterCount > 0 ? `已选标签 ${selectedFilterCount}` : "按标签搜索"}
-                    </Button>
-                    <Input.Search
-                      placeholder="搜索论文标题..."
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                      onSearch={handleSearch}
-                      style={{ flex: 1 }}
-                      allowClear
-                      enterButton="搜索"
-                      loading={isSearching}
-                      autoFocus
-                    />
-                  </div>
-                )}
               </div>
             </div>
           </div>
 
           <div className="container">
+            {shouldShowResultSummary && (
+              <div id="browse-results-top" className="browse-result-summary">
+                <div className="browse-result-summary-title">
+                  {`${resultModeLabel} · ${hasKeywordSearch ? totalSearchResultCount : totalCount} 篇`}
+                </div>
+                {(appliedSelectedItems.searchItems.length > 0 || appliedSelectedItems.filterItems.length > 0) && (
+                  <div className="browse-active-filters">
+                    {renderRemovableChipItems(appliedSelectedItems.searchItems)}
+                    {appliedSelectedItems.searchItems.length > 0 && appliedSelectedItems.filterItems.length > 0 && (
+                      <span className="browse-active-filters-divider" aria-hidden="true" />
+                    )}
+                    {renderRemovableChipItems(appliedSelectedItems.filterItems)}
+                  </div>
+                )}
+                {hasKeywordSearch && (
+                  <div className="browse-result-segments">
+                    <button
+                      type="button"
+                      className="browse-result-segment"
+                      onClick={() => scrollToBrowseResultSection("browse-results-top")}
+                    >
+                      {`全部 ${totalSearchResultCount}`}
+                    </button>
+                    <span className="browse-result-separator">|</span>
+                    <button
+                      type="button"
+                      className="browse-result-segment"
+                      onClick={() => scrollToBrowseResultSection("browse-search-exact")}
+                    >
+                      {`精确 ${exactResultCount}`}
+                    </button>
+                    <span className="browse-result-separator">|</span>
+                    <button
+                      type="button"
+                      className="browse-result-segment"
+                      onClick={() => scrollToBrowseResultSection("browse-search-fuzzy")}
+                    >
+                      {`模糊 ${fuzzyResultCount}`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Show exact matches section */}
             {showSearchResults && searchResults.exact_matches.length > 0 && (
               <>
-                <div style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#1677ff" }}>
-                  {searchQuery.trim() ? "🔍 严格匹配" : "🏷️ 标签匹配"} ({searchResults.exact_matches.length})
+                <div id="browse-search-exact" style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#1677ff", scrollMarginTop: "160px" }}>
+                  精确匹配 ({searchResults.exact_matches.length})
                 </div>
                 {renderPapers(searchResults.exact_matches)}
               </>
@@ -1106,8 +1379,8 @@
             {/* Show fuzzy matches section */}
             {showSearchResults && searchResults.fuzzy_matches.length > 0 && (
               <>
-                <div style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#faad14" }}>
-                  🔎 模糊匹配 ({searchResults.fuzzy_matches.length})
+                <div id="browse-search-fuzzy" style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#faad14", scrollMarginTop: "160px" }}>
+                  模糊匹配 ({searchResults.fuzzy_matches.length})
                 </div>
                 {renderPapers(searchResults.fuzzy_matches)}
               </>
@@ -1161,6 +1434,63 @@
             )}
           </div>
           <Modal
+            title="Poe API 配置"
+            open={configModalVisible}
+            onOk={saveConfig}
+            onCancel={() => setConfigModalVisible(false)}
+            width={500}
+          >
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>Poe API Key：</label>
+              <Input.Password
+                placeholder="请输入 Poe API Key"
+                value={poeApiKey}
+                onChange={e => setPoeApiKey(e.target.value)}
+              />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
+              <Select
+                style={{ width: "100%" }}
+                value={titleModel}
+                onChange={setTitleModel}
+                options={modelOptions}
+              />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
+              <Select
+                style={{ width: "100%" }}
+                value={poeModel}
+                onChange={setPoeModel}
+                options={modelOptions}
+              />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <Checkbox
+                checked={extractTagsOnUpload}
+                onChange={e => setExtractTagsOnUpload(e.target.checked)}
+              >
+                上传后自动提取论文标签
+              </Checkbox>
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+              </div>
+            </div>
+            <div>
+              <label style={{ display: "block", marginBottom: 8 }}>分享链接基础路径 (URL Base)：</label>
+              <Input
+                placeholder="留空则使用当前页面URL，例如: https://a.com"
+                value={urlBase}
+                onChange={e => setUrlBase(e.target.value)}
+              />
+              <div style={{ fontSize: 12, color: "#999", marginTop: 5 }}>
+                设置后分享链接将使用此基础路径，例如当前页是 /chat/abc，URL Base 为 https://a.com，则分享链接为 https://a.com/chat/abc
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
             title="选择标签"
             open={tagPickerVisible}
             onOk={applyTagSelection}
@@ -1199,20 +1529,9 @@
                   : `已选标签（${draftTagCodes.length + draftCcfCategories.length + draftVenueFilters.length + draftYears.length}）`}
               </div>
               <div className="tag-picker-selected-list">
-                {buildDraftSelectedItems().length === 0 ? (
-                  <span className="tag-empty-text">{uiLanguage === "en" ? "No tags selected" : "暂无已选标签"}</span>
-                ) : buildDraftSelectedItems().map(item => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className="tag-picker-selected-pill"
-                    onClick={item.onRemove}
-                    title={item.title}
-                  >
-                    <span className="tag-picker-selected-pill-text">{item.label}</span>
-                    <span className="tag-picker-selected-pill-remove">x</span>
-                  </button>
-                ))}
+                {renderRemovableChipItems(buildDraftSelectedItems(), {
+                  emptyText: uiLanguage === "en" ? "No tags selected" : "暂无已选标签",
+                })}
               </div>
             </div>
 
@@ -1824,10 +2143,48 @@
         }
       };
 
+      function extractAssetOrderValue(item, type) {
+        const rawLabel = type === "figure" ? item.figure_label : item.table_label;
+        const match = typeof rawLabel === "string" ? rawLabel.match(/(\d+)(?!.*\d)/) : null;
+        if (match) {
+          return Number(match[1]);
+        }
+        const fallbackIndex = type === "figure" ? item.figure_index : item.table_index;
+        return typeof fallbackIndex === "number" ? fallbackIndex : Number.MAX_SAFE_INTEGER;
+      }
+
+      function scrollToSummaryAnchor() {
+        const summaryAnchor = document.querySelector(".content .message-block, .content .user-message-block");
+        if (!summaryAnchor) {
+          return;
+        }
+        const headerBox = document.querySelector(".header-box");
+        const stickyOffset = headerBox instanceof HTMLElement ? headerBox.offsetHeight : 0;
+        const extraGap = 12;
+        const targetTop = summaryAnchor.getBoundingClientRect().top + window.scrollY - stickyOffset - extraGap;
+        window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      }
+
+      function collapseAssetSection(setExpanded) {
+        setExpanded(false);
+        window.setTimeout(scrollToSummaryAnchor, 60);
+      }
+
       function renderAssetSection({ id, title, items, expanded, setExpanded, type }) {
         if (!items.length) {
           return null;
         }
+
+        const sortedItems = [...items].sort((a, b) => {
+          const indexA = extractAssetOrderValue(a, type);
+          const indexB = extractAssetOrderValue(b, type);
+          if (indexA !== indexB) {
+            return indexA - indexB;
+          }
+          const pageA = a.page_number ?? Number.MAX_SAFE_INTEGER;
+          const pageB = b.page_number ?? Number.MAX_SAFE_INTEGER;
+          return pageA - pageB;
+        });
 
         return (
           <div className="asset-section">
@@ -1837,7 +2194,13 @@
               data-toc-text={title}
               data-toc-level="1"
               className="asset-section-header toc-anchor"
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => {
+                if (expanded) {
+                  collapseAssetSection(setExpanded);
+                } else {
+                  setExpanded(true);
+                }
+              }}
               type="button"
             >
               <div className="asset-section-heading">
@@ -1867,7 +2230,7 @@
               <div className="asset-section-body">
                 <Image.PreviewGroup>
                   <div className="asset-grid">
-                    {items.map(item => {
+                    {sortedItems.map(item => {
                       const label = type === "figure"
                         ? (item.figure_label || `Figure ${item.figure_index}`)
                         : (item.table_label || `Table ${item.table_index}`);
@@ -1892,6 +2255,17 @@
                 </Image.PreviewGroup>
               </div>
             )}
+            {isMobile && expanded && (
+              <button
+                type="button"
+                className={`asset-floating-collapse asset-floating-collapse-${type}`}
+                onClick={() => collapseAssetSection(setExpanded)}
+                aria-label={`收起${title}`}
+              >
+                <CaretRightOutlined className="asset-floating-collapse-icon" />
+                <span>{`收起${title}`}</span>
+              </button>
+            )}
           </div>
         );
       }
@@ -1913,17 +2287,17 @@
         <>
           <div className="header-box">
             <div className="container">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "5px" }}>
+              <div className={isMobile ? "chat-mobile-title-row" : ""} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: isMobile ? "nowrap" : "wrap", gap: "5px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "20px", flex: 1, minWidth: 0 }}>
-                  <h2 className="header-title">
+                  <h2 className={`header-title ${isMobile ? "chat-mobile-header-title" : ""}`}>
                     {paperTitle
                       ? isMobile
-                        ? paperTitle
+                        ? <span className="chat-mobile-title-text">{paperTitle}</span>
                         : <><FileTextOutlined /> {paperTitle}</>
                       : <><FileTextOutlined /> 论文翻译</>}
                   </h2>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
+                <div className={isMobile ? "chat-mobile-title-actions" : ""} style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
                   {readOnly && <ReadModeBadge />}
                 </div>
               </div>
@@ -2164,19 +2538,18 @@
             <Button
               type="primary"
               shape="circle"
-              size="large"
+              size="middle"
+              icon={<FileTextOutlined />}
               style={{
                 position: 'fixed',
                 bottom: 20,
                 right: 20,
                 zIndex: 1000,
-                width: 50,
-                height: 50
+                width: 42,
+                height: 42
               }}
               onClick={() => setDrawerVisible(true)}
-            >
-              📑
-            </Button>
+            />
           )}
 
           {/* 移动端目录抽屉 */}

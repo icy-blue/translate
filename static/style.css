@@ -37,10 +37,108 @@ body {
   flex: 1;
 }
 
+.header-subtitle {
+  margin-left: 12px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #6f7f95;
+}
+
+.browse-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.browse-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.browse-result-summary {
+  margin: 18px 0 20px;
+  padding: 16px 18px;
+  background: #ffffff;
+  border: 1px solid #e7edf5;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(27, 39, 51, 0.04);
+  scroll-margin-top: 150px;
+}
+
+.browse-result-summary-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #24415f;
+}
+
+.browse-result-segments {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.browse-active-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.browse-active-filters-divider {
+  width: 1px;
+  height: 20px;
+  background: #d6deea;
+  margin: 0 2px;
+}
+
+.browse-result-segment {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 14px;
+  color: #1677ff;
+  cursor: pointer;
+}
+
+.browse-result-segment:hover {
+  color: #0f5fd1;
+  text-decoration: underline;
+}
+
+.browse-result-separator {
+  color: #9aa8b8;
+}
+
+.chat-mobile-title-row {
+  min-width: 0;
+}
+
+.chat-mobile-header-title {
+  min-width: 0;
+  margin-right: 8px;
+}
+
+.chat-mobile-title-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-mobile-title-actions {
+  margin-left: 8px;
+}
+
 .mode-badge.ant-tag {
   margin-right: 0;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
   cursor: help;
@@ -165,7 +263,7 @@ body {
 .asset-section-header {
   width: 100%;
   border: none;
-  background: transparent;
+  background: #fff;
   padding: 20px 24px;
   display: flex;
   align-items: center;
@@ -225,6 +323,33 @@ body {
 
 .asset-section-body {
   padding: 0 24px 24px;
+}
+
+.asset-floating-collapse {
+  position: fixed;
+  left: 16px;
+  bottom: 18px;
+  z-index: 1100;
+  border: none;
+  border-radius: 999px;
+  background: #1677ff;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(22, 119, 255, 0.28);
+  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.asset-floating-collapse-table {
+  bottom: 72px;
+}
+
+.asset-floating-collapse-icon {
+  transform: rotate(90deg);
 }
 
 .asset-grid {
@@ -543,6 +668,32 @@ body {
   white-space: nowrap;
 }
 
+.tag-chip-action {
+  appearance: none;
+  cursor: pointer;
+  gap: 6px;
+}
+
+.tag-chip-action:hover {
+  filter: brightness(0.98);
+}
+
+.tag-chip-action-text {
+  max-width: 100%;
+}
+
+.tag-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+}
+
+.tag-chip-remove {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.78;
+}
+
 .tag-chip-compact {
   min-height: 24px;
   padding: 2px 8px;
@@ -619,6 +770,12 @@ body {
   background: #eefaf2;
   border-color: #cfead7;
   color: #287348;
+}
+
+.tag-chip-keyword {
+  background: #eaf1ff;
+  border-color: #cbd8ff;
+  color: #315ea8;
 }
 
 .tag-empty-text {
@@ -817,19 +974,19 @@ body {
 @media (max-width: 576px) {
   /* 容器调整 */
   .container {
-    padding: 10px;
+    padding: 8px;
   }
 
   /* 头部盒调整 */
   .header-box {
-    padding: 8px 12px;
+    padding: 6px 10px;
   }
 
   /* 浏览页头部调整 */
   .browse-header {
-    gap: 8px;
-    margin-top: 4px;
-    margin-bottom: 4px;
+    gap: 6px;
+    margin-top: 2px;
+    margin-bottom: 0;
   }
 
   .browse-header span {
@@ -847,11 +1004,11 @@ body {
   .content h1,
   .content h2,
   .content h3 {
-    scroll-margin-top: 140px;
+    scroll-margin-top: 120px;
   }
 
   .asset-section button{
-    scroll-margin-top: 120px;
+    scroll-margin-top: 110px;
   }
 
   /* 消息块调整 */
@@ -885,7 +1042,7 @@ body {
   }
 
   .asset-section-header {
-    padding: 16px;
+    padding: 14px 16px;
     align-items: flex-start;
   }
 
@@ -895,6 +1052,17 @@ body {
 
   .asset-card {
     padding: 12px;
+  }
+
+  .asset-floating-collapse {
+    left: 12px;
+    bottom: 16px;
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+
+  .asset-floating-collapse-table {
+    bottom: 66px;
   }
 
   /* 布局调整 */
@@ -946,6 +1114,37 @@ body {
   .header-title {
     font-size: 1.2rem;
     max-width: calc(100% - 20px); /* 为标签留出空间 */
+    white-space: normal;
+  }
+
+  .header-subtitle {
+    display: block;
+    margin-left: 0;
+    margin-top: 2px;
+    font-size: 0.85rem;
+  }
+
+  .browse-title-row {
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+
+  .browse-title-actions {
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+
+  .browse-result-summary {
+    margin: 10px 0 14px;
+    padding: 12px 14px;
+  }
+
+  .browse-result-summary-title {
+    font-size: 15px;
+  }
+
+  .browse-result-segments {
+    gap: 8px;
   }
 
   /* 移动端阅读模式标签调整 */
@@ -953,6 +1152,11 @@ body {
     font-size: 12px;
     padding: 2px 8px;
     line-height: 1.2;
+  }
+
+  .chat-mobile-header-title {
+    max-width: 100%;
+    white-space: nowrap;
   }
 
   /* 修复:内容区域允许收缩 */
