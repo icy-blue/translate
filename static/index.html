@@ -43,7 +43,7 @@
 
     const { useState, useEffect } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined } = icons;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined } = icons;
     const { TextArea } = Input;
 
     const BASE_URL = "";
@@ -99,12 +99,39 @@
           <span
             key={tag.id || `${tag.tag_code}-${tag.tag_label}`}
             className={chipClassName}
-            title={tag.tag_path || tag.tag_label}
+            title={tag.tag_label_en ? `${tag.tag_path || tag.tag_label} / ${tag.tag_path_en || tag.tag_label_en}` : (tag.tag_path || tag.tag_label)}
           >
             {tag.tag_label}
           </span>
         );
       });
+    }
+
+    function renderSelectedTagPills(tagCodes, options = {}) {
+      const { findTagByCode, getLocalizedLabel, onRemove, emptyText } = options;
+      if (!Array.isArray(tagCodes) || tagCodes.length === 0) {
+        return <span className="tag-empty-text">{emptyText || "暂无已选标签"}</span>;
+      }
+
+      return tagCodes.map(tagCode => {
+        const tag = findTagByCode(tagCode);
+        return (
+          <button
+            key={tagCode}
+            type="button"
+            className="tag-picker-selected-pill"
+            onClick={() => onRemove && onRemove(tagCode)}
+          >
+            <span className="tag-picker-selected-pill-text">{getLocalizedLabel(tag)}</span>
+            <span className="tag-picker-selected-pill-remove">x</span>
+          </button>
+        );
+      });
+    }
+
+    function getBrowserLanguage() {
+      const lang = (navigator.language || "zh-CN").toLowerCase();
+      return lang.startsWith("zh") ? "zh" : "en";
     }
 
     // ==========================================
@@ -168,9 +195,18 @@
       const [searchStatus, setSearchStatus] = useState("idle"); // 'idle' | 'loading' | 'success' | 'error'
       const [showSearchResults, setShowSearchResults] = useState(false);
       const [searchBarExpanded, setSearchBarExpanded] = useState(false);
+      const [tagLibrary, setTagLibrary] = useState([]);
+      const [selectedTagCodes, setSelectedTagCodes] = useState([]);
+      const [tagPickerVisible, setTagPickerVisible] = useState(false);
+      const [draftTagCodes, setDraftTagCodes] = useState([]);
+      const [activeTagCategory, setActiveTagCategory] = useState("L");
+      const [tagKeyword, setTagKeyword] = useState("");
+      const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
 
       // ===== 响应式布局 =====
       useEffect(() => {
+        setUiLanguage(getBrowserLanguage());
+
         function updateColumnCount() {
           const width = window.innerWidth;
           setIsMobile(width <= 576);
@@ -194,6 +230,7 @@
         loadConversations(false);
         // 加载配置
         loadConfig();
+        loadTagLibrary();
       }, []);
 
       // ===== 数据加载函数 =====
@@ -250,9 +287,29 @@
         }
       }
 
+      async function loadTagLibrary() {
+        try {
+          const res = await fetch(`${BASE_URL}/tags/library`);
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const categories = Array.isArray(data.categories) ? data.categories : [];
+          setTagLibrary(categories);
+          if (categories.length > 0) {
+            setActiveTagCategory(prev => prev || categories[0].category_code);
+          }
+        } catch (err) {
+          console.error("Failed to load tag library:", err);
+        }
+      }
+
       // ===== 搜索功能 =====
-      async function handleSearch() {
-        if (!searchQuery.trim()) {
+      async function handleSearch(options = {}) {
+        const queryValue = options.query !== undefined ? options.query : searchQuery.trim();
+        const tagCodesValue = options.tagCodes !== undefined ? options.tagCodes : selectedTagCodes;
+
+        if (!queryValue && tagCodesValue.length === 0) {
           setShowSearchResults(false);
           setSearchStatus("idle");
           return;
@@ -268,7 +325,10 @@
 
         try {
           const params = new URLSearchParams();
-          params.append("q", searchQuery);
+          if (queryValue) {
+            params.append("q", queryValue);
+          }
+          tagCodesValue.forEach(tagCode => params.append("tag_code", tagCode));
           const res = await fetch(`${BASE_URL}/search?${params.toString()}`, {
             signal: controller.signal,
           });
@@ -294,11 +354,58 @@
 
       function clearSearch() {
         setSearchQuery("");
+        setSelectedTagCodes([]);
+        setDraftTagCodes([]);
+        setTagKeyword("");
         setSearchResults({ exact_matches: [], fuzzy_matches: [] });
         setShowSearchResults(false);
         setSearchStatus("idle");
         setOffset(0);
         loadConversations(false);
+      }
+
+      function getLocalizedLabel(item) {
+        if (!item) {
+          return "";
+        }
+        if (uiLanguage === "en") {
+          return item.tag_label_en || item.category_label_en || item.tag_label || item.category_label || "";
+        }
+        return item.tag_label || item.category_label || item.tag_label_en || item.category_label_en || "";
+      }
+
+      function findTagByCode(tagCode) {
+        for (const category of tagLibrary) {
+          const found = (category.tags || []).find(tag => tag.tag_code === tagCode);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      }
+
+      function openTagPicker() {
+        setDraftTagCodes([...selectedTagCodes]);
+        setTagKeyword("");
+        if (!activeTagCategory && tagLibrary.length > 0) {
+          setActiveTagCategory(tagLibrary[0].category_code);
+        }
+        setTagPickerVisible(true);
+      }
+
+      function toggleDraftTag(tagCode) {
+        setDraftTagCodes(prev => (
+          prev.includes(tagCode)
+            ? prev.filter(code => code !== tagCode)
+            : [...prev, tagCode]
+        ));
+      }
+
+      function applyTagSelection() {
+        const nextTagCodes = [...draftTagCodes];
+        setSelectedTagCodes(nextTagCodes);
+        setTagPickerVisible(false);
+        handleSearch({ query: searchQuery.trim(), tagCodes: nextTagCodes });
       }
 
       // ===== 导航功能 =====
@@ -310,6 +417,17 @@
       // ===== 渲染功能 =====
       const masonryColumns = viewMode === 'masonry' ? getMasonryColumns(conversations, columnCount) : [];
       const displayConversations = showSearchResults ? [] : conversations;
+      const filteredTagCategories = tagKeyword.trim()
+        ? tagLibrary
+            .map(category => ({
+              ...category,
+              tags: (category.tags || []).filter(tag => {
+                const searchText = `${tag.tag_label} ${tag.tag_label_en} ${tag.tag_code}`.toLowerCase();
+                return searchText.includes(tagKeyword.trim().toLowerCase());
+              }),
+            }))
+            .filter(category => category.tags.length > 0)
+        : tagLibrary.filter(category => category.category_code === activeTagCategory);
 
       /**
        * 渲染论文列表（瀑布流或列表视图）
@@ -360,14 +478,15 @@
             />
             {(paper.pdf_url || (paper.tags && paper.tags.length > 0)) && (
               <div className="paper-footer">
-                {paper.pdf_url && (
-                  <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" className="paper-download-link" onClick={(e) => e.stopPropagation()}>
-                    下载 PDF
-                  </a>
-                )}
                 <div className="paper-tag-row">
                   {renderTagChips(paper.tags, { compact: true })}
                 </div>
+                {paper.pdf_url && (
+                  <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" className="paper-download-link" onClick={(e) => e.stopPropagation()}>
+                    <DownloadOutlined />
+                    <span>下载 PDF</span>
+                  </a>
+                )}
               </div>
             )}
             {paper.relevance !== undefined && (
@@ -420,23 +539,28 @@
                     
                     {/* 中间：搜索组件 */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 2 }}>
-                      <Input.Search
-                        placeholder="搜索论文标题..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        onSearch={handleSearch}
-                        style={{ flex: 1, minWidth: 150, maxWidth: 1200 }}
-                        allowClear
-                        enterButton={!showSearchResults}
-                        loading={isSearching}
-                        addonAfter={
-                          showSearchResults ? (
-                            <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
-                              清除
-                            </Button>
-                          ) : null
-                        }
-                      />
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
+                        <Button icon={<TagsOutlined />} onClick={openTagPicker}>
+                          {selectedTagCodes.length > 0 ? `已选标签 ${selectedTagCodes.length}` : "按标签搜索"}
+                        </Button>
+                        <Input.Search
+                          placeholder="搜索论文标题..."
+                          value={searchQuery}
+                          onChange={e => setSearchQuery(e.target.value)}
+                          onSearch={handleSearch}
+                          style={{ flex: 1, minWidth: 150, maxWidth: 1200 }}
+                          allowClear
+                          enterButton={!showSearchResults}
+                          loading={isSearching}
+                          addonAfter={
+                            showSearchResults ? (
+                              <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
+                                清除
+                              </Button>
+                            ) : null
+                          }
+                        />
+                      </div>
                     </div>
                     
                     {/* 右侧：控制按钮 */}
@@ -470,7 +594,10 @@
 
                 {/* 手机端搜索栏 */}
                 {isMobile && searchBarExpanded && (
-                  <div style={{ width: "100%", display: "flex", gap: 8 }}>
+                  <div style={{ width: "100%", display: "flex", gap: 8, flexDirection: "column" }}>
+                    <Button icon={<TagsOutlined />} onClick={openTagPicker}>
+                      {selectedTagCodes.length > 0 ? `已选标签 ${selectedTagCodes.length}` : "按标签搜索"}
+                    </Button>
                     <Input.Search
                       placeholder="搜索论文标题..."
                       value={searchQuery}
@@ -493,7 +620,7 @@
             {showSearchResults && searchResults.exact_matches.length > 0 && (
               <>
                 <div style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#1677ff" }}>
-                  🔍 严格匹配 ({searchResults.exact_matches.length})
+                  {searchQuery.trim() ? "🔍 严格匹配" : "🏷️ 标签匹配"} ({searchResults.exact_matches.length})
                 </div>
                 {renderPapers(searchResults.exact_matches)}
               </>
@@ -525,6 +652,13 @@
               </div>
             )}
 
+            {showSearchResults && searchStatus === "success" && searchResults.exact_matches.length === 0 && searchResults.fuzzy_matches.length === 0 && (
+              <div className="empty-state">
+                <p>暂无匹配论文</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>可以尝试切换标题关键词或其他 tag</p>
+              </div>
+            )}
+
             {/* Show all conversations when not searching */}
             {!showSearchResults && conversations.length === 0 ? (
               <div className="empty-state">
@@ -547,6 +681,77 @@
               </>
             )}
           </div>
+          <Modal
+            title="选择标签"
+            open={tagPickerVisible}
+            onOk={applyTagSelection}
+            onCancel={() => setTagPickerVisible(false)}
+            okText="确认"
+            width={980}
+            bodyStyle={{ paddingTop: 12 }}
+          >
+            <div className="tag-picker-toolbar">
+              <div className="tag-picker-tabs">
+                {tagLibrary.map(category => (
+                  <button
+                    key={category.category_code}
+                    type="button"
+                    className={`tag-picker-tab ${activeTagCategory === category.category_code ? "active" : ""}`}
+                    onClick={() => setActiveTagCategory(category.category_code)}
+                  >
+                    {getLocalizedLabel(category)}
+                  </button>
+                ))}
+              </div>
+              <Input
+                prefix={<SearchOutlined />}
+                placeholder={uiLanguage === "en" ? "Search all tags" : "搜索全部标签"}
+                value={tagKeyword}
+                onChange={e => setTagKeyword(e.target.value)}
+                className="tag-picker-search"
+                allowClear
+              />
+            </div>
+
+            <div className="tag-picker-selected">
+              <div className="tag-picker-section-title">
+                {uiLanguage === "en" ? `Selected Tags (${draftTagCodes.length})` : `已选标签（${draftTagCodes.length}）`}
+              </div>
+              <div className="tag-picker-selected-list">
+                {renderSelectedTagPills(draftTagCodes, {
+                  findTagByCode,
+                  getLocalizedLabel,
+                  onRemove: toggleDraftTag,
+                  emptyText: uiLanguage === "en" ? "No tags selected" : "暂无已选标签",
+                })}
+              </div>
+            </div>
+
+            <div className="tag-picker-groups">
+              {filteredTagCategories.map(category => (
+                <div key={category.category_code} className="tag-picker-group">
+                  <div className="tag-picker-group-title">{getLocalizedLabel(category)}</div>
+                  <div className="tag-picker-chip-list">
+                    {(category.tags || []).map(tag => {
+                      const selected = draftTagCodes.includes(tag.tag_code);
+                      return (
+                        <button
+                          key={tag.tag_code}
+                          type="button"
+                          className={`tag-picker-chip ${selected ? "selected" : ""}`}
+                          onClick={() => toggleDraftTag(tag.tag_code)}
+                          title={tag.tag_code}
+                        >
+                          <span>{getLocalizedLabel(tag)}</span>
+                          <span className="tag-picker-chip-count">{tag.usage_count || 0}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Modal>
         </div>
       );
     }
@@ -581,6 +786,7 @@
       const [figures, setFigures] = useState([]);
       const [tables, setTables] = useState([]);
       const [tags, setTags] = useState([]);
+      const [tagLibrary, setTagLibrary] = useState([]);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -607,6 +813,12 @@
       const [figureDirectionValue, setFigureDirectionValue] = useState("above");
       const [tableDirectionValue, setTableDirectionValue] = useState("above");
       const [assetDirectionSubmitting, setAssetDirectionSubmitting] = useState(false);
+      const [tagPickerVisible, setTagPickerVisible] = useState(false);
+      const [draftTagCodes, setDraftTagCodes] = useState([]);
+      const [activeTagCategory, setActiveTagCategory] = useState("L");
+      const [tagKeyword, setTagKeyword] = useState("");
+      const [tagSaving, setTagSaving] = useState(false);
+      const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -687,6 +899,7 @@
           loadConversation(id);
         }
         loadConfig();
+        loadTagLibrary();
       }, []);
 
       /**
@@ -787,6 +1000,89 @@
           }
         } catch (err) {
           console.error("Failed to load config:", err);
+        }
+      }
+
+      async function loadTagLibrary() {
+        try {
+          const res = await fetch(`${BASE_URL}/tags/library`);
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const categories = Array.isArray(data.categories) ? data.categories : [];
+          setTagLibrary(categories);
+          if (categories.length > 0) {
+            setActiveTagCategory(prev => prev || categories[0].category_code);
+          }
+        } catch (err) {
+          console.error("Failed to load tag library:", err);
+        }
+      }
+
+      function getLocalizedLabel(item) {
+        if (!item) {
+          return "";
+        }
+        if (uiLanguage === "en") {
+          return item.tag_label_en || item.category_label_en || item.tag_label || item.category_label || "";
+        }
+        return item.tag_label || item.category_label || item.tag_label_en || item.category_label_en || "";
+      }
+
+      function findTagByCode(tagCode) {
+        for (const category of tagLibrary) {
+          const found = (category.tags || []).find(tag => tag.tag_code === tagCode);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      }
+
+      function openTagPicker() {
+        setDraftTagCodes((tags || []).map(tag => tag.tag_code));
+        setTagKeyword("");
+        if (!activeTagCategory && tagLibrary.length > 0) {
+          setActiveTagCategory(tagLibrary[0].category_code);
+        }
+        setTagPickerVisible(true);
+      }
+
+      function toggleDraftTag(tagCode) {
+        setDraftTagCodes(prev => (
+          prev.includes(tagCode)
+            ? prev.filter(code => code !== tagCode)
+            : [...prev, tagCode]
+        ));
+      }
+
+      async function applyTagSelection() {
+        if (!conversationId) {
+          return;
+        }
+
+        const hide = message.loading("正在保存标签...", 0);
+        setTagSaving(true);
+        try {
+          const formData = new FormData();
+          draftTagCodes.forEach(tagCode => formData.append("tag_code", tagCode));
+
+          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/tags`, {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            message.error(data.detail || "保存标签失败");
+            return;
+          }
+          setTags(Array.isArray(data.tags) ? data.tags : []);
+          setTagPickerVisible(false);
+          message.success("标签已更新");
+        } finally {
+          setTagSaving(false);
+          hide();
         }
       }
 
@@ -1058,6 +1354,18 @@
         );
       }
 
+      const filteredTagCategories = tagKeyword.trim()
+        ? tagLibrary
+            .map(category => ({
+              ...category,
+              tags: (category.tags || []).filter(tag => {
+                const searchText = `${tag.tag_label} ${tag.tag_label_en} ${tag.tag_code}`.toLowerCase();
+                return searchText.includes(tagKeyword.trim().toLowerCase());
+              }),
+            }))
+            .filter(category => category.tags.length > 0)
+        : tagLibrary.filter(category => category.category_code === activeTagCategory);
+
       // ===== JSX 渲染 =====
       return (
         <>
@@ -1243,7 +1551,20 @@
                 {paperTitle && <div className="title-block">{paperTitle}</div>}
                 {(paperTitle || conversationId) && (
                   <div className="tag-block">
-                    <div className="tag-block-title">论文标签</div>
+                    <div className="tag-block-header">
+                      <div className="tag-block-title">论文标签</div>
+                      {!readOnly && conversationId && (
+                        <button
+                          type="button"
+                          className="tag-block-edit"
+                          onClick={openTagPicker}
+                          aria-label="编辑论文标签"
+                          title="编辑论文标签"
+                        >
+                          <EditOutlined />
+                        </button>
+                      )}
+                    </div>
                     <div className="tag-block-body">
                       {renderTagChips(tags, { emptyText: "暂无 tag" })}
                     </div>
@@ -1442,6 +1763,79 @@
                   <Radio value="below">表格 caption 在下，表格内容在上</Radio>
                 </Radio.Group>
               </div>
+            </div>
+          </Modal>
+
+          <Modal
+            title="编辑论文标签"
+            open={tagPickerVisible}
+            onOk={applyTagSelection}
+            onCancel={() => setTagPickerVisible(false)}
+            okText="保存"
+            confirmLoading={tagSaving}
+            width={980}
+            bodyStyle={{ paddingTop: 12 }}
+          >
+            <div className="tag-picker-toolbar">
+              <div className="tag-picker-tabs">
+                {tagLibrary.map(category => (
+                  <button
+                    key={category.category_code}
+                    type="button"
+                    className={`tag-picker-tab ${activeTagCategory === category.category_code ? "active" : ""}`}
+                    onClick={() => setActiveTagCategory(category.category_code)}
+                  >
+                    {getLocalizedLabel(category)}
+                  </button>
+                ))}
+              </div>
+              <Input
+                prefix={<SearchOutlined />}
+                placeholder={uiLanguage === "en" ? "Search all tags" : "搜索全部标签"}
+                value={tagKeyword}
+                onChange={e => setTagKeyword(e.target.value)}
+                className="tag-picker-search"
+                allowClear
+              />
+            </div>
+
+            <div className="tag-picker-selected">
+              <div className="tag-picker-section-title">
+                {uiLanguage === "en" ? `Selected Tags (${draftTagCodes.length})` : `已选标签（${draftTagCodes.length}）`}
+              </div>
+              <div className="tag-picker-selected-list">
+                {renderSelectedTagPills(draftTagCodes, {
+                  findTagByCode,
+                  getLocalizedLabel,
+                  onRemove: toggleDraftTag,
+                  emptyText: uiLanguage === "en" ? "No tags selected" : "暂无已选标签",
+                })}
+              </div>
+            </div>
+
+            <div className="tag-picker-groups">
+              {filteredTagCategories.map(category => (
+                <div key={category.category_code} className="tag-picker-group">
+                  <div className="tag-picker-group-title">{getLocalizedLabel(category)}</div>
+                  <div className="tag-picker-chip-list">
+                    {(category.tags || []).map(tag => {
+                      const selected = draftTagCodes.includes(tag.tag_code);
+                      return (
+                        <button
+                          key={tag.tag_code}
+                          type="button"
+                          className={`tag-picker-chip ${selected ? "selected" : ""}`}
+                          onClick={() => toggleDraftTag(tag.tag_code)}
+                          title={tag.tag_code}
+                        >
+                          <span>{getLocalizedLabel(tag)}</span>
+                          <span className="tag-picker-chip-count">{tag.usage_count || 0}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </Modal>
         </>

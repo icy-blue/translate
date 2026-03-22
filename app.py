@@ -9,23 +9,23 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import fastapi_poe as fp
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from pypdf import PdfReader, PdfWriter
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 import crud
 from config import settings
 from database import engine
 from dependencies import get_db_session, check_read_only, get_api_key
-from models import SQLModel, Conversation, Message, PaperFigure, PaperTable
-from paper_tags import extract_abstract_for_tagging
+from models import SQLModel, Conversation, Message, PaperFigure, PaperTable, PaperTag
+from paper_tags import build_tag_payloads, extract_abstract_for_tagging, get_tag_definition, get_tag_library_payload
 from pdf_figures import extract_pdf_figures, extract_pdf_tables
 from poe_utils import classify_paper_tags, extract_title_from_pdf, get_bot_response, upload_file
 
@@ -368,18 +368,24 @@ def _serialize_tables(tables) -> list[dict]:
 
 
 def _serialize_tags(tags) -> list[dict]:
-    return [
-        {
-            "id": tag.id,
-            "category_code": tag.category_code,
-            "category_label": tag.category_label,
-            "tag_code": tag.tag_code,
-            "tag_label": tag.tag_label,
-            "tag_path": tag.tag_path,
-            "source": tag.source,
-        }
-        for tag in tags
-    ]
+    serialized: list[dict] = []
+    for tag in tags:
+        tag_definition = get_tag_definition(tag.tag_code)
+        serialized.append(
+            {
+                "id": tag.id,
+                "category_code": tag.category_code,
+                "category_label": tag_definition.category_label if tag_definition else tag.category_label,
+                "category_label_en": tag_definition.category_label_en if tag_definition else "",
+                "tag_code": tag.tag_code,
+                "tag_label": tag_definition.tag_label if tag_definition else tag.tag_label,
+                "tag_label_en": tag_definition.tag_label_en if tag_definition else "",
+                "tag_path": tag_definition.path if tag_definition else tag.tag_path,
+                "tag_path_en": tag_definition.path_en if tag_definition else "",
+                "source": tag.source,
+            }
+        )
+    return serialized
 
 
 def _extract_and_store_figures(
@@ -491,14 +497,69 @@ def _build_conversations_data(session: Session, conversations: list[Conversation
     relevance_scores = relevance_scores or ([0] * len(conversations))
     return [_build_conversation_data(session, conv, include_relevance, relevance_scores[i]) for i, conv in enumerate(conversations)]
 
+
+def _normalize_tag_codes(tag_codes: Optional[List[str]]) -> list[str]:
+    if not tag_codes:
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for tag_code in tag_codes:
+        if not tag_code:
+            continue
+        code = tag_code.strip().upper()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        normalized.append(code)
+    return normalized
+
+
+def _build_tagged_conversation_statement(tag_codes: Optional[List[str]]):
+    statement = select(Conversation)
+    normalized_tag_codes = _normalize_tag_codes(tag_codes)
+    if normalized_tag_codes:
+        tagged_conversation_ids = (
+            select(PaperTag.conversation_id)
+            .where(PaperTag.tag_code.in_(normalized_tag_codes))
+            .group_by(PaperTag.conversation_id)
+            .having(func.count(func.distinct(PaperTag.tag_code)) == len(normalized_tag_codes))
+        )
+        statement = statement.where(Conversation.id.in_(tagged_conversation_ids))
+    return statement
+
+
+def _get_tag_usage_counts(session: Session) -> dict[str, int]:
+    statement = (
+        select(PaperTag.tag_code, func.count(func.distinct(PaperTag.conversation_id)))
+        .group_by(PaperTag.tag_code)
+    )
+    return {tag_code: count for tag_code, count in session.exec(statement).all()}
+
 # Endpoint to list conversations with pagination
 @app.get("/conversations")
-async def list_conversations(limit: int = 10, offset: int = 0, session: Session = Depends(get_db_session)):
+async def list_conversations(
+    limit: int = 10,
+    offset: int = 0,
+    tag_code: Optional[List[str]] = Query(default=None),
+    session: Session = Depends(get_db_session),
+):
     limit = max(1, min(limit, 50))
     offset = max(0, offset)
-    
-    total = crud.get_total_conversations_count(session)
-    conversations = crud.get_paged_conversations(session, offset, limit + 1)
+    normalized_tag_codes = _normalize_tag_codes(tag_code)
+
+    total_statement = select(func.count(Conversation.id))
+    conversations_statement = _build_tagged_conversation_statement(normalized_tag_codes).order_by(Conversation.created_at.desc())
+    if normalized_tag_codes:
+        total_statement = total_statement.where(
+            Conversation.id.in_(
+                select(PaperTag.conversation_id)
+                .where(PaperTag.tag_code.in_(normalized_tag_codes))
+                .group_by(PaperTag.conversation_id)
+                .having(func.count(func.distinct(PaperTag.tag_code)) == len(normalized_tag_codes))
+            )
+        )
+    total = session.exec(total_statement).one()
+    conversations = session.exec(conversations_statement.offset(offset).limit(limit + 1)).all()
     
     has_more = len(conversations) > limit
     conversations = conversations[:limit]
@@ -515,22 +576,36 @@ def _calculate_relevance(title: str, query: str) -> int:
     return 0
 
 @app.get("/search")
-async def search_conversations(q: str, search_type: str = "all", session: Session = Depends(get_db_session)):
-    if not q or not q.strip():
+async def search_conversations(
+    q: str = "",
+    search_type: str = "all",
+    tag_code: Optional[List[str]] = Query(default=None),
+    session: Session = Depends(get_db_session),
+):
+    normalized_tag_codes = _normalize_tag_codes(tag_code)
+    if not (q and q.strip()) and not normalized_tag_codes:
         return {"exact_matches": [], "fuzzy_matches": []}
 
     query = q.strip()
+    base_statement = _build_tagged_conversation_statement(normalized_tag_codes)
     
     # Exact search
-    exact_convs = session.exec(select(Conversation).where(Conversation.title.ilike(f"%{query}%")).order_by(Conversation.created_at.desc()).limit(5)).all()
-    exact_relevance_scores = [_calculate_relevance(c.title or "", query) for c in exact_convs]
+    if query:
+        exact_statement = base_statement.where(Conversation.title.ilike(f"%{query}%")).order_by(Conversation.created_at.desc()).limit(5)
+        exact_convs = session.exec(exact_statement).all()
+        exact_relevance_scores = [_calculate_relevance(c.title or "", query) for c in exact_convs]
+    else:
+        exact_statement = base_statement.order_by(Conversation.created_at.desc()).limit(10)
+        exact_convs = session.exec(exact_statement).all()
+        exact_relevance_scores = [100] * len(exact_convs)
     exact_matches = _build_conversations_data(session, exact_convs, True, exact_relevance_scores)
 
     # Fuzzy search
     fuzzy_matches = []
     query_words = [w.lower() for w in query.split() if len(w) > 1]
     if query_words:
-        all_fuzzy = session.exec(select(Conversation).where(~Conversation.title.ilike(f"%{query}%")).order_by(Conversation.created_at.desc())).all()
+        all_fuzzy_statement = base_statement.where(~Conversation.title.ilike(f"%{query}%")).order_by(Conversation.created_at.desc())
+        all_fuzzy = session.exec(all_fuzzy_statement).all()
         fuzzy_candidates = []
         for c in all_fuzzy:
             title = (c.title or "").lower()
@@ -547,6 +622,27 @@ async def search_conversations(q: str, search_type: str = "all", session: Sessio
         "exact_matches": exact_matches if search_type != "fuzzy" else [],
         "fuzzy_matches": fuzzy_matches if search_type != "exact" else []
     }
+
+
+@app.get("/tags/library")
+async def get_tag_library(session: Session = Depends(get_db_session)):
+    return {"categories": get_tag_library_payload(_get_tag_usage_counts(session))}
+
+
+@app.post("/conversation/{conversation_id}/tags")
+async def update_conversation_tags(
+    conversation_id: str,
+    tag_code: Optional[List[str]] = Form(default=None),
+    session: Session = Depends(get_db_session),
+    _read_only: None = Depends(check_read_only),
+):
+    conversation = crud.get_conversation(session, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    normalized_tag_codes = _normalize_tag_codes(tag_code)
+    crud.replace_tags(session, conversation_id, build_tag_payloads(normalized_tag_codes, source="manual"))
+    return {"tags": _serialize_tags(crud.get_tags(session, conversation_id))}
 
 # Static file serving
 app.mount("/static", StaticFiles(directory="static"), name="static")

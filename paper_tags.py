@@ -1,233 +1,121 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class CategoryDefinition:
+    category_code: str
+    category_label: str
+    category_label_en: str
 
 
 @dataclass(frozen=True)
 class TagDefinition:
     category_code: str
     category_label: str
+    category_label_en: str
     tag_code: str
     tag_label: str
+    tag_label_en: str
 
     @property
     def path(self) -> str:
         return f"{self.category_label}/{self.tag_label}"
 
+    @property
+    def path_en(self) -> str:
+        return f"{self.category_label_en}/{self.tag_label_en}"
 
-TAG_TREE: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
-    (
-        "L",
-        "学习范式",
-        (
-            ("L1", "有监督学习"),
-            ("L2", "无监督学习"),
-            ("L3", "自监督学习"),
-            ("L4", "半监督学习"),
-            ("L5", "迁移学习"),
-            ("L6", "强化学习"),
-            ("L7", "元学习"),
-            ("L8", "主动学习"),
-            ("L9", "少样本学习"),
-            ("L10", "零样本学习"),
-            ("L11", "持续学习"),
-            ("L12", "在线学习"),
-            ("L13", "多任务学习"),
-            ("L14", "课程学习"),
-            ("L15", "模仿学习"),
-            ("L16", "逆强化学习"),
-            ("L17", "域适应"),
-            ("L18", "领域泛化"),
-        ),
-    ),
-    (
-        "M",
-        "数据模态",
-        (
-            ("M1", "图像"),
-            ("M2", "视频"),
-            ("M3", "点云"),
-            ("M4", "多模态"),
-            ("M5", "文本"),
-            ("M6", "音频"),
-            ("M7", "图数据"),
-            ("M8", "时序"),
-            ("M9", "3D网格"),
-            ("M10", "体素"),
-            ("M11", "神经辐射场"),
-            ("M12", "RGBD"),
-            ("M13", "事件相机"),
-            ("M14", "遥感数据"),
-            ("M15", "医学影像"),
-            ("M16", "表格数据"),
-            ("M17", "传感器融合"),
-            ("M18", "轨迹数据"),
-            ("M19", "文档"),
-            ("M20", "代码"),
-        ),
-    ),
-    (
-        "T",
-        "任务",
-        (
-            ("T1", "分类识别"),
-            ("T2", "目标检测"),
-            ("T3", "语义分割"),
-            ("T4", "实例分割"),
-            ("T5", "点云法向估计"),
-            ("T6", "点云配准"),
-            ("T7", "三维重建"),
-            ("T8", "深度估计"),
-            ("T9", "姿态估计"),
-            ("T10", "跟踪"),
-            ("T11", "检索"),
-            ("T12", "生成"),
-            ("T13", "问答对话"),
-            ("T14", "预测规划"),
-            ("T15", "关键点检测"),
-            ("T16", "匹配对齐"),
-            ("T17", "场景理解"),
-            ("T18", "图像描述"),
-            ("T19", "视觉定位"),
-            ("T20", "SLAM"),
-            ("T21", "动作识别"),
-            ("T22", "动作生成"),
-            ("T23", "异常检测"),
-            ("T24", "推荐"),
-            ("T25", "排序"),
-            ("T26", "OCR"),
-            ("T27", "文档理解"),
-            ("T28", "信息抽取"),
-            ("T29", "机器翻译"),
-            ("T30", "文本摘要"),
-            ("T31", "代码生成"),
-            ("T32", "图像编辑"),
-            ("T33", "超分辨率"),
-            ("T34", "去噪去模糊"),
-            ("T35", "图像增强"),
-            ("T36", "补全修复"),
-            ("T37", "新视角合成"),
-            ("T38", "轨迹预测"),
-            ("T39", "时间序列预测"),
-            ("T40", "控制决策"),
-            ("T41", "机器人操作"),
-            ("T42", "导航"),
-            ("T43", "配准重定位"),
-            ("T44", "开放词汇识别"),
-            ("T45", "开放词汇检测"),
-            ("T46", "开放词汇分割"),
-            ("T47", "指代表达理解"),
-            ("T48", "多模态检索"),
-            ("T49", "视觉问答"),
-            ("T50", "3D理解"),
-        ),
-    ),
-    (
-        "S",
-        "模型范式",
-        (
-            ("S1", "世界模型"),
-            ("S2", "扩散模型"),
-            ("S3", "图神经网络"),
-            ("S4", "Transformer"),
-            ("S5", "卷积网络"),
-            ("S6", "视觉语言模型"),
-            ("S7", "检索增强"),
-            ("S8", "NeRF3DGS"),
-            ("S9", "自回归模型"),
-            ("S10", "FlowMatching"),
-            ("S11", "状态空间模型"),
-            ("S12", "Mamba"),
-            ("S13", "GAN"),
-            ("S14", "VAE"),
-            ("S15", "能量模型"),
-            ("S16", "对比学习"),
-            ("S17", "图注意力网络"),
-            ("S18", "稀疏专家模型"),
-            ("S19", "大语言模型"),
-            ("S20", "多模态大模型"),
-            ("S21", "Token压缩"),
-            ("S22", "记忆增强"),
-            ("S23", "工具调用Agent"),
-            ("S24", "神经符号方法"),
-            ("S25", "隐式表示"),
-            ("S26", "占据场"),
-            ("S27", "高斯表示"),
-            ("S28", "PointNet系"),
-            ("S29", "体渲染"),
-            ("S30", "一致性模型"),
-        ),
-    ),
-    (
-        "A",
-        "应用领域",
-        (
-            ("A1", "自动驾驶"),
-            ("A2", "机器人"),
-            ("A3", "具身智能"),
-            ("A4", "遥感"),
-            ("A5", "医学影像"),
-            ("A6", "工业质检"),
-            ("A7", "安防监控"),
-            ("A8", "智能交通"),
-            ("A9", "ARVR"),
-            ("A10", "游戏图形学"),
-            ("A11", "推荐广告"),
-            ("A12", "教育"),
-            ("A13", "金融"),
-            ("A14", "生物信息"),
-            ("A15", "科学计算"),
-            ("A16", "文档智能"),
-            ("A17", "代码智能"),
-            ("A18", "人机交互"),
-            ("A19", "数字人"),
-            ("A20", "内容生成"),
-        ),
-    ),
-    (
-        "P",
-        "能力性质",
-        (
-            ("P1", "可解释性"),
-            ("P2", "鲁棒性"),
-            ("P3", "泛化能力"),
-            ("P4", "高效推理"),
-            ("P5", "轻量化"),
-            ("P6", "模型压缩"),
-            ("P7", "蒸馏"),
-            ("P8", "量化"),
-            ("P9", "剪枝"),
-            ("P10", "低延迟"),
-            ("P11", "隐私保护"),
-            ("P12", "联邦学习"),
-            ("P13", "安全对齐"),
-            ("P14", "可控生成"),
-            ("P15", "不确定性估计"),
-            ("P16", "因果学习"),
-            ("P17", "公平性"),
-            ("P18", "可复现性"),
-            ("P19", "数据高效"),
-            ("P20", "参数高效微调"),
-        ),
-    ),
-)
 
-TAG_MAP: dict[str, TagDefinition] = {
-    tag_code: TagDefinition(category_code=category_code, category_label=category_label, tag_code=tag_code, tag_label=tag_label)
-    for category_code, category_label, tag_items in TAG_TREE
-    for tag_code, tag_label in tag_items
+TAG_TREE_PATH = Path(__file__).resolve().parent / "data" / "tag_tree.json"
+_RAW_TAG_TREE = json.loads(TAG_TREE_PATH.read_text(encoding="utf-8"))
+
+CATEGORY_MAP: dict[str, CategoryDefinition] = {
+    item["code"]: CategoryDefinition(
+        category_code=item["code"],
+        category_label=item["label"],
+        category_label_en=item["label_en"],
+    )
+    for item in _RAW_TAG_TREE
 }
 
+TAG_TREE: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = tuple(
+    (
+        item["code"],
+        item["label"],
+        tuple((tag["code"], tag["label"]) for tag in item["tags"]),
+    )
+    for item in _RAW_TAG_TREE
+)
+
+TAG_MAP: dict[str, TagDefinition] = {}
+for item in _RAW_TAG_TREE:
+    category = CATEGORY_MAP[item["code"]]
+    for tag in item["tags"]:
+        TAG_MAP[tag["code"]] = TagDefinition(
+            category_code=category.category_code,
+            category_label=category.category_label,
+            category_label_en=category.category_label_en,
+            tag_code=tag["code"],
+            tag_label=tag["label"],
+            tag_label_en=tag["label_en"],
+        )
+
+
+def _format_prompt_category(item: dict) -> str:
+    tag_items = " ".join(f"{tag['code']}{tag['label']}" for tag in item["tags"])
+    return f"{item['code']}:{tag_items}"
+
+
 TAG_PROMPT_LIBRARY = "\n".join(
-    f"{category_code}:{' '.join(f'{tag_code}{tag_label}' for tag_code, tag_label in tag_items)}"
-    for category_code, _, tag_items in TAG_TREE
+    _format_prompt_category(item) for item in _RAW_TAG_TREE
 )
 
 CATEGORY_PROMPT_LIBRARY = ",".join(
-    f"{category_code}={category_label}"
-    for category_code, category_label, _ in TAG_TREE
+    f"{item['code']}={item['label']}"
+    for item in _RAW_TAG_TREE
 )
+
+ALLOWED_CATEGORY_CODES = tuple(item["code"] for item in _RAW_TAG_TREE)
+
+
+def get_tag_definition(tag_code: str) -> TagDefinition | None:
+    return TAG_MAP.get(tag_code)
+
+
+def get_tag_library_payload(usage_counts: dict[str, int] | None = None) -> list[dict]:
+    counts = usage_counts or {}
+    payload: list[dict] = []
+    for item in _RAW_TAG_TREE:
+        tags = []
+        for tag in item["tags"]:
+            definition = TAG_MAP[tag["code"]]
+            tags.append(
+                {
+                    "category_code": definition.category_code,
+                    "category_label": definition.category_label,
+                    "category_label_en": definition.category_label_en,
+                    "tag_code": definition.tag_code,
+                    "tag_label": definition.tag_label,
+                    "tag_label_en": definition.tag_label_en,
+                    "tag_path": definition.path,
+                    "tag_path_en": definition.path_en,
+                    "usage_count": counts.get(definition.tag_code, 0),
+                }
+            )
+        payload.append(
+            {
+                "category_code": item["code"],
+                "category_label": item["label"],
+                "category_label_en": item["label_en"],
+                "tags": tags,
+            }
+        )
+    return payload
 
 
 def extract_abstract_for_tagging(message_content: str, max_chars: int = 1200) -> str:
@@ -275,11 +163,11 @@ def build_category_selection_prompt(title: str, abstract: str) -> str:
 
 
 def build_tagging_followup_prompt(category_codes: list[str]) -> str:
-    selected_codes = [code for code in category_codes if code in {item[0] for item in TAG_TREE}]
+    selected_codes = [code for code in category_codes if code in ALLOWED_CATEGORY_CODES]
     selected_library = "\n".join(
-        f"{category_code}:{' '.join(f'{tag_code}{tag_label}' for tag_code, tag_label in tag_items)}"
-        for category_code, _, tag_items in TAG_TREE
-        if category_code in selected_codes
+        _format_prompt_category(item)
+        for item in _RAW_TAG_TREE
+        if item["code"] in selected_codes
     )
     return (
         "基于上文论文内容，仅在下列分类组中选标签。\n"
@@ -293,7 +181,7 @@ def parse_category_codes(raw_response: str) -> list[str]:
     if not raw_response:
         return []
 
-    allowed = {category_code for category_code, _, _ in TAG_TREE}
+    allowed = set(ALLOWED_CATEGORY_CODES)
     seen: set[str] = set()
     ordered_codes: list[str] = []
     for match in re.finditer(r"\b([A-Z])\b", raw_response.upper()):
@@ -331,9 +219,12 @@ def build_tag_payloads(tag_codes: list[str], source: str = "poe") -> list[dict]:
             {
                 "category_code": tag.category_code,
                 "category_label": tag.category_label,
+                "category_label_en": tag.category_label_en,
                 "tag_code": tag.tag_code,
                 "tag_label": tag.tag_label,
+                "tag_label_en": tag.tag_label_en,
                 "tag_path": tag.path,
+                "tag_path_en": tag.path_en,
                 "source": source,
             }
         )
