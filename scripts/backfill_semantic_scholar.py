@@ -21,6 +21,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import crud
+from ccf_mapping import map_ccf_publication
 from database import engine
 from models import FileRecord, PaperSemanticScholarResult
 
@@ -216,6 +217,22 @@ def build_result_payload(
         raise RuntimeError(f"Unexpected response payload: {response_payload!r}")
 
     matched_paper = items[0] if items else None
+    ccf_mapping = {
+        "venue_abbr": "",
+        "ccf_category": "None",
+        "ccf_type": "None",
+    }
+    if matched_paper:
+        publication_venue = matched_paper.get("publicationVenue") or {}
+        journal = matched_paper.get("journal") or {}
+        venue_candidates = [
+            matched_paper.get("venue"),
+            publication_venue.get("name"),
+            journal.get("name"),
+        ]
+        venue_candidates.extend(publication_venue.get("alternate_names") or [])
+        ccf_mapping = map_ccf_publication([name for name in venue_candidates if isinstance(name, str)])
+
     payload: dict[str, Any] = {
         "conversation_id": conversation_id,
         "status": "matched" if matched_paper else "not_found",
@@ -226,6 +243,9 @@ def build_result_payload(
         "abstract": None,
         "year": None,
         "venue": None,
+        "venue_abbr": ccf_mapping["venue_abbr"],
+        "ccf_category": ccf_mapping["ccf_category"],
+        "ccf_type": ccf_mapping["ccf_type"],
         "publication_date": None,
         "is_open_access": None,
         "match_score": None,
@@ -251,6 +271,9 @@ def build_result_payload(
                 "abstract": matched_paper.get("abstract"),
                 "year": matched_paper.get("year"),
                 "venue": matched_paper.get("venue"),
+                "venue_abbr": ccf_mapping["venue_abbr"],
+                "ccf_category": ccf_mapping["ccf_category"],
+                "ccf_type": ccf_mapping["ccf_type"],
                 "publication_date": matched_paper.get("publicationDate"),
                 "is_open_access": matched_paper.get("isOpenAccess"),
                 "match_score": matched_paper.get("matchScore"),

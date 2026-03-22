@@ -383,7 +383,22 @@ body {
 .paper-time {
   font-size: 12px;
   color: #999;
+}
+
+.paper-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+}
+
+.paper-citation-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #667085;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .paper-summary {
@@ -531,6 +546,42 @@ body {
   background: #f8f1ef;
   border-color: #ebdcd7;
   color: #8a4b45;
+}
+
+.tag-chip-ccf-a {
+  background: #fff7db;
+  border-color: #efd98e;
+  color: #8a6113;
+}
+
+.tag-chip-ccf-b {
+  background: #eaf2ff;
+  border-color: #c8dafc;
+  color: #215ea8;
+}
+
+.tag-chip-ccf-c {
+  background: #f8ede4;
+  border-color: #e7c7aa;
+  color: #8e5520;
+}
+
+.tag-chip-ccf-none {
+  background: #f3f4f6;
+  border-color: #d9dde3;
+  color: #667085;
+}
+
+.tag-chip-venue {
+  background: #eaf4ff;
+  border-color: #cbdffd;
+  color: #1d5fa8;
+}
+
+.tag-chip-year {
+  background: #eefaf2;
+  border-color: #cfead7;
+  color: #287348;
 }
 
 .tag-empty-text {

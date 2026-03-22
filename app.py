@@ -16,7 +16,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Que
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, or_, text
 from pypdf import PdfReader, PdfWriter
 from sqlmodel import Session, select, func
 
@@ -24,7 +24,15 @@ import crud
 from config import settings
 from database import engine
 from dependencies import get_db_session, check_read_only, get_api_key
-from models import SQLModel, Conversation, Message, PaperFigure, PaperTable, PaperTag
+from models import (
+    SQLModel,
+    Conversation,
+    Message,
+    PaperFigure,
+    PaperTable,
+    PaperTag,
+    PaperSemanticScholarResult,
+)
 from paper_tags import build_tag_payloads, extract_abstract_for_tagging, get_tag_definition, get_tag_library_payload
 from pdf_figures import extract_pdf_figures, extract_pdf_tables
 from poe_utils import classify_paper_tags, extract_title_from_pdf, get_bot_response, upload_file
@@ -32,6 +40,18 @@ from poe_utils import classify_paper_tags, extract_title_from_pdf, get_bot_respo
 app = FastAPI()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo or timezone.utc
+LOCAL_TIMEZONE_OFFSET = datetime.now().astimezone().strftime("%z")
+
+
+def _build_postgres_fixed_offset_timezone(offset: str) -> str:
+    if not offset:
+        return "+00:00"
+    sign = "-" if offset.startswith("+") else "+"
+    return f"{sign}{offset[1:3]}:{offset[3:]}"
+
+
+LOCAL_TIMEZONE_SQL = _build_postgres_fixed_offset_timezone(LOCAL_TIMEZONE_OFFSET)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +65,7 @@ app.add_middleware(
 def on_startup():
     SQLModel.metadata.create_all(engine)
     _ensure_asset_columns()
+    _ensure_timestamp_timezone_columns()
 
 # Endpoint to handle PDF uploads and start the translation process
 @app.post("/upload")
@@ -86,10 +107,11 @@ async def upload_pdf(
                 api_key,
             )
         
+        semantic_result = crud.get_semantic_scholar_result(session, existing_file.conversation_id)
         def keep(m):
             return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
         
-        return {
+        response = {
             "conversation_id": existing_file.conversation_id,
             "title": conversation.title if conversation else None,
             "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
@@ -99,6 +121,8 @@ async def upload_pdf(
             "tables": _serialize_tables(tables),
             "tags": _serialize_tags(tags),
         }
+        response.update(_serialize_semantic_result(semantic_result))
+        return response
 
     # Generate unique IDs for the conversation and file
     conversation_id = uuid.uuid4().hex[:12]
@@ -153,7 +177,7 @@ async def upload_pdf(
     tables = _extract_and_store_tables(session, conversation_id, file_bytes)
     tags = await _extract_and_store_tags(session, conversation_id, final_title, response_text, tag_model, api_key) if extract_tags else []
 
-    return {
+    response = {
         "conversation_id": conversation_id,
         "title": final_title,
         "messages": [{"role": "bot", "content": response_text}],
@@ -162,6 +186,8 @@ async def upload_pdf(
         "tables": _serialize_tables(tables),
         "tags": _serialize_tags(tags),
     }
+    response.update(_serialize_semantic_result(None))
+    return response
 
 # Common logic for continuing a conversation
 async def _continue_conversation(conversation_id: str, new_user_message: str, poe_model: str, api_key: str, session: Session, save_to_record: bool):
@@ -227,12 +253,13 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
     figures = crud.get_figures(session, conversation_id)
     tables = crud.get_tables(session, conversation_id)
     tags = crud.get_tags(session, conversation_id)
+    semantic_result = crud.get_semantic_scholar_result(session, conversation_id)
     pdf_url = file_record.poe_url if file_record else None
 
     def keep(m):
         return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
 
-    return {
+    response = {
         "id": conversation.id,
         "title": conversation.title,
         "created_at": _ensure_utc_timezone(conversation.created_at),
@@ -242,6 +269,8 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
         "tables": _serialize_tables(tables),
         "tags": _serialize_tags(tags),
     }
+    response.update(_serialize_semantic_result(semantic_result))
+    return response
 
 
 @app.get("/assets/figures/{figure_id}")
@@ -310,10 +339,26 @@ async def reprocess_assets(
 
 # Helper to ensure datetime objects have UTC timezone information
 def _ensure_utc_timezone(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return dt.replace(tzinfo=LOCAL_TIMEZONE) if dt.tzinfo is None else dt.astimezone(LOCAL_TIMEZONE)
 
 # Helper to build a conversation data object for API responses
 def _build_conversation_data(session: Session, conversation: Conversation, include_relevance: bool = False, relevance_score: int = 0) -> dict:
+    return _build_conversation_data_with_semantic(
+        session,
+        conversation,
+        crud.get_semantic_scholar_result(session, conversation.id),
+        include_relevance,
+        relevance_score,
+    )
+
+
+def _build_conversation_data_with_semantic(
+    session: Session,
+    conversation: Conversation,
+    semantic_result,
+    include_relevance: bool = False,
+    relevance_score: int = 0,
+) -> dict:
     msg_statement = select(Message).where(Message.conversation_id == conversation.id, Message.role == "bot").order_by(Message.id)
     first_bot_msg = session.exec(msg_statement).first()
     summary = (first_bot_msg.content[:200] + "...") if first_bot_msg and len(first_bot_msg.content) > 200 else (first_bot_msg.content if first_bot_msg else "")
@@ -330,6 +375,7 @@ def _build_conversation_data(session: Session, conversation: Conversation, inclu
         "pdf_url": pdf_url,
         "tags": _serialize_tags(tags),
     }
+    result.update(_serialize_semantic_result(semantic_result))
     if include_relevance:
         result["relevance"] = relevance_score
     return result
@@ -470,6 +516,43 @@ def _ensure_asset_columns():
                 connection.execute(text(f"ALTER TABLE {table_name} DROP COLUMN image_url"))
 
 
+def _ensure_timestamp_timezone_columns():
+    if engine.dialect.name != "postgresql":
+        return
+
+    target_columns = {
+        "paperfigure": ["created_at"],
+        "papertable": ["created_at"],
+        "papertag": ["created_at"],
+        "papersemanticscholarresult": ["created_at", "updated_at"],
+    }
+
+    with engine.begin() as connection:
+        for table_name, column_names in target_columns.items():
+            for column_name in column_names:
+                data_type = connection.execute(
+                    text(
+                        """
+                        SELECT data_type
+                        FROM information_schema.columns
+                        WHERE table_name = :table_name AND column_name = :column_name
+                        """
+                    ),
+                    {"table_name": table_name, "column_name": column_name},
+                ).scalar()
+                if data_type is None:
+                    continue
+                if data_type == "timestamp with time zone":
+                    continue
+                connection.execute(
+                    text(
+                        f"ALTER TABLE {table_name} "
+                        f"ALTER COLUMN {column_name} TYPE TIMESTAMPTZ "
+                        f"USING {column_name} AT TIME ZONE '{LOCAL_TIMEZONE_SQL}'"
+                    )
+                )
+
+
 def _build_asset_response(asset):
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found.")
@@ -495,7 +578,223 @@ def _download_pdf_bytes(url: str, timeout: int = 60) -> bytes:
 # Helper to build a list of conversation data objects
 def _build_conversations_data(session: Session, conversations: list[Conversation], include_relevance: bool = False, relevance_scores: list[int] = None) -> list[dict]:
     relevance_scores = relevance_scores or ([0] * len(conversations))
-    return [_build_conversation_data(session, conv, include_relevance, relevance_scores[i]) for i, conv in enumerate(conversations)]
+    semantic_map = crud.get_semantic_scholar_results_map(session, [conv.id for conv in conversations])
+    return [
+        _build_conversation_data_with_semantic(
+            session,
+            conv,
+            semantic_map.get(conv.id),
+            include_relevance,
+            relevance_scores[i],
+        )
+        for i, conv in enumerate(conversations)
+    ]
+
+
+def _serialize_semantic_result(semantic_result) -> dict:
+    if semantic_result is None:
+        return {
+            "venue_abbr": "",
+            "ccf_category": "None",
+            "ccf_type": "None",
+            "citation_count": None,
+            "venue": None,
+            "year": None,
+            "semantic_updated_at": None,
+        }
+    return {
+        "venue_abbr": semantic_result.venue_abbr or "",
+        "ccf_category": semantic_result.ccf_category or "None",
+        "ccf_type": semantic_result.ccf_type or "None",
+        "citation_count": semantic_result.citation_count,
+        "venue": semantic_result.venue,
+        "year": semantic_result.year,
+        "semantic_updated_at": _ensure_utc_timezone(semantic_result.updated_at),
+    }
+
+
+def _normalize_string_filters(values: Optional[List[str]]) -> list[str]:
+    if not values:
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        candidate = value.strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        normalized.append(candidate)
+    return normalized
+
+
+def _normalize_year_filters(values: Optional[List[str]]) -> list[int]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for value in values or []:
+        try:
+            year = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if year in seen:
+            continue
+        seen.add(year)
+        normalized.append(year)
+    return normalized
+
+
+def _build_filtered_conversation_statement(
+    tag_codes: Optional[List[str]] = None,
+    ccf_categories: Optional[List[str]] = None,
+    venue_filters: Optional[List[str]] = None,
+    years: Optional[List[int]] = None,
+):
+    statement = select(Conversation)
+
+    normalized_tag_codes = _normalize_tag_codes(tag_codes)
+    if normalized_tag_codes:
+        tagged_conversation_ids = (
+            select(PaperTag.conversation_id)
+            .where(PaperTag.tag_code.in_(normalized_tag_codes))
+            .group_by(PaperTag.conversation_id)
+            .having(func.count(func.distinct(PaperTag.tag_code)) == len(normalized_tag_codes))
+        )
+        statement = statement.where(Conversation.id.in_(tagged_conversation_ids))
+
+    normalized_ccf_categories = _normalize_string_filters(ccf_categories)
+    if normalized_ccf_categories:
+        semantic_ids = select(PaperSemanticScholarResult.conversation_id)
+        ccf_conditions = []
+        real_categories = [value for value in normalized_ccf_categories if value in {"A", "B", "C"}]
+        if real_categories:
+            ccf_conditions.append(
+                Conversation.id.in_(
+                    select(PaperSemanticScholarResult.conversation_id).where(
+                        PaperSemanticScholarResult.ccf_category.in_(real_categories)
+                    )
+                )
+            )
+        if "None" in normalized_ccf_categories:
+            ccf_conditions.append(
+                Conversation.id.in_(
+                    select(PaperSemanticScholarResult.conversation_id).where(
+                        PaperSemanticScholarResult.ccf_category == "None"
+                    )
+                )
+            )
+            ccf_conditions.append(~Conversation.id.in_(semantic_ids))
+        if ccf_conditions:
+            statement = statement.where(or_(*ccf_conditions))
+
+    normalized_venues = _normalize_string_filters(venue_filters)
+    if normalized_venues:
+        statement = statement.where(
+            Conversation.id.in_(
+                select(PaperSemanticScholarResult.conversation_id).where(
+                    or_(
+                        PaperSemanticScholarResult.venue_abbr.in_(normalized_venues),
+                        PaperSemanticScholarResult.venue.in_(normalized_venues),
+                    )
+                )
+            )
+        )
+
+    normalized_years = [year for year in (years or []) if isinstance(year, int)]
+    if normalized_years:
+        statement = statement.where(
+            Conversation.id.in_(
+                select(PaperSemanticScholarResult.conversation_id).where(
+                    PaperSemanticScholarResult.year.in_(normalized_years)
+                )
+            )
+        )
+
+    return statement
+
+
+def _count_filtered_conversations(
+    session: Session,
+    tag_codes: Optional[List[str]] = None,
+    ccf_categories: Optional[List[str]] = None,
+    venue_filters: Optional[List[str]] = None,
+    years: Optional[List[int]] = None,
+) -> int:
+    filtered_statement = _build_filtered_conversation_statement(
+        tag_codes=tag_codes,
+        ccf_categories=ccf_categories,
+        venue_filters=venue_filters,
+        years=years,
+    )
+    count_statement = select(func.count()).select_from(filtered_statement.subquery())
+    return session.exec(count_statement).one()
+
+
+def _build_search_filter_payload(session: Session) -> dict:
+    total_conversations = session.exec(select(func.count(Conversation.id))).one()
+    ccf_counts = {
+        category: count
+        for category, count in session.exec(
+            select(
+                PaperSemanticScholarResult.ccf_category,
+                func.count(PaperSemanticScholarResult.conversation_id),
+            ).group_by(PaperSemanticScholarResult.ccf_category)
+        ).all()
+    }
+    ccf_known_count = sum(ccf_counts.get(category, 0) for category in ("A", "B", "C"))
+    ccf_none_count = max(0, total_conversations - ccf_known_count)
+
+    venue_rows = session.exec(
+        select(
+            PaperSemanticScholarResult.venue_abbr,
+            PaperSemanticScholarResult.venue,
+        ).where(
+            or_(
+                PaperSemanticScholarResult.venue_abbr != "",
+                PaperSemanticScholarResult.venue.is_not(None),
+            )
+        )
+    ).all()
+    venue_counts: dict[str, dict] = {}
+    for venue_abbr, venue in venue_rows:
+        value = venue_abbr or venue
+        if not value:
+            continue
+        entry = venue_counts.setdefault(
+            value,
+            {
+                "value": value,
+                "label": venue_abbr or venue,
+                "full_label": venue or venue_abbr or value,
+                "count": 0,
+            },
+        )
+        entry["count"] += 1
+
+    year_counts = session.exec(
+        select(
+            PaperSemanticScholarResult.year,
+            func.count(PaperSemanticScholarResult.conversation_id),
+        )
+        .where(PaperSemanticScholarResult.year.is_not(None))
+        .group_by(PaperSemanticScholarResult.year)
+        .order_by(PaperSemanticScholarResult.year.desc())
+    ).all()
+
+    return {
+        "ccf_categories": [
+            {"value": "A", "label": "CCF-A", "count": ccf_counts.get("A", 0)},
+            {"value": "B", "label": "CCF-B", "count": ccf_counts.get("B", 0)},
+            {"value": "C", "label": "CCF-C", "count": ccf_counts.get("C", 0)},
+            {"value": "None", "label": "CCF-None", "count": ccf_none_count},
+        ],
+        "venues": sorted(venue_counts.values(), key=lambda item: item["label"].lower()),
+        "years": [
+            {"value": str(year), "label": str(year), "count": count}
+            for year, count in year_counts
+            if year is not None
+        ],
+    }
 
 
 def _normalize_tag_codes(tag_codes: Optional[List[str]]) -> list[str]:
@@ -514,20 +813,6 @@ def _normalize_tag_codes(tag_codes: Optional[List[str]]) -> list[str]:
     return normalized
 
 
-def _build_tagged_conversation_statement(tag_codes: Optional[List[str]]):
-    statement = select(Conversation)
-    normalized_tag_codes = _normalize_tag_codes(tag_codes)
-    if normalized_tag_codes:
-        tagged_conversation_ids = (
-            select(PaperTag.conversation_id)
-            .where(PaperTag.tag_code.in_(normalized_tag_codes))
-            .group_by(PaperTag.conversation_id)
-            .having(func.count(func.distinct(PaperTag.tag_code)) == len(normalized_tag_codes))
-        )
-        statement = statement.where(Conversation.id.in_(tagged_conversation_ids))
-    return statement
-
-
 def _get_tag_usage_counts(session: Session) -> dict[str, int]:
     statement = (
         select(PaperTag.tag_code, func.count(func.distinct(PaperTag.conversation_id)))
@@ -541,24 +826,31 @@ async def list_conversations(
     limit: int = 10,
     offset: int = 0,
     tag_code: Optional[List[str]] = Query(default=None),
+    ccf_category: Optional[List[str]] = Query(default=None),
+    venue_filter: Optional[List[str]] = Query(default=None),
+    year: Optional[List[str]] = Query(default=None),
     session: Session = Depends(get_db_session),
 ):
     limit = max(1, min(limit, 50))
     offset = max(0, offset)
     normalized_tag_codes = _normalize_tag_codes(tag_code)
+    normalized_ccf_categories = _normalize_string_filters(ccf_category)
+    normalized_venue_filters = _normalize_string_filters(venue_filter)
+    normalized_years = _normalize_year_filters(year)
 
-    total_statement = select(func.count(Conversation.id))
-    conversations_statement = _build_tagged_conversation_statement(normalized_tag_codes).order_by(Conversation.created_at.desc())
-    if normalized_tag_codes:
-        total_statement = total_statement.where(
-            Conversation.id.in_(
-                select(PaperTag.conversation_id)
-                .where(PaperTag.tag_code.in_(normalized_tag_codes))
-                .group_by(PaperTag.conversation_id)
-                .having(func.count(func.distinct(PaperTag.tag_code)) == len(normalized_tag_codes))
-            )
-        )
-    total = session.exec(total_statement).one()
+    total = _count_filtered_conversations(
+        session,
+        tag_codes=normalized_tag_codes,
+        ccf_categories=normalized_ccf_categories,
+        venue_filters=normalized_venue_filters,
+        years=normalized_years,
+    )
+    conversations_statement = _build_filtered_conversation_statement(
+        tag_codes=normalized_tag_codes,
+        ccf_categories=normalized_ccf_categories,
+        venue_filters=normalized_venue_filters,
+        years=normalized_years,
+    ).order_by(Conversation.created_at.desc())
     conversations = session.exec(conversations_statement.offset(offset).limit(limit + 1)).all()
     
     has_more = len(conversations) > limit
@@ -580,14 +872,25 @@ async def search_conversations(
     q: str = "",
     search_type: str = "all",
     tag_code: Optional[List[str]] = Query(default=None),
+    ccf_category: Optional[List[str]] = Query(default=None),
+    venue_filter: Optional[List[str]] = Query(default=None),
+    year: Optional[List[str]] = Query(default=None),
     session: Session = Depends(get_db_session),
 ):
     normalized_tag_codes = _normalize_tag_codes(tag_code)
-    if not (q and q.strip()) and not normalized_tag_codes:
+    normalized_ccf_categories = _normalize_string_filters(ccf_category)
+    normalized_venue_filters = _normalize_string_filters(venue_filter)
+    normalized_years = _normalize_year_filters(year)
+    if not (q and q.strip()) and not normalized_tag_codes and not normalized_ccf_categories and not normalized_venue_filters and not normalized_years:
         return {"exact_matches": [], "fuzzy_matches": []}
 
     query = q.strip()
-    base_statement = _build_tagged_conversation_statement(normalized_tag_codes)
+    base_statement = _build_filtered_conversation_statement(
+        tag_codes=normalized_tag_codes,
+        ccf_categories=normalized_ccf_categories,
+        venue_filters=normalized_venue_filters,
+        years=normalized_years,
+    )
     
     # Exact search
     if query:
@@ -627,6 +930,11 @@ async def search_conversations(
 @app.get("/tags/library")
 async def get_tag_library(session: Session = Depends(get_db_session)):
     return {"categories": get_tag_library_payload(_get_tag_usage_counts(session))}
+
+
+@app.get("/search/filters")
+async def get_search_filters(session: Session = Depends(get_db_session)):
+    return _build_search_filter_payload(session)
 
 
 @app.post("/conversation/{conversation_id}/tags")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, LargeBinary, Text
+from sqlalchemy import Column, DateTime, LargeBinary, Text
 from sqlmodel import SQLModel, Field
 
 
@@ -12,7 +12,10 @@ class Conversation(SQLModel, table=True):
     title: Optional[str] = None
     original_filename: Optional[str] = None
     status: str = "active"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
 
 class Message(SQLModel, table=True):
@@ -20,7 +23,10 @@ class Message(SQLModel, table=True):
     conversation_id: str = Field(index=True)
     role: str
     content: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
 
 class FileRecord(SQLModel, table=True):
@@ -31,7 +37,10 @@ class FileRecord(SQLModel, table=True):
     poe_url: str
     content_type: str
     poe_name: str
-    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    uploaded_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
 
 class PaperFigure(SQLModel, table=True):
@@ -45,7 +54,10 @@ class PaperFigure(SQLModel, table=True):
     image_data: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
     image_width: int
     image_height: int
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
 
 class PaperTable(SQLModel, table=True):
@@ -59,7 +71,10 @@ class PaperTable(SQLModel, table=True):
     image_data: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
     image_width: int
     image_height: int
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
 
 class PaperTag(SQLModel, table=True):
@@ -71,7 +86,10 @@ class PaperTag(SQLModel, table=True):
     tag_label: str
     tag_path: str
     source: str = "poe"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
 
 
 class PaperSemanticScholarResult(SQLModel, table=True):
@@ -85,6 +103,9 @@ class PaperSemanticScholarResult(SQLModel, table=True):
     abstract: Optional[str] = Field(default=None, sa_column=Column(Text))
     year: Optional[int] = None
     venue: Optional[str] = None
+    venue_abbr: str = ""
+    ccf_category: str = "None"
+    ccf_type: str = "None"
     publication_date: Optional[str] = None
     is_open_access: Optional[bool] = None
     match_score: Optional[float] = None
@@ -98,5 +119,11 @@ class PaperSemanticScholarResult(SQLModel, table=True):
     open_access_pdf_json: Optional[str] = Field(default=None, sa_column=Column(Text))
     raw_response_json: str = Field(sa_column=Column(Text))
     source: str = "semantic_scholar"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )

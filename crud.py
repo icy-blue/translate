@@ -3,7 +3,15 @@ from __future__ import annotations
 from sqlmodel import Session, select, func
 from sqlalchemy import desc
 
-from models import Conversation, Message, FileRecord, PaperFigure, PaperTable, PaperTag
+from models import (
+    Conversation,
+    Message,
+    FileRecord,
+    PaperFigure,
+    PaperTable,
+    PaperTag,
+    PaperSemanticScholarResult,
+)
 
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     """Fetch a conversation by its ID."""
@@ -53,6 +61,29 @@ def get_tags(session: Session, conversation_id: str) -> list[PaperTag]:
         .order_by(PaperTag.category_code, PaperTag.tag_code)
     )
     return session.exec(statement).all()
+
+
+def get_semantic_scholar_result(
+    session: Session, conversation_id: str
+) -> PaperSemanticScholarResult | None:
+    statement = (
+        select(PaperSemanticScholarResult)
+        .where(PaperSemanticScholarResult.conversation_id == conversation_id)
+    )
+    return session.exec(statement).first()
+
+
+def get_semantic_scholar_results_map(
+    session: Session, conversation_ids: list[str]
+) -> dict[str, PaperSemanticScholarResult]:
+    if not conversation_ids:
+        return {}
+    statement = (
+        select(PaperSemanticScholarResult)
+        .where(PaperSemanticScholarResult.conversation_id.in_(conversation_ids))
+    )
+    rows = session.exec(statement).all()
+    return {row.conversation_id: row for row in rows}
 
 def find_existing_file(session: Session, fingerprint: str) -> FileRecord | None:
     """Find an existing file by its SHA256 fingerprint."""
