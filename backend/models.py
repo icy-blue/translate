@@ -127,3 +127,30 @@ class PaperSemanticScholarResult(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
+
+
+class AsyncJob(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    job_type: str = Field(index=True)
+    status: str = Field(default="queued", index=True)
+    progress: Optional[str] = None
+    payload_json: str = Field(sa_column=Column(Text, nullable=False))
+    result_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text))
+    conversation_id: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    started_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    finished_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )

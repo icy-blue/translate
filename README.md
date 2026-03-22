@@ -61,6 +61,7 @@ cp .env.example .env
 | `TITLE_PROMPT` | 内置中文提示词 | 标题提取提示词 |
 | `INITIAL_PROMPT` | 内置中文提示词 | 首轮翻译提示词 |
 | `READ_ONLY` | `false` | 是否启用只读模式 |
+| `ASYNC_JOB_WORKERS` | `2` | 异步任务 worker 数量（上传/续翻/追问） |
 
 ### 4) 启动服务
 
@@ -80,9 +81,10 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/upload` | 上传 PDF 并创建会话 |
-| `POST` | `/continue/{conversation_id}` | 对会话发送“继续” |
-| `POST` | `/custom_message/{conversation_id}` | 自定义追问 |
+| `POST` | `/upload` | 上传 PDF，创建异步任务（立即返回 `job_id`） |
+| `POST` | `/continue/{conversation_id}` | 对会话发送“继续”（异步任务） |
+| `POST` | `/custom_message/{conversation_id}` | 自定义追问（异步任务） |
+| `GET` | `/jobs/{job_id}` | 查询任务状态与结果（轮询） |
 | `GET` | `/conversation/{conversation_id}` | 获取会话详情 |
 | `GET` | `/conversations` | 分页会话列表（支持过滤） |
 | `GET` | `/search` | 标题搜索（精确 + 模糊） |
@@ -98,6 +100,8 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 
 - 写接口受只读模式保护（`READ_ONLY=true` 时返回 403）
 - 上传、继续、追问接口需要提交 `api_key`（表单字段）
+- 上传/继续/追问接口只负责入队；客户端需轮询 `/jobs/{job_id}` 获取最终结果
+- 同一会话在 `continue/custom_message` 任务未完成时会加锁；重复提交返回 `409`
 
 ## 目录结构
 
@@ -157,12 +161,13 @@ python scripts/scrape_ccf_conferences.py
 
 ```text
 1. 上传 PDF
-2. 上传到 Poe CDN
-3. 提取标题并发起首轮翻译
-4. 入库 Conversation / Message / FileRecord
-5. 可选提取 tags / figures / tables
-6. 用户继续翻译或自定义追问
-7. 列表/搜索/过滤浏览历史论文
+2. 服务创建异步任务并立即返回 `job_id`
+3. worker 上传到 Poe CDN
+4. 提取标题并发起首轮翻译
+5. 入库 Conversation / Message / FileRecord
+6. 可选提取 tags / figures / tables
+7. 用户继续翻译或自定义追问（同样走异步任务）
+8. 前端轮询任务状态并渲染结果
 ```
 
 ## 常见问题

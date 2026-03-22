@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from datetime import date, datetime, timezone
+
 from sqlmodel import Session, select, func
 from sqlalchemy import desc
 
@@ -11,7 +14,18 @@ from .models import (
     PaperTable,
     PaperTag,
     PaperSemanticScholarResult,
+    AsyncJob,
 )
+
+
+def _json_default(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
+
+
+def _json_dumps(value) -> str:
+    return json.dumps(value, ensure_ascii=False, default=_json_default)
 
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     """Fetch a conversation by its ID."""
@@ -129,6 +143,51 @@ def create_conversation_package(
     ))
     session.commit()
 
+
+def create_conversation_shell(
+    session: Session,
+    conversation_id: str,
+    file_id: str,
+    original_filename: str,
+    fingerprint: str,
+    attachment,
+) -> None:
+    """Create conversation and file records before long-running enrichment finishes."""
+    session.add(
+        Conversation(
+            id=conversation_id,
+            title=original_filename,
+            original_filename=original_filename,
+        )
+    )
+    session.add(
+        FileRecord(
+            id=file_id,
+            conversation_id=conversation_id,
+            filename=original_filename,
+            fingerprint=fingerprint,
+            poe_url=attachment.url,
+            content_type=attachment.content_type,
+            poe_name=attachment.name,
+        )
+    )
+    session.commit()
+
+
+def update_conversation_title(
+    session: Session,
+    conversation_id: str,
+    title: str,
+) -> Conversation | None:
+    conversation = session.get(Conversation, conversation_id)
+    if not conversation:
+        return None
+    conversation.title = title
+    session.add(conversation)
+    session.commit()
+    session.refresh(conversation)
+    return conversation
+
 def create_messages(
     session: Session,
     conversation_id: str,
@@ -237,3 +296,91 @@ def get_paged_conversations(session: Session, offset: int, limit: int) -> list[C
 def get_total_conversations_count(session: Session) -> int:
     """Get the total count of conversations."""
     return session.exec(select(func.count(Conversation.id))).one()
+
+
+def create_async_job(
+    session: Session,
+    job_id: str,
+    job_type: str,
+    payload: dict,
+    conversation_id: str | None = None,
+) -> AsyncJob:
+    now = datetime.now(timezone.utc)
+    job = AsyncJob(
+        id=job_id,
+        job_type=job_type,
+        status="queued",
+        progress="排队中",
+        payload_json=_json_dumps(payload),
+        conversation_id=conversation_id,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def get_async_job(session: Session, job_id: str) -> AsyncJob | None:
+    return session.get(AsyncJob, job_id)
+
+
+def list_recoverable_async_jobs(session: Session) -> list[AsyncJob]:
+    statement = (
+        select(AsyncJob)
+        .where(AsyncJob.status.in_(["queued", "running"]))
+        .order_by(AsyncJob.created_at.asc())
+    )
+    return session.exec(statement).all()
+
+
+def touch_async_job(
+    session: Session,
+    job_id: str,
+    *,
+    status: str | None = None,
+    progress: str | None = None,
+    result: dict | None = None,
+    error_message: str | None = None,
+    conversation_id: str | None = None,
+    started: bool = False,
+    finished: bool = False,
+) -> AsyncJob | None:
+    job = session.get(AsyncJob, job_id)
+    if not job:
+        return None
+
+    now = datetime.now(timezone.utc)
+    if status is not None:
+        job.status = status
+    if progress is not None:
+        job.progress = progress
+    if result is not None:
+        job.result_json = _json_dumps(result)
+    if error_message is not None:
+        job.error_message = error_message
+    if conversation_id is not None:
+        job.conversation_id = conversation_id
+    if started and job.started_at is None:
+        job.started_at = now
+    if finished:
+        job.finished_at = now
+    job.updated_at = now
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def get_active_translation_job(session: Session, conversation_id: str) -> AsyncJob | None:
+    statement = (
+        select(AsyncJob)
+        .where(
+            AsyncJob.conversation_id == conversation_id,
+            AsyncJob.job_type.in_(["continue", "custom_message"]),
+            AsyncJob.status.in_(["queued", "running"]),
+        )
+        .order_by(AsyncJob.created_at.asc())
+    )
+    return session.exec(statement).first()

@@ -1940,6 +1940,48 @@
         }
       }
 
+      async function waitForJobResult(jobId, options = {}) {
+        const intervalMs = options.intervalMs || 1500;
+        const timeoutMs = options.timeoutMs || 20 * 60 * 1000;
+        const startedAt = Date.now();
+        let lastProgress = null;
+
+        while (true) {
+          const res = await fetch(`${BASE_URL}/jobs/${jobId}`);
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.detail || "任务状态获取失败");
+          }
+          if (typeof options.onTick === "function") {
+            const tickPromise = options.onTick(data);
+            if (tickPromise && typeof tickPromise.then === "function") {
+              await tickPromise;
+            }
+          }
+          const progressText = typeof data.progress === "string" ? data.progress.trim() : "";
+          if (progressText && progressText !== lastProgress && typeof options.onProgress === "function") {
+            lastProgress = progressText;
+            const maybePromise = options.onProgress(progressText, data);
+            if (maybePromise && typeof maybePromise.then === "function") {
+              await maybePromise;
+            }
+          }
+          if (data.status === "succeeded") {
+            if (typeof options.onProgress === "function") {
+              options.onProgress("任务已完成", data);
+            }
+            return data.result || {};
+          }
+          if (data.status === "failed") {
+            throw new Error(data.error_message || "任务执行失败");
+          }
+          if (Date.now() - startedAt > timeoutMs) {
+            throw new Error("任务执行超时，请稍后在会话列表中查看结果");
+          }
+          await new Promise(resolve => setTimeout(resolve, intervalMs));
+        }
+      }
+
       // ===== 上传功能 =====
       const uploadProps = {
         name: "file",
@@ -1948,14 +1990,10 @@
         customRequest: async ({ file }) => {
           if (!poeApiKey) { message.error("请先配置 API Key"); return; }
 
-          const hide = message.loading("正在上传...", 0);
-          const formData = new FormData();
-          formData.append("file", file);
-          formData.append("api_key", poeApiKey);
-          formData.append("poe_model", poeModel);
-          formData.append("title_model", titleModel);
-          formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
-
+          const progressKey = `upload-progress-${Date.now()}`;
+          let linkedConversationId = null;
+          let hasRefreshedAfterTitle = false;
+          message.open({ key: progressKey, type: "loading", content: "正在上传：准备提交任务", duration: 0 });
           setLoading(true);
           setPaperInfoLoaded(false);
           setBlocks([]);
@@ -1966,52 +2004,89 @@
           setPaperMeta(normalizePaperMeta());
           setFiguresExpanded(false);
           setTablesExpanded(false);
-          // 提取文件名（去掉.pdf后缀）作为临时标题
           const tempTitle = file.name.replace(/\.pdf$/i, "");
           setPaperTitle(tempTitle);
 
-          const res = await fetch(`${BASE_URL}/upload`, {
-            method: "POST",
-            body: formData
-          });
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("api_key", poeApiKey);
+            formData.append("poe_model", poeModel);
+            formData.append("title_model", titleModel);
+            formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
-          const data = await res.json();
-          setLoading(false);
-          hide();
+            const enqueueRes = await fetch(`${BASE_URL}/upload`, {
+              method: "POST",
+              body: formData
+            });
+            const enqueueData = await enqueueRes.json();
+            if (!enqueueRes.ok) {
+              message.error(enqueueData.detail || "上传失败");
+              return;
+            }
 
-          if (!res.ok) {
-            message.error(data.detail || "上传失败");
-            return;
-          }
+            message.open({ key: progressKey, type: "loading", content: "正在上传：任务已入队，等待 worker 处理", duration: 0 });
+            const data = await waitForJobResult(enqueueData.job_id, {
+              onTick: async (jobData) => {
+                if (jobData?.conversation_id && !linkedConversationId) {
+                  linkedConversationId = jobData.conversation_id;
+                  setConversationId(linkedConversationId);
+                  pushConversationToUrl(linkedConversationId);
+                  await loadConversation(linkedConversationId);
+                }
+                const conversationTitle = (jobData?.conversation_title || "").trim();
+                if (conversationTitle) {
+                  setPaperTitle(conversationTitle);
+                  if (linkedConversationId && !hasRefreshedAfterTitle && !conversationTitle.toLowerCase().endsWith(".pdf")) {
+                    hasRefreshedAfterTitle = true;
+                    await loadConversation(linkedConversationId);
+                  }
+                }
+              },
+              onProgress: async (progressText, jobData) => {
+                message.open({ key: progressKey, type: "loading", content: `上传处理中：${progressText}`, duration: 0 });
+                const titlePrefix = "标题已提取：";
+                if (typeof progressText === "string" && progressText.startsWith(titlePrefix)) {
+                  const extractedTitle = progressText.slice(titlePrefix.length).trim();
+                  if (extractedTitle) {
+                    setPaperTitle(extractedTitle);
+                  }
+                }
+              },
+            });
+            if (data.pdf_url) {
+              setPdfUrl(data.pdf_url);
+            }
+            setFigures(Array.isArray(data.figures) ? data.figures : []);
+            setTables(Array.isArray(data.tables) ? data.tables : []);
+            setTags(Array.isArray(data.tags) ? data.tags : []);
+            setPaperMeta(normalizePaperMeta(data));
+            setPaperInfoLoaded(true);
 
-          if (data.pdf_url) {
-            setPdfUrl(data.pdf_url);
-          }
-          setFigures(Array.isArray(data.figures) ? data.figures : []);
-          setTables(Array.isArray(data.tables) ? data.tables : []);
-          setTags(Array.isArray(data.tags) ? data.tags : []);
-          setPaperMeta(normalizePaperMeta(data));
-          setPaperInfoLoaded(true);
+            if (data.exists) {
+              setConversationId(data.conversation_id);
+              if (data.title) { setPaperTitle(data.title); }
+              pushConversationToUrl(data.conversation_id);
 
-          // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
-          if (data.exists) {
+              const msgs = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
+              setBlocks(msgs);
+              message.info("文件已存在，跳转到对应会话");
+              return;
+            }
+
             setConversationId(data.conversation_id);
             if (data.title) { setPaperTitle(data.title); }
             pushConversationToUrl(data.conversation_id);
-
-            const msgs = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
-            setBlocks(msgs);
-            message.info("文件已存在，跳转到对应会话");
-            return;
+            const msgsNew = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
+            setBlocks(msgsNew.length ? msgsNew : [{ id: Date.now(), role: "bot", content: "无回复" }]);
+            message.success("上传任务完成");
+          } catch (err) {
+            message.error(err?.message || "上传失败");
+            setPaperInfoLoaded(true);
+          } finally {
+            setLoading(false);
+            message.destroy(progressKey);
           }
-
-          // 新上传返回的也改为 messages 数组（包含 user 和 bot）
-          setConversationId(data.conversation_id);
-          if (data.title) { setPaperTitle(data.title); }
-          pushConversationToUrl(data.conversation_id);
-
-          const msgsNew = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
-          setBlocks(msgsNew.length ? msgsNew : [{ id: Date.now(), role: "bot", content: "无回复" }]);
         }
       };
 
@@ -2020,27 +2095,40 @@
        * 单次翻译请求
        */
       const doContinue = async () => {
-        const formData = new FormData();
-        formData.append("api_key", poeApiKey);
-        formData.append("poe_model", poeModel);
+        try {
+          const formData = new FormData();
+          formData.append("api_key", poeApiKey);
+          formData.append("poe_model", poeModel);
 
-        const res = await fetch(
-          `${BASE_URL}/continue/${conversationId}`,
-          { method: "POST", body: formData }
-        );
+          const enqueueRes = await fetch(
+            `${BASE_URL}/continue/${conversationId}`,
+            { method: "POST", body: formData }
+          );
+          const enqueueData = await enqueueRes.json();
+          if (!enqueueRes.ok) {
+            message.error(enqueueData.detail || "请求失败");
+            return false;
+          }
+          const data = await waitForJobResult(enqueueData.job_id, {
+            onProgress: (progressText) => {
+              message.open({
+                key: "continue-progress",
+                type: "loading",
+                content: `翻译处理中：${progressText}`,
+                duration: 0
+              });
+            },
+          });
 
-        const data = await res.json();
-
-        if (!res.ok) {
-          message.error(data.detail || "请求失败");
+          setBlocks(prev => [
+            ...prev,
+            { id: Date.now(), role: "bot", content: data.reply }
+          ]);
+          return true;
+        } catch (err) {
+          message.error(err?.message || "请求失败");
           return false;
         }
-
-        setBlocks(prev => [
-          ...prev,
-          { id: Date.now(), role: "bot", content: data.reply }
-        ]);
-        return true;
       };
 
       /**
@@ -2050,14 +2138,25 @@
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
 
-        const hide = message.loading("正在翻译...", 0);
+        message.open({
+          key: "continue-progress",
+          type: "loading",
+          content: "翻译处理中：准备提交任务",
+          duration: 0
+        });
         setLoading(true);
         for (let i = 0; i < continueCount; i++) {
+          message.open({
+            key: "continue-progress",
+            type: "loading",
+            content: `翻译处理中：第 ${i + 1}/${continueCount} 次请求已提交`,
+            duration: 0
+          });
           const ok = await doContinue();
           if (!ok) break;
         }
         setLoading(false);
-        hide();
+        message.destroy("continue-progress");
       };
 
       /**
@@ -2068,7 +2167,8 @@
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
         if (!customMessage.trim()) { message.warning("请输入消息"); return; }
 
-        const hide = message.loading("正在翻译...", 0);
+        const progressKey = "custom-progress";
+        message.open({ key: progressKey, type: "loading", content: "追问处理中：准备提交任务", duration: 0 });
         setLoading(true);
         const formData = new FormData();
         formData.append("api_key", poeApiKey);
@@ -2076,32 +2176,38 @@
         formData.append("save_to_record", saveToRecord);
         formData.append("poe_model", poeModel);
 
-        const res = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
-          method: "POST",
-          body: formData
-        });
+        try {
+          const enqueueRes = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
+            method: "POST",
+            body: formData
+          });
+          const enqueueData = await enqueueRes.json();
+          if (!enqueueRes.ok) {
+            message.error(enqueueData.detail || "请求失败");
+            return;
+          }
 
-        const data = await res.json();
-        setLoading(false);
-        hide();
-
-        if (!res.ok) {
-          message.error(data.detail || "请求失败");
-          return;
+          const data = await waitForJobResult(enqueueData.job_id, {
+            onProgress: (progressText) => {
+              message.open({ key: progressKey, type: "loading", content: `追问处理中：${progressText}`, duration: 0 });
+            },
+          });
+          setBlocks(prev => [
+            ...prev,
+            { id: Date.now(), role: "user", content: customMessage },
+            { id: Date.now() + 1, role: "bot", content: data.reply }
+          ]);
+          if (!saveToRecord) {
+            message.info("对话完成（未保存到记录）");
+          }
+          setCustomModalVisible(false);
+          setCustomMessage("");
+        } catch (err) {
+          message.error(err?.message || "请求失败");
+        } finally {
+          setLoading(false);
+          message.destroy(progressKey);
         }
-
-        // always display user and bot responses locally
-        setBlocks(prev => [
-          ...prev,
-          { id: Date.now(), role: "user", content: customMessage },
-          { id: Date.now() + 1, role: "bot", content: data.reply }
-        ]);
-        if (!saveToRecord) {
-          message.info("对话完成（未保存到记录）");
-        }
-
-        setCustomModalVisible(false);
-        setCustomMessage("");
       };
 
       const openAssetDirectionModal = () => {

@@ -50,5 +50,10 @@ class Settings(BaseSettings):
         validation_alias="S2_API_KEY",
     )
 
+    async_job_workers: int = Field(
+        default=2,
+        validation_alias="ASYNC_JOB_WORKERS",
+    )
+
 
 settings = Settings()
