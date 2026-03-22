@@ -494,6 +494,12 @@ body {
   gap: 12px;
 }
 
+.tag-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .tag-block-title {
   font-size: 16px;
   font-weight: 600;
@@ -512,6 +518,11 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.tag-block-edit:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .tag-block-edit:hover {

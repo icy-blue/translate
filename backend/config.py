@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -34,6 +38,16 @@ class Settings(BaseSettings):
     read_only: bool = Field(
         default=False,
         validation_alias="READ_ONLY",
+    )
+
+    semantic_scholar_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias="SEMANTIC_SCHOLAR_API_KEY",
+    )
+
+    s2_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias="S2_API_KEY",
     )
 
 

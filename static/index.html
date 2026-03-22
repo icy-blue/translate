@@ -43,7 +43,7 @@
 
     const { useState, useEffect } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined } = icons;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
     const { TextArea } = Input;
 
     const BASE_URL = "";
@@ -1266,7 +1266,8 @@
         window.history.pushState({}, "", `/chat/${id}`);
       }
 
-      const [conversationId, setConversationId] = useState(getConversationIdFromUrl());
+      const initialRouteConversationId = initialConversationId || getConversationIdFromUrl();
+      const [conversationId, setConversationId] = useState(initialRouteConversationId);
 
       // ===== 响应式状态 =====
       const [isMobile, setIsMobile] = useState(window.innerWidth <= 576);
@@ -1312,7 +1313,9 @@
       const [activeTagCategory, setActiveTagCategory] = useState("L");
       const [tagKeyword, setTagKeyword] = useState("");
       const [tagSaving, setTagSaving] = useState(false);
+      const [tagRefreshing, setTagRefreshing] = useState(false);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
+      const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -1449,6 +1452,7 @@
 
       // ===== 数据加载函数 =====
       async function loadConversation(id) {
+        setPaperInfoLoaded(false);
         setPaperTitle("");
         setPdfUrl("");
         setFigures([]);
@@ -1484,6 +1488,7 @@
             content: m.content
           }))
         );
+        setPaperInfoLoaded(true);
         setLoading(false);
       }
 
@@ -1582,6 +1587,41 @@
         }
       }
 
+      async function refreshPaperMetadata() {
+        if (!conversationId) {
+          return;
+        }
+        if (!poeApiKey) {
+          message.warning("请先配置 API Key");
+          return;
+        }
+
+        const hide = message.loading("正在刷新标签与论文信息...", 0);
+        setTagRefreshing(true);
+        try {
+          const formData = new FormData();
+          formData.append("api_key", poeApiKey);
+          formData.append("tag_model", poeModel);
+
+          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/refresh_metadata`, {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            message.error(data.detail || "刷新失败");
+            return;
+          }
+          setTags(Array.isArray(data.tags) ? data.tags : []);
+          setPaperMeta(normalizePaperMeta(data));
+          setPaperInfoLoaded(true);
+          message.success("标签与论文信息已刷新");
+        } finally {
+          setTagRefreshing(false);
+          hide();
+        }
+      }
+
       // ===== 上传功能 =====
       const uploadProps = {
         name: "file",
@@ -1599,6 +1639,7 @@
           formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
           setLoading(true);
+          setPaperInfoLoaded(false);
           setBlocks([]);
           setPdfUrl("");
           setFigures([]);
@@ -1632,6 +1673,7 @@
           setTables(Array.isArray(data.tables) ? data.tables : []);
           setTags(Array.isArray(data.tags) ? data.tags : []);
           setPaperMeta(normalizePaperMeta(data));
+          setPaperInfoLoaded(true);
 
           // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
           if (data.exists) {
@@ -2049,21 +2091,37 @@
 
               <div className="content">
                 {paperTitle && <div className="title-block">{paperTitle}</div>}
-                {(paperTitle || conversationId) && (
+                {paperInfoLoaded && (paperTitle || conversationId) && (
                   <div className="tag-block">
                     <div className="tag-block-header">
                       <div className="tag-block-title">论文标签</div>
-                      {!readOnly && conversationId && (
-                        <button
-                          type="button"
-                          className="tag-block-edit"
-                          onClick={openTagPicker}
-                          aria-label="编辑论文标签"
-                          title="编辑论文标签"
-                        >
-                          <EditOutlined />
-                        </button>
-                      )}
+                      <div className="tag-block-actions">
+                        {!readOnly && conversationId && (
+                          <>
+                            <Tooltip title="刷新论文标签与论文信息">
+                              <button
+                                type="button"
+                                className="tag-block-edit"
+                                onClick={refreshPaperMetadata}
+                                aria-label="刷新论文标签与论文信息"
+                                disabled={tagRefreshing}
+                              >
+                                <ReloadOutlined spin={tagRefreshing} />
+                              </button>
+                            </Tooltip>
+                            <button
+                              type="button"
+                              className="tag-block-edit"
+                              onClick={openTagPicker}
+                              aria-label="编辑论文标签"
+                              title="编辑论文标签"
+                              disabled={tagRefreshing}
+                            >
+                              <EditOutlined />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <div className="tag-block-body">
                       {renderMetaTagChips(paperMeta)}

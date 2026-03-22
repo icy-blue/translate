@@ -36,6 +36,7 @@ from .models import (
 from .paper_tags import build_tag_payloads, extract_abstract_for_tagging, get_tag_definition, get_tag_library_payload
 from .pdf_figures import extract_pdf_figures, extract_pdf_tables
 from .poe_utils import classify_paper_tags, extract_title_from_pdf, get_bot_response, upload_file
+from .semantic_scholar import safe_refresh_semantic_scholar_result
 
 app = FastAPI()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -106,8 +107,15 @@ async def upload_pdf(
                 tag_model,
                 api_key,
             )
-        
+
         semantic_result = crud.get_semantic_scholar_result(session, existing_file.conversation_id)
+        if semantic_result is None and conversation:
+            semantic_result = _refresh_conversation_semantic_result(
+                session,
+                existing_file.conversation_id,
+                conversation.title or existing_file.filename,
+            )
+
         def keep(m):
             return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
         
@@ -176,6 +184,7 @@ async def upload_pdf(
     figures = _extract_and_store_figures(session, conversation_id, file_bytes)
     tables = _extract_and_store_tables(session, conversation_id, file_bytes)
     tags = await _extract_and_store_tags(session, conversation_id, final_title, response_text, tag_model, api_key) if extract_tags else []
+    semantic_result = _refresh_conversation_semantic_result(session, conversation_id, final_title)
 
     response = {
         "conversation_id": conversation_id,
@@ -186,7 +195,7 @@ async def upload_pdf(
         "tables": _serialize_tables(tables),
         "tags": _serialize_tags(tags),
     }
-    response.update(_serialize_semantic_result(None))
+    response.update(_serialize_semantic_result(semantic_result))
     return response
 
 # Common logic for continuing a conversation
@@ -487,6 +496,38 @@ async def _extract_and_store_tags(
         print(f"Error extracting tags for conversation {conversation_id}: {exc}")
         session.rollback()
         return crud.get_tags(session, conversation_id)
+
+
+def _refresh_conversation_semantic_result(
+    session: Session,
+    conversation_id: str,
+    title: str,
+):
+    return safe_refresh_semantic_scholar_result(
+        session=session,
+        conversation_id=conversation_id,
+        title=title,
+    )
+
+
+async def _refresh_conversation_annotations(
+    session: Session,
+    conversation_id: str,
+    title: str,
+    first_bot_message: str,
+    tag_model: str,
+    api_key: str,
+):
+    tags = await _extract_and_store_tags(
+        session,
+        conversation_id,
+        title,
+        first_bot_message,
+        tag_model,
+        api_key,
+    )
+    semantic_result = _refresh_conversation_semantic_result(session, conversation_id, title)
+    return tags, semantic_result
 
 
 def _ensure_asset_columns():
@@ -935,6 +976,33 @@ async def get_tag_library(session: Session = Depends(get_db_session)):
 @app.get("/search/filters")
 async def get_search_filters(session: Session = Depends(get_db_session)):
     return _build_search_filter_payload(session)
+
+
+@app.post("/conversation/{conversation_id}/refresh_metadata")
+async def refresh_conversation_metadata(
+    conversation_id: str,
+    tag_model: str = Form(default=settings.poe_model),
+    api_key: str = Depends(get_api_key),
+    session: Session = Depends(get_db_session),
+    _read_only: None = Depends(check_read_only),
+):
+    conversation = crud.get_conversation(session, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    messages = crud.get_messages(session, conversation_id)
+    first_bot_message = next((message.content for message in messages if message.role == "bot"), "")
+    tags, semantic_result = await _refresh_conversation_annotations(
+        session=session,
+        conversation_id=conversation_id,
+        title=conversation.title or conversation.original_filename or "",
+        first_bot_message=first_bot_message,
+        tag_model=tag_model,
+        api_key=api_key,
+    )
+    response = {"tags": _serialize_tags(tags)}
+    response.update(_serialize_semantic_result(semantic_result))
+    return response
 
 
 @app.post("/conversation/{conversation_id}/tags")
