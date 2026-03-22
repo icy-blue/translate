@@ -1187,6 +1187,25 @@
                   </h2>
                 </div>
                 <div className="browse-title-actions">
+                  {isMobile && !readOnly && (
+                    <>
+                      <Tooltip title="配置">
+                        <Button
+                          icon={<SettingOutlined />}
+                          onClick={() => setConfigModalVisible(true)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="翻译新论文">
+                        <Button
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          onClick={() => { window.location.href = "/chat"; }}
+                        >
+                          新建论文
+                        </Button>
+                      </Tooltip>
+                    </>
+                  )}
                   {!isMobile && !readOnly && (
                     <>
                       <Tooltip title="瀑布流">
@@ -1230,27 +1249,6 @@
               <div className="browse-header" style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: "space-between" }}>
                 {isMobile ? (
                   <>
-                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", width: "100%", gap: 8, marginBottom: 4 }}>
-                      {!readOnly && (
-                        <Tooltip title="配置">
-                          <Button
-                            icon={<SettingOutlined />}
-                            onClick={() => setConfigModalVisible(true)}
-                          />
-                        </Tooltip>
-                      )}
-                      {!readOnly && (
-                        <Tooltip title="翻译新论文">
-                          <Button
-                            type="primary"
-                            icon={<PlusOutlined />}
-                            onClick={() => { window.location.href = "/chat"; }}
-                          >
-                            新建论文
-                          </Button>
-                        </Tooltip>
-                      )}
-                    </div>
                     <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center" }}>
                       <Button icon={<TagsOutlined />} onClick={openTagPicker}>
                         {selectedFilterCount > 0 ? `筛选（${selectedFilterCount}）` : "筛选"}
