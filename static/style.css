@@ -568,10 +568,9 @@ body {
 .paper-footer {
   margin-top: 14px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .paper-download-link {
@@ -583,7 +582,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
+  align-self: flex-end;
 }
 
 .paper-download-link:hover {
