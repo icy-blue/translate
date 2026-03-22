@@ -6,3 +6,5 @@ uploads/
 translations.db
 .env
 GEMINI.md
+_temp/
+data/paper_semantic_scholar_results.csv

@@ -42,11 +42,19 @@
     // ==========================================
 
     const { useState, useEffect } = React;
-    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined } = icons;
+    const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined } = icons;
     const { TextArea } = Input;
 
     const BASE_URL = "";
+    const TAG_CATEGORY_META = {
+      L: { className: "tag-chip-learning" },
+      M: { className: "tag-chip-modality" },
+      T: { className: "tag-chip-task" },
+      S: { className: "tag-chip-system" },
+      A: { className: "tag-chip-application" },
+      P: { className: "tag-chip-property" },
+    };
 
     // ==========================================
     // 2. 工具函数
@@ -76,6 +84,221 @@
         columns[colIndex].push(item);
       });
       return columns;
+    }
+
+    function renderTagChips(tags, options = {}) {
+      const { emptyText = null, compact = false } = options;
+      if (!Array.isArray(tags) || tags.length === 0) {
+        return emptyText ? <span className="tag-empty-text">{emptyText}</span> : null;
+      }
+
+      return tags.map(tag => {
+        const meta = TAG_CATEGORY_META[tag.category_code] || {};
+        const chipClassName = ["tag-chip", meta.className, compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ");
+        return (
+          <span
+            key={tag.id || `${tag.tag_code}-${tag.tag_label}`}
+            className={chipClassName}
+            title={tag.tag_label_en ? `${tag.tag_path || tag.tag_label} / ${tag.tag_path_en || tag.tag_label_en}` : (tag.tag_path || tag.tag_label)}
+          >
+            {tag.tag_label}
+          </span>
+        );
+      });
+    }
+
+    function normalizePaperMeta(data = {}) {
+      return {
+        venue_abbr: data.venue_abbr || "",
+        ccf_category: data.ccf_category || "None",
+        ccf_type: data.ccf_type || "None",
+        citation_count: data.citation_count ?? null,
+        venue: data.venue || null,
+        year: data.year ?? null,
+        semantic_updated_at: data.semantic_updated_at || null,
+      };
+    }
+
+    function truncateLabel(text, maxLength = 18) {
+      if (!text || text.length <= maxLength) {
+        return text;
+      }
+      return `${text.slice(0, maxLength)}...`;
+    }
+
+    function buildMetaTagItems(meta = {}, options = {}) {
+      const { compact = false } = options;
+      const items = [];
+      const ccfCategory = meta.ccf_category || "None";
+      const ccfLabel = ccfCategory === "None" ? "CCF-None" : `CCF-${ccfCategory}`;
+      const ccfClassName = ccfCategory === "A"
+        ? "tag-chip-ccf-a"
+        : ccfCategory === "B"
+          ? "tag-chip-ccf-b"
+          : ccfCategory === "C"
+            ? "tag-chip-ccf-c"
+            : "tag-chip-ccf-none";
+
+      items.push({
+        key: `ccf-${ccfCategory}`,
+        label: ccfLabel,
+        title: ccfLabel,
+        className: ccfClassName,
+        tooltip: false,
+      });
+
+      const venueLabel = meta.venue_abbr || meta.venue;
+      if (venueLabel) {
+        items.push({
+          key: `venue-${venueLabel}`,
+          label: truncateLabel(venueLabel, compact ? 14 : 20),
+          title: meta.venue || venueLabel,
+          className: "tag-chip-venue",
+          tooltip: true,
+        });
+      }
+
+      if (meta.year) {
+        items.push({
+          key: `year-${meta.year}`,
+          label: String(meta.year),
+          title: String(meta.year),
+          className: "tag-chip-year",
+          tooltip: false,
+        });
+      }
+
+      return items;
+    }
+
+    function renderMetaTagChips(meta, options = {}) {
+      const { compact = false } = options;
+      return buildMetaTagItems(meta, { compact }).map(item => (
+        item.tooltip ? (
+          <Tooltip key={item.key} title={item.title}>
+            <span
+              className={["tag-chip", item.className, compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ")}
+            >
+              {item.label}
+            </span>
+          </Tooltip>
+        ) : (
+          <span
+            key={item.key}
+            className={["tag-chip", item.className, compact ? "tag-chip-compact" : ""].filter(Boolean).join(" ")}
+            title={item.title}
+          >
+            {item.label}
+          </span>
+        )
+      ));
+    }
+
+    function renderSelectedTagPills(tagCodes, options = {}) {
+      const { findTagByCode, getLocalizedLabel, onRemove, emptyText } = options;
+      if (!Array.isArray(tagCodes) || tagCodes.length === 0) {
+        return <span className="tag-empty-text">{emptyText || "暂无已选标签"}</span>;
+      }
+
+      return tagCodes.map(tagCode => {
+        const tag = findTagByCode(tagCode);
+        return (
+          <button
+            key={tagCode}
+            type="button"
+            className="tag-picker-selected-pill"
+            onClick={() => onRemove && onRemove(tagCode)}
+          >
+            <span className="tag-picker-selected-pill-text">{getLocalizedLabel(tag)}</span>
+            <span className="tag-picker-selected-pill-remove">x</span>
+          </button>
+        );
+      });
+    }
+
+    const READ_MODE_TOOLTIP = "当前为阅读模式。如需切换为编辑模式，请先修改后端 .env 中的 READ_ONLY 配置，并重启后端后生效。";
+    const ASSET_DIRECTION_TOOLTIP = "解析有错误？";
+    const ASSET_DIRECTION_MODAL_TITLE = "解析有错误？试试调整解析配置";
+
+    function ReadModeBadge() {
+      return (
+        <Tooltip title={READ_MODE_TOOLTIP}>
+          <Tag className="mode-badge mode-badge-read">阅读模式</Tag>
+        </Tooltip>
+      );
+    }
+
+    function getBrowserLanguage() {
+      const lang = (navigator.language || "zh-CN").toLowerCase();
+      return lang.startsWith("zh") ? "zh" : "en";
+    }
+
+    const BROWSE_SEARCH_PARAM_KEYS = ["q", "tag_code", "ccf_category", "venue_filter", "year"];
+
+    function normalizeBrowseSearchState(state = {}) {
+      const filters = state.filters || {};
+      const normalizeList = (value) => Array.from(new Set(
+        (Array.isArray(value) ? value : [])
+          .map(item => String(item || "").trim())
+          .filter(Boolean)
+      ));
+
+      return {
+        query: String(state.query || "").trim(),
+        filters: {
+          tagCodes: normalizeList(filters.tagCodes),
+          ccfCategories: normalizeList(filters.ccfCategories),
+          venues: normalizeList(filters.venues),
+          years: normalizeList(filters.years),
+        },
+      };
+    }
+
+    function getBrowseSearchStateFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      return normalizeBrowseSearchState({
+        query: params.get("q") || "",
+        filters: {
+          tagCodes: params.getAll("tag_code"),
+          ccfCategories: params.getAll("ccf_category"),
+          venues: params.getAll("venue_filter"),
+          years: params.getAll("year"),
+        },
+      });
+    }
+
+    function hasBrowseSearchState(state = {}) {
+      const normalized = normalizeBrowseSearchState(state);
+      const filters = normalized.filters;
+      return Boolean(
+        normalized.query ||
+        filters.tagCodes.length ||
+        filters.ccfCategories.length ||
+        filters.venues.length ||
+        filters.years.length
+      );
+    }
+
+    function syncBrowseSearchStateToUrl(state = {}, options = {}) {
+      const normalized = normalizeBrowseSearchState(state);
+      const url = new URL(window.location.href);
+
+      BROWSE_SEARCH_PARAM_KEYS.forEach(key => url.searchParams.delete(key));
+
+      if (normalized.query) {
+        url.searchParams.set("q", normalized.query);
+      }
+      normalized.filters.tagCodes.forEach(value => url.searchParams.append("tag_code", value));
+      normalized.filters.ccfCategories.forEach(value => url.searchParams.append("ccf_category", value));
+      normalized.filters.venues.forEach(value => url.searchParams.append("venue_filter", value));
+      normalized.filters.years.forEach(value => url.searchParams.append("year", value));
+
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextUrl !== currentUrl) {
+        const method = options.replace ? "replaceState" : "pushState";
+        window.history[method]({}, "", nextUrl);
+      }
     }
 
     // ==========================================
@@ -113,6 +336,14 @@
     // 3.2 BrowsePage - 论文库浏览页面
     // ==========================================
     function BrowsePage() {
+      const initialBrowseState = getBrowseSearchStateFromUrl();
+      const EMPTY_SEARCH_FILTERS = {
+        tagCodes: [],
+        ccfCategories: [],
+        venues: [],
+        years: [],
+      };
+
       // ===== 常量 =====
       const PAGE_SIZE = 10; // 与后端默认保持一致
 
@@ -133,14 +364,31 @@
       const [columnCount, setColumnCount] = useState(3);
 
       // ===== 搜索状态 =====
-      const [searchQuery, setSearchQuery] = useState("");
+      const [searchQuery, setSearchQuery] = useState(initialBrowseState.query);
       const [searchResults, setSearchResults] = useState({ exact_matches: [], fuzzy_matches: [] });
       const [isSearching, setIsSearching] = useState(false);
+      const [searchStatus, setSearchStatus] = useState("idle"); // 'idle' | 'loading' | 'success' | 'error'
       const [showSearchResults, setShowSearchResults] = useState(false);
-      const [searchBarExpanded, setSearchBarExpanded] = useState(false);
+      const [searchBarExpanded, setSearchBarExpanded] = useState(window.innerWidth <= 576 && hasBrowseSearchState(initialBrowseState));
+      const [tagLibrary, setTagLibrary] = useState([]);
+      const [searchFilterLibrary, setSearchFilterLibrary] = useState({ ccf_categories: [], venues: [], years: [] });
+      const [selectedTagCodes, setSelectedTagCodes] = useState(initialBrowseState.filters.tagCodes);
+      const [selectedCcfCategories, setSelectedCcfCategories] = useState(initialBrowseState.filters.ccfCategories);
+      const [selectedVenueFilters, setSelectedVenueFilters] = useState(initialBrowseState.filters.venues);
+      const [selectedYears, setSelectedYears] = useState(initialBrowseState.filters.years);
+      const [tagPickerVisible, setTagPickerVisible] = useState(false);
+      const [draftTagCodes, setDraftTagCodes] = useState(initialBrowseState.filters.tagCodes);
+      const [draftCcfCategories, setDraftCcfCategories] = useState(initialBrowseState.filters.ccfCategories);
+      const [draftVenueFilters, setDraftVenueFilters] = useState(initialBrowseState.filters.venues);
+      const [draftYears, setDraftYears] = useState(initialBrowseState.filters.years);
+      const [activeTagCategory, setActiveTagCategory] = useState("L");
+      const [tagKeyword, setTagKeyword] = useState("");
+      const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
 
       // ===== 响应式布局 =====
       useEffect(() => {
+        setUiLanguage(getBrowserLanguage());
+
         function updateColumnCount() {
           const width = window.innerWidth;
           setIsMobile(width <= 576);
@@ -159,15 +407,101 @@
       }, []);
 
       // ===== 初始化 =====
+      function resolveSearchFilters(options = {}) {
+        return {
+          tagCodes: options.tagCodes !== undefined ? options.tagCodes : selectedTagCodes,
+          ccfCategories: options.ccfCategories !== undefined ? options.ccfCategories : selectedCcfCategories,
+          venues: options.venues !== undefined ? options.venues : selectedVenueFilters,
+          years: options.years !== undefined ? options.years : selectedYears,
+        };
+      }
+
+      function getSelectedFilterCount(filters = resolveSearchFilters()) {
+        return filters.tagCodes.length + filters.ccfCategories.length + filters.venues.length + filters.years.length;
+      }
+
+      function applyBrowseSearchState(state = {}, options = {}) {
+        const normalized = normalizeBrowseSearchState(state);
+        const filters = normalized.filters;
+
+        setSearchQuery(normalized.query);
+        setSelectedTagCodes(filters.tagCodes);
+        setSelectedCcfCategories(filters.ccfCategories);
+        setSelectedVenueFilters(filters.venues);
+        setSelectedYears(filters.years);
+        setDraftTagCodes(filters.tagCodes);
+        setDraftCcfCategories(filters.ccfCategories);
+        setDraftVenueFilters(filters.venues);
+        setDraftYears(filters.years);
+        setTagKeyword("");
+        setSearchBarExpanded(window.innerWidth <= 576 && hasBrowseSearchState(normalized));
+        setOffset(0);
+
+        if (normalized.query) {
+          handleSearch({
+            query: normalized.query,
+            tagCodes: filters.tagCodes,
+            ccfCategories: filters.ccfCategories,
+            venues: filters.venues,
+            years: filters.years,
+            syncUrl: options.syncUrl,
+            replaceUrl: options.replaceUrl,
+          });
+          return;
+        }
+
+        setSearchResults({ exact_matches: [], fuzzy_matches: [] });
+        setShowSearchResults(false);
+        setSearchStatus("idle");
+
+        if (getSelectedFilterCount(filters) > 0) {
+          if (options.syncUrl !== false) {
+            syncBrowseSearchStateToUrl({
+              query: "",
+              filters,
+            }, { replace: options.replaceUrl });
+          }
+          loadConversations(false, filters);
+          return;
+        }
+
+        if (options.syncUrl !== false) {
+          syncBrowseSearchStateToUrl({
+            query: "",
+            filters: EMPTY_SEARCH_FILTERS,
+          }, { replace: options.replaceUrl });
+        }
+        loadConversations(false, EMPTY_SEARCH_FILTERS);
+      }
+
+      // ===== 初始化 =====
       useEffect(() => {
-        // 加载第一页
-        loadConversations(false);
-        // 加载配置
+        applyBrowseSearchState(initialBrowseState, { syncUrl: false });
         loadConfig();
+        loadTagLibrary();
+        loadSearchFilterLibrary();
+      }, []);
+
+      useEffect(() => {
+        function handlePopState() {
+          applyBrowseSearchState(getBrowseSearchStateFromUrl(), { syncUrl: false });
+        }
+
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
       }, []);
 
       // ===== 数据加载函数 =====
-      async function loadConversations(append = false) {
+
+      function appendSearchFilterParams(params, filters) {
+        filters.tagCodes.forEach(tagCode => params.append("tag_code", tagCode));
+        filters.ccfCategories.forEach(value => params.append("ccf_category", value));
+        filters.venues.forEach(value => params.append("venue_filter", value));
+        filters.years.forEach(value => params.append("year", value));
+      }
+
+      async function loadConversations(append = false, options = {}) {
+        const filters = resolveSearchFilters(options);
         if (!append) {
           setLoading(true);
         } else {
@@ -178,6 +512,7 @@
           const params = new URLSearchParams();
           params.append("limit", PAGE_SIZE);
           params.append("offset", append ? offset : 0);
+          appendSearchFilterParams(params, filters);
           const res = await fetch(`${BASE_URL}/conversations?${params.toString()}`);
 
           if (!res.ok) {
@@ -220,41 +555,205 @@
         }
       }
 
+      async function loadTagLibrary() {
+        try {
+          const res = await fetch(`${BASE_URL}/tags/library`);
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const categories = Array.isArray(data.categories) ? data.categories : [];
+          setTagLibrary(categories);
+          if (categories.length > 0) {
+            setActiveTagCategory(prev => prev || categories[0].category_code);
+          }
+        } catch (err) {
+          console.error("Failed to load tag library:", err);
+        }
+      }
+
+      async function loadSearchFilterLibrary() {
+        try {
+          const res = await fetch(`${BASE_URL}/search/filters`);
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          setSearchFilterLibrary({
+            ccf_categories: Array.isArray(data.ccf_categories) ? data.ccf_categories : [],
+            venues: Array.isArray(data.venues) ? data.venues : [],
+            years: Array.isArray(data.years) ? data.years : [],
+          });
+        } catch (err) {
+          console.error("Failed to load search filter library:", err);
+        }
+      }
+
       // ===== 搜索功能 =====
-      async function handleSearch() {
-        if (!searchQuery.trim()) {
+      async function handleSearch(options = {}) {
+        const queryValue = (options.query !== undefined ? options.query : searchQuery).trim();
+        const filters = resolveSearchFilters(options);
+        const selectedFilterCount = getSelectedFilterCount(filters);
+        const shouldSyncUrl = options.syncUrl !== false;
+
+        setSearchQuery(queryValue);
+
+        if (shouldSyncUrl) {
+          syncBrowseSearchStateToUrl({
+            query: queryValue,
+            filters,
+          }, { replace: options.replaceUrl });
+        }
+
+        if (!queryValue && selectedFilterCount === 0) {
+          setSearchResults({ exact_matches: [], fuzzy_matches: [] });
           setShowSearchResults(false);
+          setSearchStatus("idle");
           return;
         }
 
+        if (!queryValue && selectedFilterCount > 0) {
+          setSearchResults({ exact_matches: [], fuzzy_matches: [] });
+          setShowSearchResults(false);
+          setSearchStatus("idle");
+          setOffset(0);
+          await loadConversations(false, filters);
+          return;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
         setIsSearching(true);
         setShowSearchResults(true);
+        setSearchStatus("loading");
+        setSearchResults({ exact_matches: [], fuzzy_matches: [] });
 
         try {
           const params = new URLSearchParams();
-          params.append("q", searchQuery);
-          const res = await fetch(`${BASE_URL}/search?${params.toString()}`);
+          if (queryValue) {
+            params.append("q", queryValue);
+          }
+          appendSearchFilterParams(params, filters);
+          const res = await fetch(`${BASE_URL}/search?${params.toString()}`, {
+            signal: controller.signal,
+          });
 
           if (!res.ok) {
             message.error("搜索失败");
+            setSearchStatus("error");
             return;
           }
 
           const data = await res.json();
           setSearchResults(data);
+          setSearchStatus("success");
         } catch (err) {
-          message.error("网络错误");
+          const isAbortError = err && err.name === "AbortError";
+          message.error(isAbortError ? "搜索超时" : "网络错误");
+          setSearchStatus("error");
         } finally {
+          window.clearTimeout(timeoutId);
           setIsSearching(false);
         }
       }
 
       function clearSearch() {
         setSearchQuery("");
+        setSelectedTagCodes([]);
+        setSelectedCcfCategories([]);
+        setSelectedVenueFilters([]);
+        setSelectedYears([]);
+        setDraftTagCodes([]);
+        setDraftCcfCategories([]);
+        setDraftVenueFilters([]);
+        setDraftYears([]);
+        setTagKeyword("");
         setSearchResults({ exact_matches: [], fuzzy_matches: [] });
         setShowSearchResults(false);
+        setSearchStatus("idle");
         setOffset(0);
-        loadConversations(false);
+        syncBrowseSearchStateToUrl({ query: "", filters: EMPTY_SEARCH_FILTERS });
+        loadConversations(false, EMPTY_SEARCH_FILTERS);
+      }
+
+      function getLocalizedLabel(item) {
+        if (!item) {
+          return "";
+        }
+        if (uiLanguage === "en") {
+          return item.tag_label_en || item.category_label_en || item.tag_label || item.category_label || "";
+        }
+        return item.tag_label || item.category_label || item.tag_label_en || item.category_label_en || "";
+      }
+
+      function findTagByCode(tagCode) {
+        for (const category of tagLibrary) {
+          const found = (category.tags || []).find(tag => tag.tag_code === tagCode);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      }
+
+      function findSearchFilterOption(type, value) {
+        if (type === "ccf") {
+          return (searchFilterLibrary.ccf_categories || []).find(item => item.value === value) || null;
+        }
+        if (type === "venue") {
+          return (searchFilterLibrary.venues || []).find(item => item.value === value) || null;
+        }
+        if (type === "year") {
+          return (searchFilterLibrary.years || []).find(item => item.value === value) || null;
+        }
+        return null;
+      }
+
+      function openTagPicker() {
+        setDraftTagCodes([...selectedTagCodes]);
+        setDraftCcfCategories([...selectedCcfCategories]);
+        setDraftVenueFilters([...selectedVenueFilters]);
+        setDraftYears([...selectedYears]);
+        setTagKeyword("");
+        setTagPickerVisible(true);
+      }
+
+      function toggleDraftSelection(type, value) {
+        const updateList = (setter) => setter(prev => (
+          prev.includes(value)
+            ? prev.filter(item => item !== value)
+            : [...prev, value]
+        ));
+
+        if (type === "paper_tag") {
+          updateList(setDraftTagCodes);
+        } else if (type === "ccf") {
+          updateList(setDraftCcfCategories);
+        } else if (type === "venue") {
+          updateList(setDraftVenueFilters);
+        } else if (type === "year") {
+          updateList(setDraftYears);
+        }
+      }
+
+      function applyTagSelection() {
+        const nextTagCodes = [...draftTagCodes];
+        const nextCcfCategories = [...draftCcfCategories];
+        const nextVenueFilters = [...draftVenueFilters];
+        const nextYears = [...draftYears];
+        setSelectedTagCodes(nextTagCodes);
+        setSelectedCcfCategories(nextCcfCategories);
+        setSelectedVenueFilters(nextVenueFilters);
+        setSelectedYears(nextYears);
+        setTagPickerVisible(false);
+        handleSearch({
+          query: searchQuery.trim(),
+          tagCodes: nextTagCodes,
+          ccfCategories: nextCcfCategories,
+          venues: nextVenueFilters,
+          years: nextYears,
+        });
       }
 
       // ===== 导航功能 =====
@@ -264,8 +763,113 @@
       }
 
       // ===== 渲染功能 =====
-      const masonryColumns = viewMode === 'masonry' ? getMasonryColumns(conversations, columnCount) : [];
-      const displayConversations = showSearchResults ? [] : conversations;
+      const pickerSections = [
+        ...tagLibrary.map(category => ({
+          key: category.category_code,
+          title: getLocalizedLabel(category),
+          type: "paper_tag",
+          items: (category.tags || []).map(tag => ({
+            value: tag.tag_code,
+            label: getLocalizedLabel(tag),
+            count: tag.usage_count || 0,
+            title: tag.tag_code,
+          })),
+        })),
+        {
+          key: "CCF",
+          title: "CCF",
+          type: "ccf",
+          items: (searchFilterLibrary.ccf_categories || []).map(item => ({
+            value: item.value,
+            label: item.label,
+            count: item.count || 0,
+            title: item.label,
+          })),
+        },
+        {
+          key: "VENUE",
+          title: "会议/期刊名",
+          type: "venue",
+          items: (searchFilterLibrary.venues || []).map(item => ({
+            value: item.value,
+            label: item.label,
+            count: item.count || 0,
+            title: item.full_label || item.label,
+          })),
+        },
+        {
+          key: "YEAR",
+          title: "年份",
+          type: "year",
+          items: (searchFilterLibrary.years || []).map(item => ({
+            value: item.value,
+            label: item.label,
+            count: item.count || 0,
+            title: item.label,
+          })),
+        },
+      ];
+
+      const filteredTagCategories = tagKeyword.trim()
+        ? pickerSections
+            .map(section => ({
+              ...section,
+              items: (section.items || []).filter(item => {
+                const searchText = `${item.label} ${item.value} ${item.title || ""}`.toLowerCase();
+                return searchText.includes(tagKeyword.trim().toLowerCase());
+              }),
+            }))
+            .filter(section => section.items.length > 0)
+        : pickerSections.filter(section => section.key === activeTagCategory);
+
+      const selectedFilterCount = getSelectedFilterCount();
+
+      useEffect(() => {
+        if (!pickerSections.some(section => section.key === activeTagCategory) && pickerSections.length > 0) {
+          setActiveTagCategory(pickerSections[0].key);
+        }
+      }, [tagLibrary, searchFilterLibrary, activeTagCategory]);
+
+      function buildDraftSelectedItems() {
+        const items = [];
+        draftTagCodes.forEach(tagCode => {
+          const tag = findTagByCode(tagCode);
+          items.push({
+            key: `paper_tag:${tagCode}`,
+            label: getLocalizedLabel(tag) || tagCode,
+            title: tagCode,
+            onRemove: () => toggleDraftSelection("paper_tag", tagCode),
+          });
+        });
+        draftCcfCategories.forEach(value => {
+          const item = findSearchFilterOption("ccf", value);
+          items.push({
+            key: `ccf:${value}`,
+            label: item?.label || `CCF-${value}`,
+            title: item?.label || `CCF-${value}`,
+            onRemove: () => toggleDraftSelection("ccf", value),
+          });
+        });
+        draftVenueFilters.forEach(value => {
+          const item = findSearchFilterOption("venue", value);
+          items.push({
+            key: `venue:${value}`,
+            label: item?.label || value,
+            title: item?.title || item?.full_label || value,
+            onRemove: () => toggleDraftSelection("venue", value),
+          });
+        });
+        draftYears.forEach(value => {
+          const item = findSearchFilterOption("year", value);
+          items.push({
+            key: `year:${value}`,
+            label: item?.label || value,
+            title: item?.label || value,
+            onRemove: () => toggleDraftSelection("year", value),
+          });
+        });
+        return items;
+      }
 
       /**
        * 渲染论文列表（瀑布流或列表视图）
@@ -299,13 +903,29 @@
        * 论文卡片组件
        */
       function PaperCard({ paper, goToPaper }) {
+        const meta = normalizePaperMeta(paper);
+        const metaTagItems = buildMetaTagItems(meta, { compact: true });
         return (
           <div
             className="paper-card"
             onClick={() => goToPaper(paper.id)}
           >
             <div className="paper-title">{paper.title || "未命名论文"}</div>
-            <div className="paper-time">{formatDate(paper.created_at)}</div>
+            <div className="paper-meta-row">
+              <div className="paper-time">{formatDate(paper.created_at)}</div>
+              {meta.citation_count !== null && meta.citation_count !== undefined && (
+                <Tooltip
+                  title={
+                    <div>
+                      <div>信息来源于Semantic Scholar</div>
+                      <div>{`同步时间：${meta.semantic_updated_at ? formatDate(meta.semantic_updated_at) : "未知"}`}</div>
+                    </div>
+                  }
+                >
+                  <div className="paper-citation-count">{`引用量：${meta.citation_count}`}</div>
+                </Tooltip>
+              )}
+            </div>
             <div
               className="paper-summary"
               dangerouslySetInnerHTML={{
@@ -314,11 +934,36 @@
                   : "暂无摘要"
               }}
             />
-            {paper.pdf_url && (
-              <div style={{ marginTop: 10 }}>
-                <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" style={{ color: '#1677ff', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
-                  📄 下载 PDF
-                </a>
+            {(paper.pdf_url || metaTagItems.length > 0 || (paper.tags && paper.tags.length > 0)) && (
+              <div className="paper-footer">
+                <div className="paper-tag-row">
+                  {metaTagItems.map(item => (
+                    item.tooltip ? (
+                      <Tooltip key={item.key} title={item.title}>
+                        <span
+                          className={["tag-chip", item.className, "tag-chip-compact"].filter(Boolean).join(" ")}
+                        >
+                          {item.label}
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <span
+                        key={item.key}
+                        className={["tag-chip", item.className, "tag-chip-compact"].filter(Boolean).join(" ")}
+                        title={item.title}
+                      >
+                        {item.label}
+                      </span>
+                    )
+                  ))}
+                  {renderTagChips(paper.tags, { compact: true })}
+                </div>
+                {paper.pdf_url && (
+                  <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" className="paper-download-link" onClick={(e) => e.stopPropagation()}>
+                    <DownloadOutlined />
+                    <span>下载 PDF</span>
+                  </a>
+                )}
               </div>
             )}
             {paper.relevance !== undefined && (
@@ -337,13 +982,13 @@
             <div className="container">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <h2>📚 论文库</h2>
-                {readOnly && <Tag color="red">只读模式</Tag>}
+                {readOnly && <ReadModeBadge />}
               </div>
               <div className="browse-header" style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: "space-between" }}>
                 {/* 手机端：第一行 - 统计信息和搜索按钮 */}
                 {isMobile ? (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                    <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                    <span>{showSearchResults ? "搜索结果" : (selectedFilterCount > 0 ? `标签筛选 ${totalCount} 篇论文` : `已翻译 ${totalCount} 篇论文`)}</span>
                     <div style={{ display: "flex", gap: 8 }}>
                       {!readOnly && (
                         <Tooltip title="翻译新论文">
@@ -366,28 +1011,33 @@
                   <>
                     {/* 左侧：统计信息 */}
                     <div style={{ display: "flex", alignItems: "center", flex: 1, justifyContent: "flex-start" }}>
-                      <span>{showSearchResults ? "搜索结果" : `已翻译 ${totalCount} 篇论文`}</span>
+                      <span>{showSearchResults ? "搜索结果" : (selectedFilterCount > 0 ? `标签筛选 ${totalCount} 篇论文` : `已翻译 ${totalCount} 篇论文`)}</span>
                     </div>
                     
                     {/* 中间：搜索组件 */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 2 }}>
-                      <Input.Search
-                        placeholder="搜索论文标题..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        onSearch={handleSearch}
-                        style={{ flex: 1, minWidth: 150, maxWidth: 1200 }}
-                        allowClear
-                        enterButton={!showSearchResults}
-                        loading={isSearching}
-                        addonAfter={
-                          showSearchResults ? (
-                            <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
-                              清除
-                            </Button>
-                          ) : null
-                        }
-                      />
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
+                        <Button icon={<TagsOutlined />} onClick={openTagPicker}>
+                          {selectedFilterCount > 0 ? `已选标签 ${selectedFilterCount}` : "按标签搜索"}
+                        </Button>
+                        <Input.Search
+                          placeholder="搜索论文标题..."
+                          value={searchQuery}
+                          onChange={e => setSearchQuery(e.target.value)}
+                          onSearch={handleSearch}
+                          style={{ flex: 1, minWidth: 150, maxWidth: 1200 }}
+                          allowClear
+                          enterButton={!showSearchResults}
+                          loading={isSearching}
+                          addonAfter={
+                            (showSearchResults || selectedFilterCount > 0) ? (
+                              <Button onClick={clearSearch} style={{ marginLeft: "1rem" }} >
+                                清除
+                              </Button>
+                            ) : null
+                          }
+                        />
+                      </div>
                     </div>
                     
                     {/* 右侧：控制按钮 */}
@@ -421,7 +1071,10 @@
 
                 {/* 手机端搜索栏 */}
                 {isMobile && searchBarExpanded && (
-                  <div style={{ width: "100%", display: "flex", gap: 8 }}>
+                  <div style={{ width: "100%", display: "flex", gap: 8, flexDirection: "column" }}>
+                    <Button icon={<TagsOutlined />} onClick={openTagPicker}>
+                      {selectedFilterCount > 0 ? `已选标签 ${selectedFilterCount}` : "按标签搜索"}
+                    </Button>
                     <Input.Search
                       placeholder="搜索论文标题..."
                       value={searchQuery}
@@ -444,7 +1097,7 @@
             {showSearchResults && searchResults.exact_matches.length > 0 && (
               <>
                 <div style={{ fontSize: 18, fontWeight: 600, margin: "20px 0 10px", color: "#1677ff" }}>
-                  🔍 严格匹配 ({searchResults.exact_matches.length})
+                  {searchQuery.trim() ? "🔍 严格匹配" : "🏷️ 标签匹配"} ({searchResults.exact_matches.length})
                 </div>
                 {renderPapers(searchResults.exact_matches)}
               </>
@@ -460,19 +1113,36 @@
               </>
             )}
 
-            {/* Show no search results */}
-            {showSearchResults && searchResults.exact_matches.length === 0 && searchResults.fuzzy_matches.length === 0 && (
+            {/* Show searching state */}
+            {showSearchResults && searchStatus === "loading" && (
               <div className="empty-state">
-                <p>未找到匹配的论文</p>
-                <p style={{ fontSize: 14, color: "#ccc" }}>尝试使用不同的关键词搜索</p>
+                <p>搜索中</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>正在检索论文，请稍候</p>
+              </div>
+            )}
+
+            {/* Show search error state */}
+            {showSearchResults && searchStatus === "error" && (
+              <div className="empty-state">
+                <p>搜索异常</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>搜索时间较长或请求出现问题，请稍后重试</p>
+              </div>
+            )}
+
+            {showSearchResults && searchStatus === "success" && searchResults.exact_matches.length === 0 && searchResults.fuzzy_matches.length === 0 && (
+              <div className="empty-state">
+                <p>暂无匹配论文</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>可以尝试切换标题关键词或其他 tag</p>
               </div>
             )}
 
             {/* Show all conversations when not searching */}
             {!showSearchResults && conversations.length === 0 ? (
               <div className="empty-state">
-                <p>暂无翻译论文</p>
-                <p style={{ fontSize: 14, color: "#ccc" }}>上传 PDF 文件开始翻译</p>
+                <p>{selectedFilterCount > 0 ? "暂无匹配论文" : "暂无翻译论文"}</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>
+                  {selectedFilterCount > 0 ? "可以调整标签筛选条件" : "上传 PDF 文件开始翻译"}
+                </p>
               </div>
             ) : null}
 
@@ -490,6 +1160,91 @@
               </>
             )}
           </div>
+          <Modal
+            title="选择标签"
+            open={tagPickerVisible}
+            onOk={applyTagSelection}
+            onCancel={() => setTagPickerVisible(false)}
+            okText="确认"
+            width={980}
+            bodyStyle={{ paddingTop: 12 }}
+          >
+              <div className="tag-picker-toolbar">
+                <div className="tag-picker-tabs">
+                {pickerSections.map(section => (
+                  <button
+                    key={section.key}
+                    type="button"
+                    className={`tag-picker-tab ${activeTagCategory === section.key ? "active" : ""}`}
+                    onClick={() => setActiveTagCategory(section.key)}
+                  >
+                    {section.title}
+                  </button>
+                ))}
+              </div>
+              <Input
+                prefix={<SearchOutlined />}
+                placeholder={uiLanguage === "en" ? "Search all tags" : "搜索全部标签"}
+                value={tagKeyword}
+                onChange={e => setTagKeyword(e.target.value)}
+                className="tag-picker-search"
+                allowClear
+              />
+            </div>
+
+            <div className="tag-picker-selected">
+              <div className="tag-picker-section-title">
+                {uiLanguage === "en"
+                  ? `Selected Tags (${draftTagCodes.length + draftCcfCategories.length + draftVenueFilters.length + draftYears.length})`
+                  : `已选标签（${draftTagCodes.length + draftCcfCategories.length + draftVenueFilters.length + draftYears.length}）`}
+              </div>
+              <div className="tag-picker-selected-list">
+                {buildDraftSelectedItems().length === 0 ? (
+                  <span className="tag-empty-text">{uiLanguage === "en" ? "No tags selected" : "暂无已选标签"}</span>
+                ) : buildDraftSelectedItems().map(item => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="tag-picker-selected-pill"
+                    onClick={item.onRemove}
+                    title={item.title}
+                  >
+                    <span className="tag-picker-selected-pill-text">{item.label}</span>
+                    <span className="tag-picker-selected-pill-remove">x</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="tag-picker-groups">
+              {filteredTagCategories.map(section => (
+                <div key={section.key} className="tag-picker-group">
+                  <div className="tag-picker-group-title">{section.title}</div>
+                  <div className="tag-picker-chip-list">
+                    {(section.items || []).map(item => {
+                      const selected =
+                        section.type === "paper_tag" ? draftTagCodes.includes(item.value) :
+                        section.type === "ccf" ? draftCcfCategories.includes(item.value) :
+                        section.type === "venue" ? draftVenueFilters.includes(item.value) :
+                        draftYears.includes(item.value);
+                      return (
+                        <button
+                          key={`${section.type}:${item.value}`}
+                          type="button"
+                          className={`tag-picker-chip ${selected ? "selected" : ""}`}
+                          onClick={() => toggleDraftSelection(section.type, item.value)}
+                          title={item.title}
+                        >
+                          <span>{item.label}</span>
+                          <span className="tag-picker-chip-count">{item.count || 0}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Modal>
         </div>
       );
     }
@@ -521,17 +1276,25 @@
       const [blocks, setBlocks] = useState([]);
       const [paperTitle, setPaperTitle] = useState("");
       const [pdfUrl, setPdfUrl] = useState("");
+      const [figures, setFigures] = useState([]);
+      const [tables, setTables] = useState([]);
+      const [tags, setTags] = useState([]);
+      const [paperMeta, setPaperMeta] = useState(normalizePaperMeta());
+      const [tagLibrary, setTagLibrary] = useState([]);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
       const [configModalVisible, setConfigModalVisible] = useState(false);
       const [toc, setToc] = useState([]);
       const [activeHeading, setActiveHeading] = useState(null);
+      const [figuresExpanded, setFiguresExpanded] = useState(false);
+      const [tablesExpanded, setTablesExpanded] = useState(false);
 
       // ===== 配置状态 =====
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [readOnly, setReadOnly] = useState(false);
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
@@ -540,6 +1303,16 @@
       const [customModalVisible, setCustomModalVisible] = useState(false);
       const [customMessage, setCustomMessage] = useState("");
       const [saveToRecord, setSaveToRecord] = useState(true);
+      const [assetDirectionModalVisible, setAssetDirectionModalVisible] = useState(false);
+      const [figureDirectionValue, setFigureDirectionValue] = useState("above");
+      const [tableDirectionValue, setTableDirectionValue] = useState("above");
+      const [assetDirectionSubmitting, setAssetDirectionSubmitting] = useState(false);
+      const [tagPickerVisible, setTagPickerVisible] = useState(false);
+      const [draftTagCodes, setDraftTagCodes] = useState([]);
+      const [activeTagCategory, setActiveTagCategory] = useState("L");
+      const [tagKeyword, setTagKeyword] = useState("");
+      const [tagSaving, setTagSaving] = useState(false);
+      const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -563,6 +1336,7 @@
         localStorage.setItem("poe_api_key", poeApiKey);
         localStorage.setItem("poe_model", poeModel);
         localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
@@ -619,6 +1393,7 @@
           loadConversation(id);
         }
         loadConfig();
+        loadTagLibrary();
       }, []);
 
       /**
@@ -638,28 +1413,28 @@
           });
         }
 
-        const headings = document.querySelectorAll(".content h1, .content h2, .content h3");
+        const headings = document.querySelectorAll(".content .toc-anchor, .content h1, .content h2, .content h3");
         const newToc = [];
 
         headings.forEach((heading, index) => {
-          const id = "heading-" + index;
+          const id = heading.dataset.tocId || heading.id || ("heading-" + index);
           heading.id = id;
           newToc.push({
             id,
-            text: heading.innerText,
-            level: Number(heading.tagName.slice(1))
+            text: heading.dataset.tocText || heading.innerText,
+            level: Number(heading.dataset.tocLevel || heading.tagName.slice(1))
           });
         });
 
         setToc(newToc);
-      }, [blocks]);
+      }, [blocks, figures.length, tables.length]);
 
       /**
        * 监听滚动，高亮当前目录项
        */
       useEffect(() => {
         const handleScroll = () => {
-          const headings = document.querySelectorAll(".content h1, .content h2");
+          const headings = document.querySelectorAll(".content .toc-anchor, .content h1, .content h2");
           let current = null;
           headings.forEach(heading => {
             if (heading.getBoundingClientRect().top <= 120) {
@@ -676,6 +1451,12 @@
       async function loadConversation(id) {
         setPaperTitle("");
         setPdfUrl("");
+        setFigures([]);
+        setTables([]);
+        setTags([]);
+        setPaperMeta(normalizePaperMeta());
+        setFiguresExpanded(false);
+        setTablesExpanded(false);
         setLoading(true);
         const res = await fetch(`${BASE_URL}/conversation/${id}`);
         if (!res.ok) {
@@ -690,6 +1471,10 @@
         if (data.pdf_url) {
           setPdfUrl(data.pdf_url);
         }
+        setFigures(Array.isArray(data.figures) ? data.figures : []);
+        setTables(Array.isArray(data.tables) ? data.tables : []);
+        setTags(Array.isArray(data.tags) ? data.tags : []);
+        setPaperMeta(normalizePaperMeta(data));
         // filter out continuation markers and rely on backend to remove the initial prompt
         const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
         setBlocks(
@@ -714,6 +1499,89 @@
         }
       }
 
+      async function loadTagLibrary() {
+        try {
+          const res = await fetch(`${BASE_URL}/tags/library`);
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const categories = Array.isArray(data.categories) ? data.categories : [];
+          setTagLibrary(categories);
+          if (categories.length > 0) {
+            setActiveTagCategory(prev => prev || categories[0].category_code);
+          }
+        } catch (err) {
+          console.error("Failed to load tag library:", err);
+        }
+      }
+
+      function getLocalizedLabel(item) {
+        if (!item) {
+          return "";
+        }
+        if (uiLanguage === "en") {
+          return item.tag_label_en || item.category_label_en || item.tag_label || item.category_label || "";
+        }
+        return item.tag_label || item.category_label || item.tag_label_en || item.category_label_en || "";
+      }
+
+      function findTagByCode(tagCode) {
+        for (const category of tagLibrary) {
+          const found = (category.tags || []).find(tag => tag.tag_code === tagCode);
+          if (found) {
+            return found;
+          }
+        }
+        return null;
+      }
+
+      function openTagPicker() {
+        setDraftTagCodes((tags || []).map(tag => tag.tag_code));
+        setTagKeyword("");
+        if (!activeTagCategory && tagLibrary.length > 0) {
+          setActiveTagCategory(tagLibrary[0].category_code);
+        }
+        setTagPickerVisible(true);
+      }
+
+      function toggleDraftTag(tagCode) {
+        setDraftTagCodes(prev => (
+          prev.includes(tagCode)
+            ? prev.filter(code => code !== tagCode)
+            : [...prev, tagCode]
+        ));
+      }
+
+      async function applyTagSelection() {
+        if (!conversationId) {
+          return;
+        }
+
+        const hide = message.loading("正在保存标签...", 0);
+        setTagSaving(true);
+        try {
+          const formData = new FormData();
+          draftTagCodes.forEach(tagCode => formData.append("tag_code", tagCode));
+
+          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/tags`, {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            message.error(data.detail || "保存标签失败");
+            return;
+          }
+          setTags(Array.isArray(data.tags) ? data.tags : []);
+          setTagPickerVisible(false);
+          message.success("标签已更新");
+        } finally {
+          setTagSaving(false);
+          hide();
+        }
+      }
+
       // ===== 上传功能 =====
       const uploadProps = {
         name: "file",
@@ -728,10 +1596,17 @@
           formData.append("api_key", poeApiKey);
           formData.append("poe_model", poeModel);
           formData.append("title_model", titleModel);
+          formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
           setLoading(true);
           setBlocks([]);
           setPdfUrl("");
+          setFigures([]);
+          setTables([]);
+          setTags([]);
+          setPaperMeta(normalizePaperMeta());
+          setFiguresExpanded(false);
+          setTablesExpanded(false);
           // 提取文件名（去掉.pdf后缀）作为临时标题
           const tempTitle = file.name.replace(/\.pdf$/i, "");
           setPaperTitle(tempTitle);
@@ -753,6 +1628,10 @@
           if (data.pdf_url) {
             setPdfUrl(data.pdf_url);
           }
+          setFigures(Array.isArray(data.figures) ? data.figures : []);
+          setTables(Array.isArray(data.tables) ? data.tables : []);
+          setTags(Array.isArray(data.tags) ? data.tags : []);
+          setPaperMeta(normalizePaperMeta(data));
 
           // 如果文件已存在（后端通过指纹检测），后端返回 exists + messages
           if (data.exists) {
@@ -865,6 +1744,128 @@
         setCustomMessage("");
       };
 
+      const openAssetDirectionModal = () => {
+        setAssetDirectionModalVisible(true);
+      };
+
+      const handleAssetDirectionSubmit = async () => {
+        if (!conversationId) {
+          message.warning("请先上传论文");
+          return;
+        }
+
+        setAssetDirectionSubmitting(true);
+        const hide = message.loading("正在重新处理...", 0);
+
+        try {
+          const formData = new FormData();
+          formData.append("figure_caption_direction", figureDirectionValue);
+          formData.append("table_caption_direction", tableDirectionValue);
+
+          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/reprocess_assets`, {
+            method: "POST",
+            body: formData
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            message.error(data.detail || "重新处理失败");
+            return;
+          }
+
+          await loadConversation(conversationId);
+          setAssetDirectionModalVisible(false);
+          message.success("重处理完成");
+        } finally {
+          setAssetDirectionSubmitting(false);
+          hide();
+        }
+      };
+
+      function renderAssetSection({ id, title, items, expanded, setExpanded, type }) {
+        if (!items.length) {
+          return null;
+        }
+
+        return (
+          <div className="asset-section">
+            <button
+              id={id}
+              data-toc-id={id}
+              data-toc-text={title}
+              data-toc-level="1"
+              className="asset-section-header toc-anchor"
+              onClick={() => setExpanded(!expanded)}
+              type="button"
+            >
+              <div className="asset-section-heading">
+                <span>{title} ({items.length})</span>
+                {!readOnly && (
+                  <Tooltip title={ASSET_DIRECTION_TOOLTIP}>
+                    <button
+                      type="button"
+                      className="asset-section-help"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openAssetDirectionModal();
+                      }}
+                      aria-label={`解析有错误？调整${title}的 caption 位置`}
+                    >
+                      ?
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+              <div className={`asset-section-toggle ${expanded ? "expanded" : ""}`}>
+                <CaretRightOutlined />
+                <span>{expanded ? "收起" : "展开"}</span>
+              </div>
+            </button>
+            {expanded && (
+              <div className="asset-section-body">
+                <Image.PreviewGroup>
+                  <div className="asset-grid">
+                    {items.map(item => {
+                      const label = type === "figure"
+                        ? (item.figure_label || `Figure ${item.figure_index}`)
+                        : (item.table_label || `Table ${item.table_index}`);
+                      return (
+                        <div
+                          key={item.id || `${type}-${item.page_number}-${item.figure_index || item.table_index}`}
+                          className="asset-card"
+                        >
+                          <Image
+                            src={item.image_url}
+                            alt={item.caption || label}
+                            className="asset-image"
+                          />
+                          <div className="asset-meta">
+                            {label + ` · 第 ${item.page_number} 页`}
+                          </div>
+                          <div className="asset-caption">{item.caption || "未识别到 caption"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Image.PreviewGroup>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      const filteredTagCategories = tagKeyword.trim()
+        ? tagLibrary
+            .map(category => ({
+              ...category,
+              tags: (category.tags || []).filter(tag => {
+                const searchText = `${tag.tag_label} ${tag.tag_label_en} ${tag.tag_code}`.toLowerCase();
+                return searchText.includes(tagKeyword.trim().toLowerCase());
+              }),
+            }))
+            .filter(category => category.tags.length > 0)
+        : tagLibrary.filter(category => category.category_code === activeTagCategory);
+
       // ===== JSX 渲染 =====
       return (
         <>
@@ -881,7 +1882,7 @@
                   </h2>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
-                  {readOnly && <Tag color="red">只读模式</Tag>}
+                  {readOnly && <ReadModeBadge />}
                 </div>
               </div>
 
@@ -904,6 +1905,14 @@
                   >
                     配置
                   </Button>
+                )}
+
+                {!readOnly && isMobile && (
+                  <Button
+                    icon={<SettingOutlined />}
+                    onClick={() => setConfigModalVisible(true)}
+                    disabled={loading}
+                  />
                 )}
 
                 {/* upload button only when no conversation in progress */}
@@ -1040,6 +2049,44 @@
 
               <div className="content">
                 {paperTitle && <div className="title-block">{paperTitle}</div>}
+                {(paperTitle || conversationId) && (
+                  <div className="tag-block">
+                    <div className="tag-block-header">
+                      <div className="tag-block-title">论文标签</div>
+                      {!readOnly && conversationId && (
+                        <button
+                          type="button"
+                          className="tag-block-edit"
+                          onClick={openTagPicker}
+                          aria-label="编辑论文标签"
+                          title="编辑论文标签"
+                        >
+                          <EditOutlined />
+                        </button>
+                      )}
+                    </div>
+                    <div className="tag-block-body">
+                      {renderMetaTagChips(paperMeta)}
+                      {renderTagChips(tags)}
+                    </div>
+                  </div>
+                )}
+                {renderAssetSection({
+                  id: "figures-section",
+                  title: "论文插图",
+                  items: figures,
+                  expanded: figuresExpanded,
+                  setExpanded: setFiguresExpanded,
+                  type: "figure"
+                })}
+                {renderAssetSection({
+                  id: "tables-section",
+                  title: "论文表格",
+                  items: tables,
+                  expanded: tablesExpanded,
+                  setExpanded: setTablesExpanded,
+                  type: "table"
+                })}
                 {blocks.map(block => (
                   <div
                     key={block.id}
@@ -1155,6 +2202,17 @@
                 options={modelOptions}
               />
             </div>
+            <div style={{ marginBottom: 20 }}>
+              <Checkbox
+                checked={extractTagsOnUpload}
+                onChange={e => setExtractTagsOnUpload(e.target.checked)}
+              >
+                上传后自动提取论文标签
+              </Checkbox>
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+              </div>
+            </div>
             <div>
               <label style={{ display: "block", marginBottom: 8 }}>分享链接基础路径 (URL Base)：</label>
               <Input
@@ -1165,6 +2223,120 @@
               <div style={{ fontSize: 12, color: "#999", marginTop: 5 }}>
                 设置后分享链接将使用此基础路径，例如当前页是 /chat/abc，URL Base 为 https://a.com，则分享链接为 https://a.com/chat/abc
               </div>
+            </div>
+          </Modal>
+
+          <Modal
+            title={ASSET_DIRECTION_MODAL_TITLE}
+            open={assetDirectionModalVisible}
+            onOk={handleAssetDirectionSubmit}
+            onCancel={() => setAssetDirectionModalVisible(false)}
+            okText="重新处理"
+            confirmLoading={assetDirectionSubmitting}
+          >
+            <div className="asset-direction-modal">
+              <div className="asset-direction-intro">
+                如果插图或表格解析位置不对，可以在这里分别调整 caption 位置。保存后会重新处理当前论文的插图和表格。
+              </div>
+
+              <div className="asset-direction-card">
+                <div className="asset-direction-card-title">插图设置</div>
+                <div className="asset-direction-card-desc">这一组选项只影响“论文插图”。</div>
+                <Radio.Group
+                  value={figureDirectionValue}
+                  onChange={(event) => setFigureDirectionValue(event.target.value)}
+                  className="asset-direction-group"
+                >
+                  <Radio value="above">插图 caption 在上，图片内容在下</Radio>
+                  <Radio value="below">插图 caption 在下，图片内容在上</Radio>
+                </Radio.Group>
+              </div>
+
+              <div className="asset-direction-card">
+                <div className="asset-direction-card-title">表格设置</div>
+                <div className="asset-direction-card-desc">这一组选项只影响“论文表格”。</div>
+                <Radio.Group
+                  value={tableDirectionValue}
+                  onChange={(event) => setTableDirectionValue(event.target.value)}
+                  className="asset-direction-group"
+                >
+                  <Radio value="above">表格 caption 在上，表格内容在下</Radio>
+                  <Radio value="below">表格 caption 在下，表格内容在上</Radio>
+                </Radio.Group>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            title="编辑论文标签"
+            open={tagPickerVisible}
+            onOk={applyTagSelection}
+            onCancel={() => setTagPickerVisible(false)}
+            okText="保存"
+            confirmLoading={tagSaving}
+            width={980}
+            bodyStyle={{ paddingTop: 12 }}
+          >
+            <div className="tag-picker-toolbar">
+              <div className="tag-picker-tabs">
+                {tagLibrary.map(category => (
+                  <button
+                    key={category.category_code}
+                    type="button"
+                    className={`tag-picker-tab ${activeTagCategory === category.category_code ? "active" : ""}`}
+                    onClick={() => setActiveTagCategory(category.category_code)}
+                  >
+                    {getLocalizedLabel(category)}
+                  </button>
+                ))}
+              </div>
+              <Input
+                prefix={<SearchOutlined />}
+                placeholder={uiLanguage === "en" ? "Search all tags" : "搜索全部标签"}
+                value={tagKeyword}
+                onChange={e => setTagKeyword(e.target.value)}
+                className="tag-picker-search"
+                allowClear
+              />
+            </div>
+
+            <div className="tag-picker-selected">
+              <div className="tag-picker-section-title">
+                {uiLanguage === "en" ? `Selected Tags (${draftTagCodes.length})` : `已选标签（${draftTagCodes.length}）`}
+              </div>
+              <div className="tag-picker-selected-list">
+                {renderSelectedTagPills(draftTagCodes, {
+                  findTagByCode,
+                  getLocalizedLabel,
+                  onRemove: toggleDraftTag,
+                  emptyText: uiLanguage === "en" ? "No tags selected" : "暂无已选标签",
+                })}
+              </div>
+            </div>
+
+            <div className="tag-picker-groups">
+              {filteredTagCategories.map(category => (
+                <div key={category.category_code} className="tag-picker-group">
+                  <div className="tag-picker-group-title">{getLocalizedLabel(category)}</div>
+                  <div className="tag-picker-chip-list">
+                    {(category.tags || []).map(tag => {
+                      const selected = draftTagCodes.includes(tag.tag_code);
+                      return (
+                        <button
+                          key={tag.tag_code}
+                          type="button"
+                          className={`tag-picker-chip ${selected ? "selected" : ""}`}
+                          onClick={() => toggleDraftTag(tag.tag_code)}
+                          title={tag.tag_code}
+                        >
+                          <span>{getLocalizedLabel(tag)}</span>
+                          <span className="tag-picker-chip-count">{tag.usage_count || 0}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </Modal>
         </>

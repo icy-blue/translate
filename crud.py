@@ -1,7 +1,17 @@
+from __future__ import annotations
+
 from sqlmodel import Session, select, func
 from sqlalchemy import desc
 
-from models import Conversation, Message, FileRecord
+from models import (
+    Conversation,
+    Message,
+    FileRecord,
+    PaperFigure,
+    PaperTable,
+    PaperTag,
+    PaperSemanticScholarResult,
+)
 
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     """Fetch a conversation by its ID."""
@@ -21,6 +31,59 @@ def get_messages(session: Session, conversation_id: str) -> list[Message]:
         .order_by(Message.id)
     )
     return session.exec(statement).all()
+
+
+def get_figures(session: Session, conversation_id: str) -> list[PaperFigure]:
+    """Fetch all extracted figures for a conversation."""
+    statement = (
+        select(PaperFigure)
+        .where(PaperFigure.conversation_id == conversation_id)
+        .order_by(PaperFigure.figure_index)
+    )
+    return session.exec(statement).all()
+
+
+def get_tables(session: Session, conversation_id: str) -> list[PaperTable]:
+    """Fetch all extracted tables for a conversation."""
+    statement = (
+        select(PaperTable)
+        .where(PaperTable.conversation_id == conversation_id)
+        .order_by(PaperTable.table_index)
+    )
+    return session.exec(statement).all()
+
+
+def get_tags(session: Session, conversation_id: str) -> list[PaperTag]:
+    """Fetch all extracted paper tags for a conversation."""
+    statement = (
+        select(PaperTag)
+        .where(PaperTag.conversation_id == conversation_id)
+        .order_by(PaperTag.category_code, PaperTag.tag_code)
+    )
+    return session.exec(statement).all()
+
+
+def get_semantic_scholar_result(
+    session: Session, conversation_id: str
+) -> PaperSemanticScholarResult | None:
+    statement = (
+        select(PaperSemanticScholarResult)
+        .where(PaperSemanticScholarResult.conversation_id == conversation_id)
+    )
+    return session.exec(statement).first()
+
+
+def get_semantic_scholar_results_map(
+    session: Session, conversation_ids: list[str]
+) -> dict[str, PaperSemanticScholarResult]:
+    if not conversation_ids:
+        return {}
+    statement = (
+        select(PaperSemanticScholarResult)
+        .where(PaperSemanticScholarResult.conversation_id.in_(conversation_ids))
+    )
+    rows = session.exec(statement).all()
+    return {row.conversation_id: row for row in rows}
 
 def find_existing_file(session: Session, fingerprint: str) -> FileRecord | None:
     """Find an existing file by its SHA256 fingerprint."""
@@ -83,6 +146,82 @@ def create_messages(
         role="bot",
         content=bot_content
     ))
+    session.commit()
+
+
+def replace_figures(
+    session: Session,
+    conversation_id: str,
+    figures: list[dict]
+) -> None:
+    """Replace extracted figures for a conversation."""
+    existing_figures = get_figures(session, conversation_id)
+    for figure in existing_figures:
+        session.delete(figure)
+
+    for figure in figures:
+        session.add(PaperFigure(
+            conversation_id=conversation_id,
+            page_number=figure["page_number"],
+            figure_index=figure["figure_index"],
+            figure_label=figure.get("figure_label"),
+            caption=figure["caption"],
+            image_mime_type=figure.get("image_mime_type"),
+            image_data=figure.get("image_data"),
+            image_width=figure["image_width"],
+            image_height=figure["image_height"],
+        ))
+
+    session.commit()
+
+
+def replace_tables(
+    session: Session,
+    conversation_id: str,
+    tables: list[dict]
+) -> None:
+    """Replace extracted tables for a conversation."""
+    existing_tables = get_tables(session, conversation_id)
+    for table in existing_tables:
+        session.delete(table)
+
+    for table in tables:
+        session.add(PaperTable(
+            conversation_id=conversation_id,
+            page_number=table["page_number"],
+            table_index=table["table_index"],
+            table_label=table.get("table_label"),
+            caption=table["caption"],
+            image_mime_type=table.get("image_mime_type"),
+            image_data=table.get("image_data"),
+            image_width=table["image_width"],
+            image_height=table["image_height"],
+        ))
+
+    session.commit()
+
+
+def replace_tags(
+    session: Session,
+    conversation_id: str,
+    tags: list[dict]
+) -> None:
+    """Replace extracted tags for a conversation."""
+    existing_tags = get_tags(session, conversation_id)
+    for tag in existing_tags:
+        session.delete(tag)
+
+    for tag in tags:
+        session.add(PaperTag(
+            conversation_id=conversation_id,
+            category_code=tag["category_code"],
+            category_label=tag["category_label"],
+            tag_code=tag["tag_code"],
+            tag_label=tag["tag_label"],
+            tag_path=tag["tag_path"],
+            source=tag.get("source", "poe"),
+        ))
+
     session.commit()
 
 def get_paged_conversations(session: Session, offset: int, limit: int) -> list[Conversation]:
