@@ -136,6 +136,7 @@
       const [searchQuery, setSearchQuery] = useState("");
       const [searchResults, setSearchResults] = useState({ exact_matches: [], fuzzy_matches: [] });
       const [isSearching, setIsSearching] = useState(false);
+      const [searchStatus, setSearchStatus] = useState("idle"); // 'idle' | 'loading' | 'success' | 'error'
       const [showSearchResults, setShowSearchResults] = useState(false);
       const [searchBarExpanded, setSearchBarExpanded] = useState(false);
 
@@ -224,27 +225,40 @@
       async function handleSearch() {
         if (!searchQuery.trim()) {
           setShowSearchResults(false);
+          setSearchStatus("idle");
           return;
         }
 
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
         setIsSearching(true);
         setShowSearchResults(true);
+        setSearchStatus("loading");
+        setSearchResults({ exact_matches: [], fuzzy_matches: [] });
 
         try {
           const params = new URLSearchParams();
           params.append("q", searchQuery);
-          const res = await fetch(`${BASE_URL}/search?${params.toString()}`);
+          const res = await fetch(`${BASE_URL}/search?${params.toString()}`, {
+            signal: controller.signal,
+          });
 
           if (!res.ok) {
             message.error("搜索失败");
+            setSearchStatus("error");
             return;
           }
 
           const data = await res.json();
           setSearchResults(data);
+          setSearchStatus("success");
         } catch (err) {
-          message.error("网络错误");
+          const isAbortError = err && err.name === "AbortError";
+          message.error(isAbortError ? "搜索超时" : "网络错误");
+          setSearchStatus("error");
         } finally {
+          window.clearTimeout(timeoutId);
           setIsSearching(false);
         }
       }
@@ -253,6 +267,7 @@
         setSearchQuery("");
         setSearchResults({ exact_matches: [], fuzzy_matches: [] });
         setShowSearchResults(false);
+        setSearchStatus("idle");
         setOffset(0);
         loadConversations(false);
       }
@@ -460,11 +475,19 @@
               </>
             )}
 
-            {/* Show no search results */}
-            {showSearchResults && searchResults.exact_matches.length === 0 && searchResults.fuzzy_matches.length === 0 && (
+            {/* Show searching state */}
+            {showSearchResults && searchStatus === "loading" && (
               <div className="empty-state">
-                <p>未找到匹配的论文</p>
-                <p style={{ fontSize: 14, color: "#ccc" }}>尝试使用不同的关键词搜索</p>
+                <p>搜索中</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>正在检索论文，请稍候</p>
+              </div>
+            )}
+
+            {/* Show search error state */}
+            {showSearchResults && searchStatus === "error" && (
+              <div className="empty-state">
+                <p>搜索异常</p>
+                <p style={{ fontSize: 14, color: "#ccc" }}>搜索时间较长或请求出现问题，请稍后重试</p>
               </div>
             )}
 
