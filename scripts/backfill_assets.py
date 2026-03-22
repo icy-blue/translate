@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from sqlalchemy import desc
 from sqlmodel import Session, SQLModel, select
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -70,6 +71,12 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="Optional pause in seconds between records.",
     )
+    parser.add_argument(
+        "--order",
+        choices=("asc", "desc"),
+        default="desc",
+        help="Processing order for matched records. 'asc' keeps upload order; 'desc' processes newest matches first.",
+    )
     return parser.parse_args()
 
 
@@ -123,7 +130,8 @@ def get_pdf_bytes(
 
 
 def get_file_records(session: Session, args: argparse.Namespace) -> list[FileRecord]:
-    statement = select(FileRecord).order_by(FileRecord.uploaded_at)
+    order_column = desc(FileRecord.uploaded_at) if args.order == "desc" else FileRecord.uploaded_at
+    statement = select(FileRecord).order_by(order_column)
     if args.conversation_id:
         statement = statement.where(FileRecord.conversation_id == args.conversation_id)
     if args.offset:
@@ -172,8 +180,6 @@ def main() -> int:
         print(f"Processing {len(records)} record(s)...")
         success_count = 0
         failure_count = 0
-
-        records = records[::-1]
 
         for index, record in enumerate(records, start=1):
             label = record.conversation_id

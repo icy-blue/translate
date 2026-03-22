@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 
+from sqlalchemy import desc
 from sqlmodel import Session, SQLModel, select
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -62,11 +63,18 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="Optional pause in seconds between records.",
     )
+    parser.add_argument(
+        "--order",
+        choices=("asc", "desc"),
+        default="desc",
+        help="Processing order for matched records. 'asc' keeps upload order; 'desc' processes newest matches first.",
+    )
     return parser.parse_args()
 
 
 def get_file_records(session: Session, args: argparse.Namespace) -> list[FileRecord]:
-    statement = select(FileRecord).order_by(FileRecord.uploaded_at)
+    order_column = desc(FileRecord.uploaded_at) if args.order == "desc" else FileRecord.uploaded_at
+    statement = select(FileRecord).order_by(order_column)
     if not args.all_records:
         missing_tag_subquery = select(PaperTag.conversation_id)
         statement = statement.where(~FileRecord.conversation_id.in_(missing_tag_subquery))
@@ -126,7 +134,6 @@ async def async_main() -> int:
         success_count = 0
         failure_count = 0
 
-        records = records[::-1]
         for index, record in enumerate(records, start=1):
             conversation = crud.get_conversation(session, record.conversation_id)
             label = record.conversation_id
