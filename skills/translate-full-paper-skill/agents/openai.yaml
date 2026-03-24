@@ -1,0 +1,3 @@
+interface:
+  display_name: "Full Paper Translate"
+  short_description: "Run initial translation and continuation loop as pure output"

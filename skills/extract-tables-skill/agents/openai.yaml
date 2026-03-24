@@ -1,0 +1,3 @@
+interface:
+  display_name: "Extract Tables"
+  short_description: "Extract paper tables to serializable payloads"

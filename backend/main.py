@@ -11,13 +11,14 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import fastapi_poe as fp
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from sqlalchemy import inspect, or_, text
 from pypdf import PdfReader, PdfWriter
 from sqlmodel import Session, select, func
@@ -25,7 +26,7 @@ from sqlmodel import Session, select, func
 from . import crud
 from .config import settings
 from .database import engine
-from .dependencies import get_db_session, check_read_only, get_api_key
+from .dependencies import get_db_session, check_read_only, get_api_key, get_agent_ingest_token
 from .models import (
     SQLModel,
     Conversation,
@@ -50,6 +51,89 @@ JOB_QUEUE: asyncio.Queue[str] = asyncio.Queue()
 JOB_WORKERS: list[asyncio.Task] = []
 SESSION_ENQUEUE_LOCKS: dict[str, asyncio.Lock] = {}
 SESSION_ENQUEUE_LOCKS_GUARD = asyncio.Lock()
+
+
+class PipelineMessagePayload(BaseModel):
+    role: str
+    content: str
+
+
+class PipelineAssetPayload(BaseModel):
+    page_number: int = 1
+    caption: str = ""
+    image_mime_type: str = "image/webp"
+    image_data_base64: str | None = None
+    image_data: str | None = None
+    image_width: int = 1
+    image_height: int = 1
+    figure_index: int | None = None
+    figure_label: str | None = None
+    table_index: int | None = None
+    table_label: str | None = None
+
+
+class PipelineTagPayload(BaseModel):
+    category_code: str = ""
+    category_label: str = ""
+    tag_code: str
+    tag_label: str = ""
+    tag_path: str = ""
+    source: str = "agent"
+
+
+class PipelineMetaPayload(BaseModel):
+    status: str | None = None
+    paper_id: str | None = None
+    corpus_id: int | None = None
+    matched_title: str | None = None
+    url: str | None = None
+    abstract: str | None = None
+    year: int | None = None
+    venue: str | None = None
+    venue_abbr: str = ""
+    ccf_category: str = "None"
+    ccf_type: str = "None"
+    publication_date: str | None = None
+    is_open_access: bool | None = None
+    match_score: float | None = None
+    citation_count: int | None = None
+    reference_count: int | None = None
+    authors_json: str | None = None
+    external_ids_json: str | None = None
+    publication_types_json: str | None = None
+    publication_venue_json: str | None = None
+    journal_json: str | None = None
+    open_access_pdf_json: str | None = None
+    raw_response_json: str | None = None
+    raw_response: dict[str, Any] | None = None
+    source: str = "agent"
+
+
+class PipelineErrorPayload(BaseModel):
+    skill: str = ""
+    type: str = ""
+    message: str = ""
+    retryable: bool = False
+
+
+class PipelineFileRecordPayload(BaseModel):
+    filename: str
+    fingerprint: str
+    poe_url: str
+    content_type: str = "application/pdf"
+    poe_name: str = "upload.pdf"
+
+
+class PipelineBundlePayload(BaseModel):
+    conversation_id: str | None = None
+    title: str
+    file_record: PipelineFileRecordPayload
+    messages: list[PipelineMessagePayload] = Field(default_factory=list)
+    figures: list[PipelineAssetPayload] = Field(default_factory=list)
+    tables: list[PipelineAssetPayload] = Field(default_factory=list)
+    tags: list[PipelineTagPayload] = Field(default_factory=list)
+    meta: PipelineMetaPayload | None = None
+    errors: list[PipelineErrorPayload] = Field(default_factory=list)
 
 
 def _build_postgres_fixed_offset_timezone(offset: str) -> str:
@@ -1407,6 +1491,21 @@ async def update_conversation_tags(
     normalized_tag_codes = _normalize_tag_codes(tag_code)
     crud.replace_tags(session, conversation_id, build_tag_payloads(normalized_tag_codes, source="manual"))
     return {"tags": _serialize_tags(crud.get_tags(session, conversation_id))}
+
+
+@app.post("/agent/pipeline/commit")
+async def commit_agent_pipeline_bundle(
+    payload: PipelineBundlePayload,
+    _agent_token: str = Depends(get_agent_ingest_token),
+    session: Session = Depends(get_db_session),
+    _read_only: None = Depends(check_read_only),
+):
+    try:
+        return crud.persist_pipeline_bundle(session, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to persist pipeline bundle: {exc}")
 
 # Static file serving
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

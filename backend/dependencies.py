@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, Form
+from fastapi import Depends, HTTPException, Form, Header
 from sqlmodel import Session
 
 from .config import settings
@@ -19,3 +19,13 @@ def get_api_key(api_key: str = Form(...)) -> str:
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required.")
     return api_key
+
+
+def get_agent_ingest_token(x_agent_token: str | None = Header(default=None)) -> str:
+    """Validate agent ingestion token via x-agent-token header."""
+    expected = (settings.agent_ingest_token or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Agent ingestion is not configured.")
+    if not x_agent_token or x_agent_token != expected:
+        raise HTTPException(status_code=401, detail="Invalid agent token.")
+    return x_agent_token

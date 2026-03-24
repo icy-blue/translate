@@ -55,5 +55,10 @@ class Settings(BaseSettings):
         validation_alias="ASYNC_JOB_WORKERS",
     )
 
+    agent_ingest_token: Optional[str] = Field(
+        default=None,
+        validation_alias="AGENT_INGEST_TOKEN",
+    )
+
 
 settings = Settings()

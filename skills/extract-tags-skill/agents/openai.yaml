@@ -1,0 +1,3 @@
+interface:
+  display_name: "Extract Tags"
+  short_description: "Classify tags from title and abstract summary"

@@ -62,6 +62,7 @@ cp .env.example .env
 | `INITIAL_PROMPT` | 内置中文提示词 | 首轮翻译提示词 |
 | `READ_ONLY` | `false` | 是否启用只读模式 |
 | `ASYNC_JOB_WORKERS` | `2` | 异步任务 worker 数量（上传/续翻/追问） |
+| `AGENT_INGEST_TOKEN` | `-` | Agent 批量提交流水线结果到后端时的鉴权 Token（`x-agent-token`） |
 
 ### 4) 启动服务
 
@@ -91,6 +92,7 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 | `GET` | `/tags/library` | 标签树与使用计数 |
 | `POST` | `/conversation/{conversation_id}/tags` | 手动更新标签 |
 | `POST` | `/conversation/{conversation_id}/reprocess_assets` | 按 caption 方向重提图/表 |
+| `POST` | `/agent/pipeline/commit` | Agent 一次性批量提交处理结果入库（需 `x-agent-token`） |
 | `GET` | `/assets/figures/{figure_id}` | 获取图像二进制 |
 | `GET` | `/assets/tables/{table_id}` | 获取表格二进制 |
 | `GET` | `/search/filters` | 过滤器统计（CCF/venue/year） |

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Compose Bundle"
+  short_description: "Assemble standardized PipelineBundle payload"
