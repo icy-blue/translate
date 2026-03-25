@@ -17,9 +17,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.core.database import engine
-from backend.domains.message_kinds import BOT_MESSAGE_KIND, infer_message_kind, role_from_message_kind
-from backend.persistence.models import Message
+from backend.domain.message_kinds import BOT_MESSAGE_KIND, infer_message_kind, role_from_message_kind
+from backend.platform.config import engine
+from backend.platform.models import Message
 
 
 TRANSLATION_STATUS_PATTERN = re.compile(

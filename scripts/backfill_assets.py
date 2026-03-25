@@ -16,11 +16,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.core.database import engine
-from backend.main import _ensure_asset_columns
-from backend.domains.pdf_figures import extract_pdf_figures, extract_pdf_tables
+from backend.domain.pdf_figures import extract_pdf_figures, extract_pdf_tables
 from backend.modules.assets import replace_figures, replace_tables
-from backend.persistence.models import FileRecord
+from backend.platform.config import engine
+from backend.platform.models import FileRecord
+from backend.platform.schema_maintenance import ensure_asset_columns
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,7 +168,7 @@ def main() -> int:
     cache_dir = Path(args.cache_dir).expanduser()
 
     SQLModel.metadata.create_all(engine)
-    _ensure_asset_columns()
+    ensure_asset_columns()
 
     with Session(engine) as session:
         records = get_file_records(session, args)

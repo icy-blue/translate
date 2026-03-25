@@ -19,7 +19,7 @@ Use when table extraction is required before bundle persistence.
 
 ## Steps
 1. Load PDF bytes.
-2. Run `backend.domains.pdf_figures.extract_pdf_tables`.
+2. Run `backend.domain.pdf_figures.extract_pdf_tables`.
 3. Convert binary image bytes to base64 for JSON transport.
 4. Return table list.
 

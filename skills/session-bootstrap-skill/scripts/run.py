@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from pypdf import PdfReader, PdfWriter
 
-from backend.integrations.poe import extract_title_from_pdf, upload_file
+from backend.platform.gateways.poe import extract_title_from_pdf, upload_file
 
 
 def _read_json(path: str) -> dict[str, Any]:

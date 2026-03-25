@@ -5,8 +5,7 @@ from typing import Optional
 from fastapi import Form, Header, HTTPException
 from sqlmodel import Session
 
-from ..platform.config import settings
-from ..platform.database import engine
+from ..platform.config import engine, settings
 
 
 def get_db_session():

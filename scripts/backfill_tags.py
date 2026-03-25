@@ -15,14 +15,13 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.core.config import settings
-from backend.core.database import engine
-from backend.domains.message_kinds import BOT_MESSAGE_KIND
-from backend.domains.paper_tags import extract_abstract_for_tagging
-from backend.integrations.poe import classify_paper_tags
+from backend.domain.message_kinds import BOT_MESSAGE_KIND
+from backend.domain.paper_tags import extract_abstract_for_tagging
 from backend.modules.conversations import get_conversation
 from backend.modules.metadata import replace_tags
-from backend.persistence.models import FileRecord, Message, PaperTag
+from backend.platform.config import engine, settings
+from backend.platform.gateways.poe import classify_paper_tags
+from backend.platform.models import FileRecord, Message, PaperTag
 
 
 def parse_args() -> argparse.Namespace:

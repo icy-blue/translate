@@ -16,14 +16,14 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.core.database import engine
-from backend.domains.message_kinds import BOT_MESSAGE_KIND
-from backend.persistence.models import Message
-from backend.services.message_utils import (
+from backend.domain.message_kinds import BOT_MESSAGE_KIND
+from backend.domain.message_payloads import (
     normalize_document_outline_payload,
     parse_document_outline_block,
     safe_json_loads,
 )
+from backend.platform.config import engine
+from backend.platform.models import Message
 
 DEFAULT_REPORT_PATH = ROOT_DIR / "data" / "translation_payload_v2_backfill_report.jsonl"
 TRANSLATION_STATUS_PATTERN = re.compile(

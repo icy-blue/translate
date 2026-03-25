@@ -15,8 +15,8 @@ if str(ROOT) not in sys.path:
 
 from sqlmodel import Session
 
-from backend import crud
-from backend.core.database import engine
+from backend.modules.ingest import find_existing_file
+from backend.platform.config import engine
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -78,7 +78,7 @@ def main() -> int:
     if bool(payload.get("check_existing", True)):
         try:
             with Session(engine) as session:
-                existing = crud.find_existing_file(session, fingerprint)
+                existing = find_existing_file(session, fingerprint)
                 if existing:
                     is_existing = True
                     existing_conversation_id = existing.conversation_id

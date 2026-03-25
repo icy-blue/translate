@@ -14,10 +14,14 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.core.config import settings
-from backend.integrations.poe import get_bot_response
-from backend.services.message_utils import normalize_translation_status_payload, preprocess_bot_reply_for_storage
-from backend.services.translation_prompts import build_continue_translation_prompt, build_initial_translation_prompt
+from backend.domain.message_payloads import (
+    build_continue_translation_prompt,
+    build_initial_translation_prompt,
+    normalize_translation_status_payload,
+    preprocess_bot_reply_for_storage,
+)
+from backend.platform.config import settings
+from backend.platform.gateways.poe import get_bot_response
 
 
 def _read_json(path: str) -> dict[str, Any]:

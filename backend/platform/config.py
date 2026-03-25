@@ -4,6 +4,7 @@ from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlmodel import create_engine
 
 
 class Settings(BaseSettings):
@@ -179,3 +180,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+engine = create_engine(settings.database_url, echo=False)

@@ -15,14 +15,14 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.core.database import engine
-from backend.domains.message_kinds import BOT_MESSAGE_KIND
-from backend.persistence.models import Message
-from backend.services.message_utils import (
+from backend.domain.message_kinds import BOT_MESSAGE_KIND
+from backend.domain.message_payloads import (
     extract_raw_translation_status_text,
     parse_document_outline_block,
     preprocess_bot_reply_for_storage,
 )
+from backend.platform.config import engine
+from backend.platform.models import Message
 
 DEFAULT_REPORT_PATH = ROOT_DIR / "data" / "message_payload_cleanup_backfill_report.jsonl"
 

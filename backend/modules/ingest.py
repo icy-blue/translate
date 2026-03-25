@@ -15,8 +15,7 @@ from sqlmodel import Session, select
 
 from ..app.dependencies import check_read_only, get_api_key
 from ..domain.message_payloads import build_initial_translation_prompt, preprocess_bot_reply_for_storage
-from ..platform.config import settings
-from ..platform.database import engine
+from ..platform.config import engine, settings
 from ..platform.gateways.poe import extract_title_from_pdf, get_bot_response, upload_file
 from ..platform.models import Conversation, FileRecord
 from ..platform.task_runtime import enqueue_task, mark_task_progress, register_task_definition, update_task_record

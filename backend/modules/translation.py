@@ -15,8 +15,7 @@ from ..domain.message_payloads import (
     preprocess_bot_reply_for_storage,
     safe_json_loads,
 )
-from ..platform.config import settings
-from ..platform.database import engine
+from ..platform.config import engine, settings
 from ..platform.gateways.poe import get_bot_response
 from ..platform.task_runtime import enqueue_task, get_active_task, get_session_enqueue_lock, mark_task_progress, register_task_definition
 from .conversations import create_message_pair, get_conversation, get_file_record, get_messages
