@@ -35,8 +35,4 @@ def build_continue_translation_prompt(
     command_block = build_command_block(action=action, target_scope=target_scope)
     input_status_block = build_input_status_block(translation_status)
     prompt = str(template or "").strip()
-    if "<<INPUT_STATUS_BLOCK>>" not in prompt:
-        prompt = f"{prompt}\n\n<<INPUT_STATUS_BLOCK>>"
-    if "<<COMMAND_BLOCK>>" not in prompt:
-        prompt = f"{prompt}\n\n<<COMMAND_BLOCK>>"
     return prompt.replace("<<INPUT_STATUS_BLOCK>>", input_status_block).replace("<<COMMAND_BLOCK>>", command_block).strip()

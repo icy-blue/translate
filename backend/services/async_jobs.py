@@ -26,7 +26,6 @@ from .annotations import (
 )
 from .conversations import translate_conversation_stateless
 from .message_utils import (
-    infer_message_metadata,
     preprocess_bot_reply_for_storage,
     safe_json_loads,
 )
@@ -237,38 +236,10 @@ async def run_upload_job(job_id: str, payload: dict) -> dict:
                 mark_job_progress(job_id, "命中已存在会话，加载历史结果")
                 conversation = crud.get_conversation(session, existing_file.conversation_id)
                 messages = crud.get_messages(session, existing_file.conversation_id)
-
                 figures = crud.get_figures(session, existing_file.conversation_id)
-                if not figures:
-                    mark_job_progress(job_id, "会话已有记录，补提取插图")
-                    figures = extract_and_store_figures(session, existing_file.conversation_id, file_bytes)
-
                 tables = crud.get_tables(session, existing_file.conversation_id)
-                if not tables:
-                    mark_job_progress(job_id, "会话已有记录，补提取表格")
-                    tables = extract_and_store_tables(session, existing_file.conversation_id, file_bytes)
-
                 tags = crud.get_tags(session, existing_file.conversation_id)
-                if extract_tags_enabled and not tags and conversation:
-                    mark_job_progress(job_id, "会话已有记录，补提取标签")
-                    first_bot_message = next((message.content for message in messages if infer_message_metadata(message)["role"] == "bot"), "")
-                    tags = await extract_and_store_tags(
-                        session,
-                        existing_file.conversation_id,
-                        conversation.title or existing_file.filename,
-                        first_bot_message,
-                        tag_model,
-                        api_key,
-                    )
-
                 semantic_result = crud.get_semantic_scholar_result(session, existing_file.conversation_id)
-                if semantic_result is None and conversation:
-                    mark_job_progress(job_id, "会话已有记录，补刷新论文元数据")
-                    semantic_result = refresh_conversation_semantic_result(
-                        session,
-                        existing_file.conversation_id,
-                        conversation.title or existing_file.filename,
-                    )
 
                 response = {
                     "conversation_id": existing_file.conversation_id,
