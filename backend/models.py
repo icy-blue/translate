@@ -21,8 +21,11 @@ class Conversation(SQLModel, table=True):
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     conversation_id: str = Field(index=True)
-    role: str
+    message_kind: str = Field(default="user_message", index=True)
+    section_category: Optional[str] = Field(default=None, index=True)
+    visible_to_user: bool = True
     content: str
+    client_payload_json: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),

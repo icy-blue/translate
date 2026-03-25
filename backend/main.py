@@ -36,6 +36,12 @@ from .models import (
     PaperTag,
     PaperSemanticScholarResult,
 )
+from .message_kinds import (
+    BOT_MESSAGE_KIND,
+    LEGACY_INITIAL_PROMPTS,
+    infer_message_kind,
+    role_from_message_kind,
+)
 from .paper_tags import build_tag_payloads, extract_abstract_for_tagging, get_tag_definition, get_tag_library_payload
 from .pdf_figures import extract_pdf_figures, extract_pdf_tables
 from .poe_utils import classify_paper_tags, extract_title_from_pdf, get_bot_response, upload_file
@@ -51,11 +57,33 @@ JOB_QUEUE: asyncio.Queue[str] = asyncio.Queue()
 JOB_WORKERS: list[asyncio.Task] = []
 SESSION_ENQUEUE_LOCKS: dict[str, asyncio.Lock] = {}
 SESSION_ENQUEUE_LOCKS_GUARD = asyncio.Lock()
-
-
+TRANSLATION_STATUS_PATTERN = re.compile(
+    r"\[TRANSLATION_STATUS\]\s*(.*?)\s*\[/TRANSLATION_STATUS\]",
+    re.DOTALL,
+)
+TRANSLATION_STATUS_KEYS = (
+    "scope",
+    "completed",
+    "current",
+    "next",
+    "remaining",
+    "state",
+    "phase",
+    "available_scope_extensions",
+    "next_action_type",
+    "next_action_command",
+    "next_action_target_scope",
+    "recommended_stop_reason",
+)
 class PipelineMessagePayload(BaseModel):
-    role: str
+    role: str | None = None
     content: str
+    message_kind: str | None = None
+    message_type: str | None = None
+    section_category: str | None = None
+    visible_to_user: bool | None = None
+    client_payload_json: str | None = None
+    client_payload: dict[str, Any] | None = None
 
 
 class PipelineAssetPayload(BaseModel):
@@ -157,6 +185,7 @@ app.add_middleware(
 async def on_startup():
     SQLModel.metadata.create_all(engine)
     _ensure_asset_columns()
+    _assert_message_schema_consistent()
     _ensure_timestamp_timezone_columns()
     _recover_pending_jobs()
     _start_job_workers()
@@ -177,6 +206,78 @@ def _safe_json_loads(raw: str | None, default):
         return json.loads(raw)
     except json.JSONDecodeError:
         return default
+
+
+def _normalize_message_text(text: str | None) -> str:
+    return re.sub(r"\s+", "", text or "")
+
+
+def _parse_raw_translation_status_block(content: str | None) -> dict[str, Any] | None:
+    text = content or ""
+    match = TRANSLATION_STATUS_PATTERN.search(text)
+    if not match:
+        return None
+
+    payload: dict[str, Any] = {key: "" for key in TRANSLATION_STATUS_KEYS}
+    for raw_line in match.group(1).splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        normalized_key = key.strip().lower()
+        if normalized_key not in TRANSLATION_STATUS_KEYS:
+            continue
+        payload[normalized_key] = value.strip()
+
+    raw_available_scope_extensions = str(payload.get("available_scope_extensions", "")).strip()
+    payload["available_scope_extensions"] = [
+        part.strip()
+        for part in re.split(r"[,\|;/，、]+", raw_available_scope_extensions)
+        if part.strip()
+    ]
+    payload["next_action"] = {
+        "type": str(payload.get("next_action_type", "")).strip(),
+        "command": str(payload.get("next_action_command", "")).strip(),
+        "target_scope": str(payload.get("next_action_target_scope", "")).strip(),
+    }
+
+    return payload or None
+
+
+def _infer_message_metadata(
+    message: Message | None = None,
+    *,
+    message_kind: str | None = None,
+    role: str | None = None,
+    message_type: str | None = None,
+    content: str | None = None,
+) -> dict[str, Any]:
+    actual_content = content if content is not None else (message.content if message else "")
+    actual_message_kind = infer_message_kind(
+        message_kind=message_kind if message_kind is not None else (getattr(message, "message_kind", None) if message else None),
+        message_type=message_type,
+        role=role,
+        content=actual_content,
+        initial_prompts=(settings.initial_prompt, *LEGACY_INITIAL_PROMPTS),
+    )
+    return {
+        "message_kind": actual_message_kind,
+        "role": role_from_message_kind(actual_message_kind),
+        "visible_to_user": actual_message_kind in {BOT_MESSAGE_KIND, "user_message"},
+    }
+
+
+def _serialize_message_record(message: Message) -> dict[str, Any]:
+    return {
+        "id": message.id,
+        "conversation_id": message.conversation_id,
+        "message_kind": message.message_kind,
+        "section_category": message.section_category,
+        "visible_to_user": message.visible_to_user,
+        "content": message.content,
+        "client_payload_json": message.client_payload_json,
+        "created_at": message.created_at,
+    }
 
 
 def _serialize_async_job(job) -> dict:
@@ -309,7 +410,7 @@ async def _process_async_job(job_id: str, worker_index: int):
         if job_type == "upload":
             result = await _run_upload_job(job_id, payload)
         elif job_type in {"continue", "custom_message"}:
-            result = await _run_continue_job(job_id, payload)
+            result = await _run_continue_job(job_id, payload, job_type)
         else:
             raise RuntimeError(f"Unsupported async job type: {job_type}")
 
@@ -398,7 +499,7 @@ async def _run_upload_job(job_id: str, payload: dict) -> dict:
                 tags = crud.get_tags(session, existing_file.conversation_id)
                 if extract_tags and not tags and conversation:
                     _mark_job_progress(job_id, "会话已有记录，补提取标签")
-                    first_bot_message = next((message.content for message in messages if message.role == "bot"), "")
+                    first_bot_message = next((message.content for message in messages if _infer_message_metadata(message)["role"] == "bot"), "")
                     tags = await _extract_and_store_tags(
                         session,
                         existing_file.conversation_id,
@@ -417,13 +518,12 @@ async def _run_upload_job(job_id: str, payload: dict) -> dict:
                         conversation.title or existing_file.filename,
                     )
 
-                def keep(m):
-                    return m.role != "user" or (m.content != settings.initial_prompt and m.content != "继续")
+                raw_messages = [_serialize_message_record(m) for m in messages]
 
                 response = {
                     "conversation_id": existing_file.conversation_id,
                     "title": conversation.title if conversation else None,
-                    "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
+                    "messages": raw_messages,
                     "exists": True,
                     "pdf_url": existing_file.poe_url,
                     "figures": _serialize_figures(figures),
@@ -495,8 +595,20 @@ async def _run_upload_job(job_id: str, payload: dict) -> dict:
 
         _mark_job_progress(job_id, "写入首轮翻译消息")
         response_payload: dict | None = None
+        response_status = _parse_raw_translation_status_block(response_text)
+        response_client_payload = {"translation_status": response_status} if response_status else None
+        response_section_category = None
         with Session(engine) as session:
-            crud.create_messages(session, conversation_id, initial_prompt, response_text)
+            crud.create_messages(
+                session,
+                conversation_id,
+                initial_prompt,
+                response_text,
+                user_message_kind="system_prompt",
+                user_visible_to_user=False,
+                bot_section_category=response_section_category,
+                bot_client_payload=response_client_payload,
+            )
             _mark_job_progress(job_id, "提取论文插图")
             figures = _extract_and_store_figures(session, conversation_id, file_bytes)
             _mark_job_progress(job_id, "提取论文表格")
@@ -513,7 +625,21 @@ async def _run_upload_job(job_id: str, payload: dict) -> dict:
             response_payload = {
                 "conversation_id": conversation_id,
                 "title": final_title,
-                "messages": [{"role": "bot", "content": response_text}],
+                "messages": [
+                    {
+                        "id": None,
+                        "role": "bot",
+                        "message_kind": "bot_reply",
+                        "section_category": response_section_category,
+                        "visible_to_user": True,
+                        "content": response_text,
+                        "display_content": response_text,
+                        **({"client_payload": response_client_payload} if response_client_payload else {}),
+                        **({"translation_status": response_status} if response_status else {}),
+                    }
+                ],
+                "translation_status": response_status,
+                "display_reply": response_text,
                 "pdf_url": pdf_attachment.url,
                 "figures": _serialize_figures(figures),
                 "tables": _serialize_tables(tables),
@@ -527,7 +653,7 @@ async def _run_upload_job(job_id: str, payload: dict) -> dict:
             upload_path.unlink()
 
 
-async def _run_continue_job(job_id: str, payload: dict) -> dict:
+async def _run_continue_job(job_id: str, payload: dict, job_type: str) -> dict:
     conversation_id = str(payload.get("conversation_id", "")).strip()
     new_user_message = str(payload.get("new_user_message", "")).strip()
     poe_model = str(payload.get("poe_model", settings.poe_model))
@@ -550,6 +676,7 @@ async def _run_continue_job(job_id: str, payload: dict) -> dict:
             api_key=api_key,
             session=session,
             save_to_record=save_to_record,
+            is_continue_command=(job_type == "continue"),
             progress_callback=lambda p: _mark_job_progress(job_id, p),
         )
     _mark_job_progress(job_id, "整理返回结果")
@@ -613,6 +740,7 @@ async def _continue_conversation(
     api_key: str,
     session: Session,
     save_to_record: bool,
+    is_continue_command: bool = False,
     progress_callback=None,
 ):
     if progress_callback:
@@ -633,7 +761,9 @@ async def _continue_conversation(
     if progress_callback:
         progress_callback("构建 Poe 请求")
     poe_messages = [
-        fp.ProtocolMessage(role="user", content=m.content, attachments=[pdf_attachment]) if i == 0 and m.role == "user" else fp.ProtocolMessage(role=m.role, content=m.content)
+        fp.ProtocolMessage(role="user", content=m.content, attachments=[pdf_attachment])
+        if i == 0 and _infer_message_metadata(m)["role"] == "user"
+        else fp.ProtocolMessage(role=_infer_message_metadata(m)["role"], content=m.content)
         for i, m in enumerate(db_messages)
     ]
     poe_messages.append(fp.ProtocolMessage(role="user", content=new_user_message))
@@ -641,21 +771,41 @@ async def _continue_conversation(
     if progress_callback:
         progress_callback("等待 Poe 返回翻译结果")
     response_text = await get_bot_response(poe_messages, poe_model, api_key)
+    response_status = _parse_raw_translation_status_block(response_text)
+    response_client_payload = {"translation_status": response_status} if response_status else None
+    response_section_category = None
 
     if save_to_record:
         if progress_callback:
             progress_callback("写入会话消息到数据库")
-        crud.create_messages(session, conversation_id, new_user_message, response_text)
+        crud.create_messages(
+            session,
+            conversation_id,
+            new_user_message,
+            response_text,
+            user_message_kind="continue_command" if is_continue_command else "user_message",
+            user_visible_to_user=not is_continue_command,
+            bot_section_category=response_section_category,
+            bot_client_payload=response_client_payload,
+        )
 
     if progress_callback:
         progress_callback("翻译结果已生成")
-    return {"reply": response_text}
+    return {
+        "reply": response_text,
+        "display_reply": response_text,
+        "section_category": response_section_category,
+        "translation_status": response_status,
+    }
 
 # Endpoint to continue an existing translation
 @app.post("/continue/{conversation_id}")
 async def continue_translation(
     conversation_id: str,
     poe_model: str = Form(default=settings.poe_model),
+    auto_translate_appendix: bool = Form(default=False),
+    auto_translate_acknowledgements: bool = Form(default=False),
+    auto_translate_references: bool = Form(default=False),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only)
@@ -679,6 +829,9 @@ async def continue_translation(
                 "poe_model": poe_model,
                 "api_key": api_key,
                 "save_to_record": True,
+                "auto_translate_appendix": auto_translate_appendix,
+                "auto_translate_acknowledgements": auto_translate_acknowledgements,
+                "auto_translate_references": auto_translate_references,
             },
             conversation_id=conversation_id,
         )
@@ -690,6 +843,9 @@ async def custom_message(
     message: str = Form(...),
     save_to_record: bool = Form(...),
     poe_model: str = Form(default=settings.poe_model),
+    auto_translate_appendix: bool = Form(default=False),
+    auto_translate_acknowledgements: bool = Form(default=False),
+    auto_translate_references: bool = Form(default=False),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only)
@@ -715,6 +871,9 @@ async def custom_message(
                 "poe_model": poe_model,
                 "api_key": api_key,
                 "save_to_record": save_to_record,
+                "auto_translate_appendix": auto_translate_appendix,
+                "auto_translate_acknowledgements": auto_translate_acknowledgements,
+                "auto_translate_references": auto_translate_references,
             },
             conversation_id=conversation_id,
         )
@@ -734,14 +893,13 @@ async def get_conversation(conversation_id: str, session: Session = Depends(get_
     semantic_result = crud.get_semantic_scholar_result(session, conversation_id)
     pdf_url = file_record.poe_url if file_record else None
 
-    def keep(m):
-        return m.role != "user" or (m.content.replace('\n', '') != settings.initial_prompt and m.content != "继续")
+    raw_messages = [_serialize_message_record(m) for m in messages]
 
     response = {
         "id": conversation.id,
         "title": conversation.title,
-        "created_at": _ensure_utc_timezone(conversation.created_at),
-        "messages": [{"role": m.role, "content": m.content} for m in messages if keep(m)],
+        "created_at": conversation.created_at,
+        "messages": raw_messages,
         "pdf_url": pdf_url,
         "figures": _serialize_figures(figures),
         "tables": _serialize_tables(tables),
@@ -837,8 +995,7 @@ def _build_conversation_data_with_semantic(
     include_relevance: bool = False,
     relevance_score: int = 0,
 ) -> dict:
-    msg_statement = select(Message).where(Message.conversation_id == conversation.id, Message.role == "bot").order_by(Message.id)
-    first_bot_msg = session.exec(msg_statement).first()
+    first_bot_msg = crud.get_first_bot_message(session, conversation.id)
     summary = (first_bot_msg.content[:200] + "...") if first_bot_msg and len(first_bot_msg.content) > 200 else (first_bot_msg.content if first_bot_msg else "")
 
     file_record = crud.get_file_record(session, conversation.id)
@@ -997,6 +1154,27 @@ async def _refresh_conversation_annotations(
     )
     semantic_result = _refresh_conversation_semantic_result(session, conversation_id, title)
     return tags, semantic_result
+
+
+def _assert_message_schema_consistent():
+    required_columns = {
+        "message_kind",
+        "section_category",
+        "visible_to_user",
+        "client_payload_json",
+    }
+
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        existing_columns = {column["name"] for column in inspector.get_columns("message")}
+
+    missing_columns = sorted(required_columns - existing_columns)
+    if missing_columns:
+        missing_text = ", ".join(missing_columns)
+        raise RuntimeError(
+            "message table schema is inconsistent. Missing columns: "
+            f"{missing_text}. Please run `python scripts/maintain_message_kind_schema.py --write` before starting the app."
+        )
 
 
 def _ensure_asset_columns():
@@ -1463,7 +1641,7 @@ async def refresh_conversation_metadata(
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
     messages = crud.get_messages(session, conversation_id)
-    first_bot_message = next((message.content for message in messages if message.role == "bot"), "")
+    first_bot_message = next((message.content for message in messages if _infer_message_metadata(message)["role"] == "bot"), "")
     tags, semantic_result = await _refresh_conversation_annotations(
         session=session,
         conversation_id=conversation_id,

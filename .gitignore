@@ -9,3 +9,4 @@ GEMINI.md
 _temp/
 data/paper_semantic_scholar_results.csv
 .codex/
+data/

@@ -19,6 +19,7 @@ from .models import (
     PaperSemanticScholarResult,
     AsyncJob,
 )
+from .message_kinds import infer_message_kind, is_bot_message_kind
 
 
 def _json_default(value):
@@ -29,6 +30,41 @@ def _json_default(value):
 
 def _json_dumps(value) -> str:
     return json.dumps(value, ensure_ascii=False, default=_json_default)
+
+
+def _normalize_message_payload_json(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    return _json_dumps(value)
+
+
+def add_message(
+    session: Session,
+    *,
+    conversation_id: str,
+    content: str,
+    message_kind: str,
+    section_category: str | None = None,
+    visible_to_user: bool,
+    client_payload: Any = None,
+    created_at: datetime | None = None,
+) -> Message:
+    normalized_message_kind = infer_message_kind(message_kind=message_kind, content=content)
+    normalized_section_category = section_category if is_bot_message_kind(normalized_message_kind) else None
+    message = Message(
+        conversation_id=conversation_id,
+        message_kind=normalized_message_kind,
+        section_category=normalized_section_category,
+        visible_to_user=visible_to_user,
+        content=content,
+        client_payload_json=_normalize_message_payload_json(client_payload),
+        created_at=created_at or datetime.now(timezone.utc),
+    )
+    session.add(message)
+    return message
 
 def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
     """Fetch a conversation by its ID."""
@@ -48,6 +84,16 @@ def get_messages(session: Session, conversation_id: str) -> list[Message]:
         .order_by(Message.id)
     )
     return session.exec(statement).all()
+
+
+def get_first_bot_message(session: Session, conversation_id: str) -> Message | None:
+    """Fetch the first bot message for a conversation."""
+    statement = (
+        select(Message)
+        .where(Message.conversation_id == conversation_id, Message.message_kind == "bot_reply")
+        .order_by(Message.id)
+    )
+    return session.exec(statement).first()
 
 
 def get_figures(session: Session, conversation_id: str) -> list[PaperFigure]:
@@ -117,7 +163,8 @@ def create_conversation_package(
     fingerprint: str,
     attachment: dict,
     initial_prompt: str,
-    response_text: str
+    response_text: str,
+    bot_client_payload: Any = None,
 ) -> None:
     """Create all initial database records for a new translation."""
     session.add(Conversation(
@@ -134,16 +181,21 @@ def create_conversation_package(
         content_type=attachment.content_type,
         poe_name=attachment.name
     ))
-    session.add(Message(
+    add_message(
+        session,
         conversation_id=conversation_id,
-        role="user",
-        content=initial_prompt
-    ))
-    session.add(Message(
+        content=initial_prompt,
+        message_kind="system_prompt",
+        visible_to_user=False,
+    )
+    add_message(
+        session,
         conversation_id=conversation_id,
-        role="bot",
-        content=response_text
-    ))
+        content=response_text,
+        message_kind="bot_reply",
+        visible_to_user=True,
+        client_payload=bot_client_payload,
+    )
     session.commit()
 
 
@@ -195,19 +247,32 @@ def create_messages(
     session: Session,
     conversation_id: str,
     user_content: str,
-    bot_content: str
+    bot_content: str,
+    *,
+    user_message_kind: str = "user_message",
+    user_section_category: str | None = None,
+    user_visible_to_user: bool = True,
+    bot_section_category: str | None = None,
+    bot_client_payload: Any = None,
 ) -> None:
     """Create a pair of user and bot messages."""
-    session.add(Message(
+    add_message(
+        session,
         conversation_id=conversation_id,
-        role="user",
-        content=user_content
-    ))
-    session.add(Message(
+        content=user_content,
+        message_kind=user_message_kind,
+        section_category=user_section_category,
+        visible_to_user=user_visible_to_user,
+    )
+    add_message(
+        session,
         conversation_id=conversation_id,
-        role="bot",
-        content=bot_content
-    ))
+        content=bot_content,
+        message_kind="bot_reply",
+        section_category=bot_section_category,
+        visible_to_user=True,
+        client_payload=bot_client_payload,
+    )
     session.commit()
 
 
@@ -481,17 +546,25 @@ def persist_pipeline_bundle(session: Session, bundle: dict[str, Any]) -> dict[st
         for message in messages_payload:
             if not isinstance(message, dict):
                 continue
-            role = str(message.get("role", "")).strip()
             content = str(message.get("content", ""))
-            if not role:
-                continue
-            session.add(
-                Message(
-                    conversation_id=conversation_id,
-                    role=role,
-                    content=content,
-                    created_at=now,
-                )
+            message_kind = infer_message_kind(
+                message_kind=str(message.get("message_kind", "")).strip() or None,
+                message_type=str(message.get("message_type", "")).strip() or None,
+                role=str(message.get("role", "")).strip() or None,
+                content=content,
+            )
+            visible_to_user = message.get("visible_to_user")
+            if visible_to_user is None:
+                visible_to_user = is_bot_message_kind(message_kind) or message_kind == "user_message"
+            add_message(
+                session,
+                conversation_id=conversation_id,
+                content=content,
+                message_kind=message_kind,
+                section_category=message.get("section_category"),
+                visible_to_user=bool(visible_to_user),
+                client_payload=message.get("client_payload_json", message.get("client_payload")),
+                created_at=now,
             )
         if messages_payload:
             committed_parts.append("messages")

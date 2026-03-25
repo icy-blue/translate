@@ -18,6 +18,7 @@ if str(ROOT_DIR) not in sys.path:
 import backend.crud as crud
 from backend.config import settings
 from backend.database import engine
+from backend.message_kinds import BOT_MESSAGE_KIND
 from backend.models import FileRecord, Message, PaperTag
 from backend.paper_tags import extract_abstract_for_tagging
 from backend.poe_utils import classify_paper_tags
@@ -91,7 +92,7 @@ def get_file_records(session: Session, args: argparse.Namespace) -> list[FileRec
 def get_first_bot_message(session: Session, conversation_id: str) -> Message | None:
     statement = (
         select(Message)
-        .where(Message.conversation_id == conversation_id, Message.role == "bot")
+        .where(Message.conversation_id == conversation_id, Message.message_kind == BOT_MESSAGE_KIND)
         .order_by(Message.id)
     )
     return session.exec(statement).first()

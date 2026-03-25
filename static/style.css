@@ -610,6 +610,100 @@ body {
   border: 1px solid #eee;
 }
 
+.translation-status-card {
+  margin-bottom: 24px;
+  padding: 18px 22px;
+  background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
+  border-radius: 14px;
+  border: 1px solid #d9e5f2;
+  box-shadow: 0 10px 26px rgba(28, 52, 84, 0.06);
+}
+
+.translation-status-progress {
+  border-color: #cfe0f8;
+}
+
+.translation-status-body-done {
+  border-color: #d8e8d2;
+  background: linear-gradient(135deg, #f7fcf4 0%, #ffffff 100%);
+}
+
+.translation-status-done {
+  border-color: #cfe6dc;
+  background: linear-gradient(135deg, #f3fbf7 0%, #ffffff 100%);
+}
+
+.translation-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.translation-status-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #24415f;
+}
+
+.translation-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #e9f2ff;
+  color: #1f5ea8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.translation-status-body-done .translation-status-badge {
+  background: #e9f6e3;
+  color: #45762d;
+}
+
+.translation-status-done .translation-status-badge {
+  background: #e1f5ea;
+  color: #23704b;
+}
+
+.translation-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.translation-status-item,
+.translation-status-footer {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(210, 223, 238, 0.9);
+}
+
+.translation-status-footer {
+  margin-top: 12px;
+}
+
+.translation-status-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6e8096;
+  letter-spacing: 0.02em;
+}
+
+.translation-status-value {
+  display: block;
+  color: #1f3247;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
 .tag-block-header {
   margin-bottom: 12px;
   display: flex;
@@ -1025,6 +1119,15 @@ body {
   .tag-block {
     margin-bottom: 16px;
     padding: 16px;
+  }
+
+  .translation-status-card {
+    margin-bottom: 16px;
+    padding: 16px;
+  }
+
+  .translation-status-grid {
+    grid-template-columns: 1fr;
   }
 
   .tag-picker-toolbar {

@@ -47,6 +47,19 @@
     const { TextArea } = Input;
 
     const BASE_URL = "";
+    const AUTO_TRANSLATE_BREAKER_DEFAULT = 8;
+    const AUTO_TRANSLATE_SCOPE_ORDER = ["appendix", "acknowledgements", "references"];
+    const AUTO_TRANSLATE_LOCAL_KEYS = {
+      appendix: "auto_translate_appendix",
+      acknowledgements: "auto_translate_acknowledgements",
+      references: "auto_translate_references",
+      breakerLimit: "auto_translate_breaker_limit",
+    };
+    const SCOPE_EXTENSION_COMMANDS = {
+      appendix: "继续翻译附录",
+      acknowledgements: "继续翻译致谢",
+      references: "继续翻译参考文献",
+    };
     const TAG_CATEGORY_META = {
       L: { className: "tag-chip-learning" },
       M: { className: "tag-chip-modality" },
@@ -72,6 +85,58 @@
         hour: "2-digit",
         minute: "2-digit"
       });
+    }
+
+    function getStoredBoolean(key, defaultValue = false) {
+      const raw = localStorage.getItem(key);
+      if (raw === null) {
+        return defaultValue;
+      }
+      return raw === "true";
+    }
+
+    function getStoredInteger(key, defaultValue) {
+      const raw = Number(localStorage.getItem(key));
+      return Number.isFinite(raw) && raw > 0 ? raw : defaultValue;
+    }
+
+    function buildAutomationSettingsSnapshot({
+      autoTranslateAppendix,
+      autoTranslateAcknowledgements,
+      autoTranslateReferences,
+      autoTranslateBreakerLimit,
+    }) {
+      return {
+        autoTranslateAppendix: Boolean(autoTranslateAppendix),
+        autoTranslateAcknowledgements: Boolean(autoTranslateAcknowledgements),
+        autoTranslateReferences: Boolean(autoTranslateReferences),
+        autoTranslateBreakerLimit: Number.isFinite(Number(autoTranslateBreakerLimit))
+          ? Math.max(1, Number(autoTranslateBreakerLimit))
+          : AUTO_TRANSLATE_BREAKER_DEFAULT,
+      };
+    }
+
+    function appendAutomationOptionsToFormData(formData, settings) {
+      formData.append("auto_translate_appendix", settings.autoTranslateAppendix ? "true" : "false");
+      formData.append("auto_translate_acknowledgements", settings.autoTranslateAcknowledgements ? "true" : "false");
+      formData.append("auto_translate_references", settings.autoTranslateReferences ? "true" : "false");
+    }
+
+    function getEnabledAutoScopeTargets(settings) {
+      const scopes = [];
+      if (settings.autoTranslateAppendix) scopes.push("appendix");
+      if (settings.autoTranslateAcknowledgements) scopes.push("acknowledgements");
+      if (settings.autoTranslateReferences) scopes.push("references");
+      return scopes;
+    }
+
+    function getScopeLabel(scope) {
+      if (scope === "appendix") return "附录";
+      if (scope === "acknowledgements") return "致谢";
+      if (scope === "references") return "参考文献";
+      if (scope === "body") return "正文";
+      if (scope === "done") return "全部内容";
+      return "当前范围";
     }
 
     /**
@@ -191,6 +256,192 @@
           </span>
         )
       ));
+    }
+
+    function normalizeTranslationStatus(status) {
+      if (!status || typeof status !== "object") {
+        return null;
+      }
+      const state = String(status.state || "").toUpperCase();
+      if (!state) {
+        return null;
+      }
+      const availableScopeExtensions = Array.isArray(status.available_scope_extensions)
+        ? status.available_scope_extensions.map(item => String(item || "").trim().toLowerCase()).filter(Boolean)
+        : [];
+      const nextAction = status.next_action && typeof status.next_action === "object"
+        ? {
+            type: String(status.next_action.type || "").trim().toLowerCase(),
+            command: String(status.next_action.command || "").trim(),
+            target_scope: String(status.next_action.target_scope || "").trim().toLowerCase(),
+          }
+        : null;
+      const extensionCommands = status.extension_commands && typeof status.extension_commands === "object"
+        ? Object.fromEntries(
+            Object.entries(status.extension_commands)
+              .map(([key, value]) => [String(key || "").trim(), String(value || "").trim()])
+              .filter(([, value]) => value)
+          )
+        : {};
+      return {
+        scope: String(status.scope || ""),
+        completed: String(status.completed || ""),
+        current: String(status.current || ""),
+        next: String(status.next || ""),
+        remaining: String(status.remaining || ""),
+        state,
+        phase: String(status.phase || "").trim().toLowerCase(),
+        available_scope_extensions: availableScopeExtensions,
+        next_action: nextAction,
+        extension_commands: extensionCommands,
+        recommended_stop_reason: String(status.recommended_stop_reason || "").trim().toLowerCase(),
+        source: String(status.source || ""),
+        is_completed: Boolean(status.is_completed),
+        is_all_done: Boolean(status.is_all_done),
+      };
+    }
+
+    function stripTranslationStatusBlock(content) {
+      const text = String(content || "");
+      return text.replace(/\[TRANSLATION_STATUS\][\s\S]*?\[\/TRANSLATION_STATUS\]/g, "").trim();
+    }
+
+    function parseJsonObject(raw) {
+      if (!raw) {
+        return null;
+      }
+      if (typeof raw === "object" && !Array.isArray(raw)) {
+        return raw;
+      }
+      if (typeof raw !== "string") {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function getRoleFromMessageKind(messageKind) {
+      return String(messageKind || "").trim().toLowerCase() === "bot_reply" ? "bot" : "user";
+    }
+
+    function getMessageClientPayload(messageLike) {
+      if (!messageLike || typeof messageLike !== "object") {
+        return null;
+      }
+      return parseJsonObject(messageLike.client_payload) || parseJsonObject(messageLike.client_payload_json);
+    }
+
+    function normalizeChatBlock(messageLike, fallbackId) {
+      const clientPayload = getMessageClientPayload(messageLike);
+      const translationStatus = normalizeTranslationStatus(
+        messageLike?.translation_status || clientPayload?.translation_status
+      );
+      const rawContent = String(messageLike?.content || "");
+      const messageKind = String(
+        messageLike?.message_kind
+          || messageLike?.message_type
+          || (messageLike?.role === "bot" ? "bot_reply" : "user_message")
+      ).trim().toLowerCase();
+      const displayContent = String(
+        messageLike?.display_content !== undefined
+          ? messageLike.display_content
+          : stripTranslationStatusBlock(rawContent)
+      );
+      return {
+        id: messageLike?.id ?? fallbackId,
+        role: messageLike?.role || getRoleFromMessageKind(messageKind),
+        message_kind: messageKind,
+        visible_to_user: messageLike?.visible_to_user !== false,
+        content: rawContent,
+        display_content: displayContent,
+        translation_status: translationStatus,
+      };
+    }
+
+    function getLatestTranslationStatusFromMessages(messages) {
+      const items = Array.isArray(messages) ? messages : [];
+      for (let i = items.length - 1; i >= 0; i -= 1) {
+        const messageLike = items[i];
+        const messageKind = String(
+          messageLike?.message_kind
+            || messageLike?.message_type
+            || (messageLike?.role === "bot" ? "bot_reply" : "user_message")
+        ).trim().toLowerCase();
+        const role = messageLike?.role || getRoleFromMessageKind(messageKind);
+        if (role !== "bot") {
+          continue;
+        }
+        const clientPayload = getMessageClientPayload(messageLike);
+        const translationStatus = normalizeTranslationStatus(
+          messageLike?.translation_status || clientPayload?.translation_status
+        );
+        if (translationStatus) {
+          return translationStatus;
+        }
+      }
+      return null;
+    }
+
+    function buildVisibleBlocks(messages) {
+      const baseId = Date.now();
+      return (Array.isArray(messages) ? messages : [])
+        .map((messageLike, index) => normalizeChatBlock(messageLike, `${baseId}-${index}`))
+        .filter(messageLike => messageLike?.visible_to_user !== false);
+    }
+
+    function getTranslationStateMeta(status) {
+      const state = status?.state;
+      if (state === "ALL_DONE") {
+        return { label: "全部完成", className: "translation-status-done" };
+      }
+      if (state === "BODY_DONE") {
+        return { label: "正文完成", className: "translation-status-body-done" };
+      }
+      return { label: "进行中", className: "translation-status-progress" };
+    }
+
+    function resolveAutomationAction(status, settings) {
+      if (!status) {
+        return { type: "continue", command: "继续", target_scope: "body" };
+      }
+
+      const nextAction = status.next_action;
+      if ((nextAction?.type === "continue" || nextAction?.type === "custom_message") && nextAction.command) {
+        return nextAction;
+      }
+
+      const enabledScopes = getEnabledAutoScopeTargets(settings);
+      if (status.state === "IN_PROGRESS") {
+        return { type: "continue", command: "继续", target_scope: status.phase || "body" };
+      }
+      if (status.state === "ALL_DONE") {
+        return { type: "stop", command: "", target_scope: "none" };
+      }
+
+      if (status.state === "BODY_DONE") {
+        const availableScopes = Array.isArray(status.available_scope_extensions)
+          ? status.available_scope_extensions
+          : [];
+        for (const scope of AUTO_TRANSLATE_SCOPE_ORDER) {
+          if (!enabledScopes.includes(scope) || !availableScopes.includes(scope)) {
+            continue;
+          }
+          const command = status.extension_commands?.[scope] || SCOPE_EXTENSION_COMMANDS[scope];
+          if (!command) {
+            continue;
+          }
+          return { type: "custom_message", command, target_scope: scope };
+        }
+      }
+
+      if (nextAction?.type === "stop") {
+        return nextAction;
+      }
+      return { type: "stop", command: "", target_scope: "none" };
     }
 
     function getPaperTagChipClassName(tag, options = {}) {
@@ -423,6 +674,10 @@
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
+      const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
+      const [autoTranslateAcknowledgements, setAutoTranslateAcknowledgements] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, false));
+      const [autoTranslateReferences, setAutoTranslateReferences] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.references, false));
+      const [autoTranslateBreakerLimit, setAutoTranslateBreakerLimit] = useState(getStoredInteger(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, AUTO_TRANSLATE_BREAKER_DEFAULT));
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
       const modelOptions = [
@@ -437,6 +692,13 @@
         { label: "GPT-5-Chat", value: "GPT-5-Chat"},
         { label: "GPT-5", value: "GPT-5"},
       ];
+
+      const automationSettings = buildAutomationSettingsSnapshot({
+        autoTranslateAppendix,
+        autoTranslateAcknowledgements,
+        autoTranslateReferences,
+        autoTranslateBreakerLimit,
+      });
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -630,6 +892,10 @@
         localStorage.setItem("poe_model", poeModel);
         localStorage.setItem("title_model", titleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, String(autoTranslateAcknowledgements));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.references, String(autoTranslateReferences));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
@@ -1600,6 +1866,7 @@
       const [tags, setTags] = useState([]);
       const [paperMeta, setPaperMeta] = useState(normalizePaperMeta());
       const [tagLibrary, setTagLibrary] = useState([]);
+      const [translationStatus, setTranslationStatus] = useState(null);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -1614,11 +1881,14 @@
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
+      const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
+      const [autoTranslateAcknowledgements, setAutoTranslateAcknowledgements] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, false));
+      const [autoTranslateReferences, setAutoTranslateReferences] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.references, false));
+      const [autoTranslateBreakerLimit, setAutoTranslateBreakerLimit] = useState(getStoredInteger(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, AUTO_TRANSLATE_BREAKER_DEFAULT));
       const [readOnly, setReadOnly] = useState(false);
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
       // ===== 其他状态 =====
-      const [continueCount, setContinueCount] = useState(4);
       const [customModalVisible, setCustomModalVisible] = useState(false);
       const [customMessage, setCustomMessage] = useState("");
       const [saveToRecord, setSaveToRecord] = useState(true);
@@ -1634,6 +1904,7 @@
       const [tagRefreshing, setTagRefreshing] = useState(false);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
+      const [autoTranslating, setAutoTranslating] = useState(false);
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -1658,6 +1929,10 @@
         localStorage.setItem("poe_model", poeModel);
         localStorage.setItem("title_model", titleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, String(autoTranslateAcknowledgements));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.references, String(autoTranslateReferences));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
@@ -1777,6 +2052,7 @@
         setTables([]);
         setTags([]);
         setPaperMeta(normalizePaperMeta());
+        setTranslationStatus(null);
         setFiguresExpanded(false);
         setTablesExpanded(false);
         setLoading(true);
@@ -1797,15 +2073,12 @@
         setTables(Array.isArray(data.tables) ? data.tables : []);
         setTags(Array.isArray(data.tags) ? data.tags : []);
         setPaperMeta(normalizePaperMeta(data));
-        // filter out continuation markers and rely on backend to remove the initial prompt
-        const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
-        setBlocks(
-          filtered.map((m, i) => ({
-            id: Date.now() + i,
-            role: m.role,
-            content: m.content
-          }))
+        const conversationMessages = Array.isArray(data.messages) ? data.messages : [];
+        setTranslationStatus(
+          getLatestTranslationStatusFromMessages(conversationMessages)
+          || normalizeTranslationStatus(data.translation_status)
         );
+        setBlocks(buildVisibleBlocks(conversationMessages));
         setPaperInfoLoaded(true);
         setLoading(false);
       }
@@ -2002,6 +2275,7 @@
           setTables([]);
           setTags([]);
           setPaperMeta(normalizePaperMeta());
+          setTranslationStatus(null);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           const tempTitle = file.name.replace(/\.pdf$/i, "");
@@ -2061,6 +2335,11 @@
             setTables(Array.isArray(data.tables) ? data.tables : []);
             setTags(Array.isArray(data.tags) ? data.tags : []);
             setPaperMeta(normalizePaperMeta(data));
+            const responseMessages = Array.isArray(data.messages) ? data.messages : [];
+            setTranslationStatus(
+              getLatestTranslationStatusFromMessages(responseMessages)
+              || normalizeTranslationStatus(data.translation_status)
+            );
             setPaperInfoLoaded(true);
 
             if (data.exists) {
@@ -2068,7 +2347,7 @@
               if (data.title) { setPaperTitle(data.title); }
               pushConversationToUrl(data.conversation_id);
 
-              const msgs = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
+              const msgs = buildVisibleBlocks(responseMessages);
               setBlocks(msgs);
               message.info("文件已存在，跳转到对应会话");
               return;
@@ -2077,8 +2356,12 @@
             setConversationId(data.conversation_id);
             if (data.title) { setPaperTitle(data.title); }
             pushConversationToUrl(data.conversation_id);
-            const msgsNew = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
-            setBlocks(msgsNew.length ? msgsNew : [{ id: Date.now(), role: "bot", content: "无回复" }]);
+            const msgsNew = buildVisibleBlocks(responseMessages);
+            setBlocks(
+              msgsNew.length
+                ? msgsNew
+                : [normalizeChatBlock({ role: "bot", message_kind: "bot_reply", content: "无回复" }, Date.now())]
+            );
             message.success("上传任务完成");
           } catch (err) {
             message.error(err?.message || "上传失败");
@@ -2092,27 +2375,39 @@
 
       // ===== 翻译功能 =====
       /**
-       * 单次翻译请求
+       * 单次翻译动作
        */
-      const doContinue = async () => {
+      const performTranslationAction = async (action) => {
         try {
+          const progressKey = action.progressKey || "continue-progress";
           const formData = new FormData();
           formData.append("api_key", poeApiKey);
           formData.append("poe_model", poeModel);
+          appendAutomationOptionsToFormData(formData, automationSettings);
 
-          const enqueueRes = await fetch(
-            `${BASE_URL}/continue/${conversationId}`,
-            { method: "POST", body: formData }
-          );
+          let enqueueRes;
+          if (action.type === "custom_message") {
+            formData.append("message", action.command);
+            formData.append("save_to_record", "true");
+            enqueueRes = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
+              method: "POST",
+              body: formData
+            });
+          } else {
+            enqueueRes = await fetch(
+              `${BASE_URL}/continue/${conversationId}`,
+              { method: "POST", body: formData }
+            );
+          }
           const enqueueData = await enqueueRes.json();
           if (!enqueueRes.ok) {
             message.error(enqueueData.detail || "请求失败");
-            return false;
+            return { ok: false, reason: "request_failed" };
           }
           const data = await waitForJobResult(enqueueData.job_id, {
             onProgress: (progressText) => {
               message.open({
-                key: "continue-progress",
+                key: progressKey,
                 type: "loading",
                 content: `翻译处理中：${progressText}`,
                 duration: 0
@@ -2120,19 +2415,32 @@
             },
           });
 
-          setBlocks(prev => [
-            ...prev,
-            { id: Date.now(), role: "bot", content: data.reply }
-          ]);
-          return true;
+          const nextStatus = normalizeTranslationStatus(data.translation_status);
+          if (nextStatus) {
+            setTranslationStatus(nextStatus);
+          }
+          const nextBlock = normalizeChatBlock({
+            role: "bot",
+            message_kind: "bot_reply",
+            content: data.reply,
+            display_content: data.display_reply,
+            translation_status: data.translation_status,
+          }, Date.now());
+          if (nextBlock.display_content) {
+            setBlocks(prev => [
+              ...prev,
+              nextBlock
+            ]);
+          }
+          return { ok: true, data, status: nextStatus, block: nextBlock };
         } catch (err) {
           message.error(err?.message || "请求失败");
-          return false;
+          return { ok: false, reason: "request_failed" };
         }
       };
 
       /**
-       * 继续翻译（会根据 continueCount 调用多次）
+       * 单步继续
        */
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
@@ -2145,18 +2453,107 @@
           duration: 0
         });
         setLoading(true);
-        for (let i = 0; i < continueCount; i++) {
-          message.open({
-            key: "continue-progress",
-            type: "loading",
-            content: `翻译处理中：第 ${i + 1}/${continueCount} 次请求已提交`,
-            duration: 0
-          });
-          const ok = await doContinue();
-          if (!ok) break;
-        }
+        await performTranslationAction({ type: "continue", command: "继续", target_scope: "body", progressKey: "continue-progress" });
         setLoading(false);
         message.destroy("continue-progress");
+      };
+
+      const handleAutoTranslate = async () => {
+        if (!conversationId) { message.warning("请先上传论文"); return; }
+        if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
+
+        const breakerLimit = automationSettings.autoTranslateBreakerLimit;
+        let currentStatus = translationStatus;
+        let previousReplySignature = "";
+        let previousStateSignature = currentStatus
+          ? `${currentStatus.state}|${currentStatus.phase}|${currentStatus.next_action?.type || ""}|${currentStatus.next_action?.target_scope || ""}`
+          : "";
+        let stoppedByBreaker = true;
+
+        setLoading(true);
+        setAutoTranslating(true);
+        try {
+          for (let i = 0; i < breakerLimit; i++) {
+            const action = resolveAutomationAction(currentStatus, automationSettings);
+            if (!action || action.type === "stop") {
+              stoppedByBreaker = false;
+              const stopReason = currentStatus?.recommended_stop_reason || (currentStatus?.state === "ALL_DONE" ? "all_done" : "body_done");
+              if (stopReason === "all_done") {
+                message.success("自动翻译已完成");
+              } else if (stopReason === "body_done") {
+                message.info("自动翻译已在正文完成后停止");
+              } else if (stopReason === "unsupported") {
+                message.warning("自动翻译已停止：当前状态无法安全推导下一步");
+              } else {
+                message.info("自动翻译已停止");
+              }
+              break;
+            }
+
+            message.open({
+              key: "continue-progress",
+              type: "loading",
+              content: `自动翻完：第 ${i + 1}/${breakerLimit} 次，当前 ${getScopeLabel(currentStatus?.phase || "body")}，目标 ${getScopeLabel(action.target_scope)}，命令「${action.command}」`,
+              duration: 0
+            });
+
+            const result = await performTranslationAction({ ...action, progressKey: "continue-progress" });
+            if (!result.ok) {
+              stoppedByBreaker = false;
+              break;
+            }
+
+            const nextStatus = result.status;
+            if (!nextStatus) {
+              stoppedByBreaker = false;
+              message.warning("自动翻译已停止：本轮未返回 translation_status");
+              break;
+            }
+
+            const replySignature = String(result.data?.display_reply || result.data?.reply || "").trim();
+            const nextStateSignature = `${nextStatus.state}|${nextStatus.phase}|${nextStatus.next_action?.type || ""}|${nextStatus.next_action?.target_scope || ""}`;
+            if (
+              replySignature === previousReplySignature &&
+              nextStateSignature === previousStateSignature
+            ) {
+              stoppedByBreaker = false;
+              message.warning("自动翻译已停止：检测到回复与状态未推进");
+              break;
+            }
+
+            previousReplySignature = replySignature;
+            previousStateSignature = nextStateSignature;
+            currentStatus = nextStatus;
+
+            if (currentStatus.state === "ALL_DONE") {
+              stoppedByBreaker = false;
+              message.success("自动翻译已完成");
+              break;
+            }
+
+            const nextAction = resolveAutomationAction(currentStatus, automationSettings);
+            if (!nextAction || nextAction.type === "stop") {
+              stoppedByBreaker = false;
+              const stopReason = currentStatus.recommended_stop_reason || (currentStatus.state === "BODY_DONE" ? "body_done" : "");
+              if (stopReason === "body_done") {
+                message.info("自动翻译已在正文完成后停止");
+              } else if (stopReason === "unsupported") {
+                message.warning("自动翻译已停止：当前状态无法安全推导下一步");
+              } else {
+                message.info("自动翻译已停止");
+              }
+              break;
+            }
+          }
+
+          if (stoppedByBreaker) {
+            message.warning(`自动翻译已触发熔断，达到 ${breakerLimit} 次上限`);
+          }
+        } finally {
+          setLoading(false);
+          setAutoTranslating(false);
+          message.destroy("continue-progress");
+        }
       };
 
       /**
@@ -2175,6 +2572,7 @@
         formData.append("message", customMessage);
         formData.append("save_to_record", saveToRecord);
         formData.append("poe_model", poeModel);
+        appendAutomationOptionsToFormData(formData, automationSettings);
 
         try {
           const enqueueRes = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
@@ -2192,10 +2590,21 @@
               message.open({ key: progressKey, type: "loading", content: `追问处理中：${progressText}`, duration: 0 });
             },
           });
+          const nextStatus = normalizeTranslationStatus(data.translation_status);
+          if (nextStatus) {
+            setTranslationStatus(nextStatus);
+          }
+          const nextBotBlock = normalizeChatBlock({
+            role: "bot",
+            message_kind: "bot_reply",
+            content: data.reply,
+            display_content: data.display_reply,
+            translation_status: data.translation_status,
+          }, Date.now() + 1);
           setBlocks(prev => [
             ...prev,
-            { id: Date.now(), role: "user", content: customMessage },
-            { id: Date.now() + 1, role: "bot", content: data.reply }
+            normalizeChatBlock({ role: "user", message_kind: "user_message", content: customMessage }, Date.now()),
+            ...(nextBotBlock.display_content ? [nextBotBlock] : []),
           ]);
           if (!saveToRecord) {
             message.info("对话完成（未保存到记录）");
@@ -2387,6 +2796,8 @@
             .filter(category => category.tags.length > 0)
         : tagLibrary.filter(category => category.category_code === activeTagCategory);
 
+      const translationStateMeta = translationStatus ? getTranslationStateMeta(translationStatus) : null;
+
       // ===== JSX 渲染 =====
       return (
         <>
@@ -2447,28 +2858,29 @@
 
                 {!readOnly && !isMobile && (
                   <>
-                    <span>自动继续次数：</span>
-                    <InputNumber
-                      min={0}
-                      value={continueCount}
-                      disabled={loading}
-                      onChange={v => setContinueCount(v)}
-                      style={{ width: 80 }}
-                    />
-
                     <Button
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading || !conversationId}
+                      disabled={loading || autoTranslating || !conversationId}
                     >
                       {loading ? "翻译中..." : "继续"}
                     </Button>
 
                     <Button
+                      type="primary"
+                      icon={<CaretRightOutlined />}
+                      onClick={handleAutoTranslate}
+                      loading={autoTranslating}
+                      disabled={loading || autoTranslating || !conversationId}
+                    >
+                      {autoTranslating ? "自动翻译中..." : "自动翻完"}
+                    </Button>
+
+                    <Button
                       icon={<MessageOutlined />}
                       onClick={() => setCustomModalVisible(true)}
-                      disabled={loading || !conversationId}
+                      disabled={loading || autoTranslating || !conversationId}
                     >
                       自定义对话
                     </Button>
@@ -2479,11 +2891,10 @@
                 {!readOnly && isMobile && conversationId && (
                   <>
                     <Button
-                      type="primary"
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading}
+                      disabled={loading || autoTranslating}
                     >
                       {loading ? "翻译中..." : "继续"}
                     </Button>
@@ -2494,20 +2905,10 @@
                           <Menu.Item icon={<SettingOutlined />} onClick={() => setConfigModalVisible(true)}>
                             配置
                           </Menu.Item>
-                          <Menu.Item>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span>自动继续次数:</span>
-                              <InputNumber
-                                min={0}
-                                value={continueCount}
-                                disabled={loading}
-                                onChange={v => setContinueCount(v)}
-                                style={{ width: 60 }}
-                                size="small"
-                              />
-                            </div>
+                          <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating}>
+                            {autoTranslating ? "自动翻译中..." : "自动翻完"}
                           </Menu.Item>
-                          <Menu.Item icon={<MessageOutlined />} onClick={() => setCustomModalVisible(true)} disabled={!conversationId}>
+                          <Menu.Item icon={<MessageOutlined />} onClick={() => setCustomModalVisible(true)} disabled={loading || autoTranslating || !conversationId}>
                             自定义对话
                           </Menu.Item>
                         </Menu>
@@ -2608,6 +3009,52 @@
                     </div>
                   </div>
                 )}
+                {translationStatus && translationStateMeta && (
+                  <div className={`translation-status-card ${translationStateMeta.className}`}>
+                    <div className="translation-status-header">
+                      <div className="translation-status-title">翻译状态</div>
+                      <span className="translation-status-badge">{translationStateMeta.label}</span>
+                    </div>
+                    <div className="translation-status-grid">
+                      <div className="translation-status-item">
+                        <span className="translation-status-label">范围</span>
+                        <span className="translation-status-value">{translationStatus.scope || "默认正文范围"}</span>
+                      </div>
+                      <div className="translation-status-item">
+                        <span className="translation-status-label">已完成</span>
+                        <span className="translation-status-value">{translationStatus.completed || "待模型填充"}</span>
+                      </div>
+                      <div className="translation-status-item">
+                        <span className="translation-status-label">当前块</span>
+                        <span className="translation-status-value">{translationStatus.current || "当前回复"}</span>
+                      </div>
+                      <div className="translation-status-item">
+                        <span className="translation-status-label">下一块</span>
+                        <span className="translation-status-value">{translationStatus.next || "暂无"}</span>
+                      </div>
+                    </div>
+                    {!!translationStatus.remaining && (
+                      <div className="translation-status-footer">
+                        <span className="translation-status-label">剩余内容</span>
+                        <span className="translation-status-value">{translationStatus.remaining}</span>
+                      </div>
+                    )}
+                    {(translationStatus.available_scope_extensions?.length || translationStatus.next_action?.command) && (
+                      <div className="translation-status-footer">
+                        {translationStatus.available_scope_extensions?.length ? (
+                          <span className="translation-status-value">
+                            可继续范围：{translationStatus.available_scope_extensions.map(getScopeLabel).join(" / ")}
+                          </span>
+                        ) : null}
+                        {translationStatus.next_action?.command ? (
+                          <span className="translation-status-value">
+                            建议动作：{translationStatus.next_action.command}
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {renderAssetSection({
                   id: "figures-section",
                   title: "论文插图",
@@ -2625,13 +3072,15 @@
                   type: "table"
                 })}
                 {blocks.map(block => (
+                  block.display_content ? (
                   <div
                     key={block.id}
                     className={block.role === "user" ? "user-message-block" : "message-block"}
                     dangerouslySetInnerHTML={{
-                      __html: MathUtils.renderMarkdownWithMath(block.content)
+                      __html: MathUtils.renderMarkdownWithMath(block.display_content)
                     }}
                   />
+                  ) : null
                 ))}
               </div>
 
