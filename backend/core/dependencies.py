@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from fastapi import Depends, HTTPException, Form, Header
 from sqlmodel import Session
 
@@ -21,7 +25,7 @@ def get_api_key(api_key: str = Form(...)) -> str:
     return api_key
 
 
-def get_agent_ingest_token(x_agent_token: str | None = Header(default=None)) -> str:
+def get_agent_ingest_token(x_agent_token: Optional[str] = Header(default=None)) -> str:
     """Validate agent ingestion token via x-agent-token header."""
     expected = (settings.agent_ingest_token or "").strip()
     if not expected:

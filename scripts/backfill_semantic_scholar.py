@@ -14,10 +14,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import backend.crud as crud
-from backend.database import engine
-from backend.models import FileRecord, PaperSemanticScholarResult
-from backend.semantic_scholar import refresh_semantic_scholar_result
+import backend.persistence.crud as crud
+from backend.core.database import engine
+from backend.integrations.semantic_scholar import refresh_semantic_scholar_result
+from backend.persistence.models import FileRecord, PaperSemanticScholarResult
 
 
 def parse_args() -> argparse.Namespace:

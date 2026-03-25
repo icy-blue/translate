@@ -31,7 +31,7 @@ class TagDefinition:
         return f"{self.category_label_en}/{self.tag_label_en}"
 
 
-TAG_TREE_PATH = Path(__file__).resolve().parents[1] / "data" / "tag_tree.json"
+TAG_TREE_PATH = Path(__file__).resolve().parents[2] / "data" / "tag_tree.json"
 _RAW_TAG_TREE = json.loads(TAG_TREE_PATH.read_text(encoding="utf-8"))
 
 CATEGORY_MAP: dict[str, CategoryDefinition] = {

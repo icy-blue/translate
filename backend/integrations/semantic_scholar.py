@@ -10,9 +10,9 @@ from urllib.error import HTTPError, URLError
 
 from sqlmodel import Session, select
 
-from .ccf_mapping import map_ccf_publication
-from .config import settings
-from .models import PaperSemanticScholarResult
+from ..core.config import settings
+from ..domains.ccf_mapping import map_ccf_publication
+from ..persistence.models import PaperSemanticScholarResult
 
 
 SEMANTIC_SCHOLAR_MATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search/match"

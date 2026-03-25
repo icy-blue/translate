@@ -19,7 +19,7 @@ from .models import (
     PaperSemanticScholarResult,
     AsyncJob,
 )
-from .message_kinds import infer_message_kind, is_bot_message_kind
+from ..domains.message_kinds import infer_message_kind, is_bot_message_kind
 
 
 def _json_default(value):

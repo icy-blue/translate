@@ -14,10 +14,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.config import settings
-from backend.database import engine
-from backend.message_kinds import LEGACY_INITIAL_PROMPTS, infer_message_kind, role_from_message_kind
-from backend.message_sections import classify_message_section
+from backend.core.config import settings
+from backend.core.database import engine
+from backend.domains.message_kinds import LEGACY_INITIAL_PROMPTS, infer_message_kind, role_from_message_kind
+from backend.domains.message_sections import classify_message_section
 from scripts.backfill_legacy_display_filter import apply_current_display_strategy
 
 

@@ -31,7 +31,7 @@
 - PDF 与资产处理：pypdf + PyMuPDF + Pillow
 - 前端：`static/index.html`（React + Ant Design CDN）
 
-后端 Python 模块统一放在 `backend/`，根目录 `app.py` 仅作为启动兼容入口（`uvicorn app:app`）。
+后端 Python 模块统一放在 `backend/`，并按 `api / core / domains / integrations / persistence / schemas / services` 分类组织。根目录 `app.py` 仅作为启动兼容入口（`uvicorn app:app`）。
 
 ## 快速启动
 
@@ -112,20 +112,53 @@ translate/
 ├── app.py
 ├── backend/
 │   ├── main.py
-│   ├── config.py
-│   ├── models.py
-│   ├── crud.py
-│   ├── dependencies.py
-│   ├── poe_utils.py
-│   ├── paper_tags.py
-│   ├── pdf_figures.py
-│   └── ccf_mapping.py
+│   ├── api/
+│   │   └── routers/
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── dependencies.py
+│   │   └── db_maintenance.py
+│   ├── domains/
+│   │   ├── ccf_mapping.py
+│   │   ├── message_kinds.py
+│   │   ├── message_sections.py
+│   │   ├── paper_tags.py
+│   │   └── pdf_figures.py
+│   ├── integrations/
+│   │   ├── poe.py
+│   │   └── semantic_scholar.py
+│   ├── persistence/
+│   │   ├── crud.py
+│   │   └── models.py
+│   ├── schemas/
+│   │   └── pipeline.py
+│   └── services/
+│       ├── annotations.py
+│       ├── async_jobs.py
+│       ├── conversations.py
+│       ├── message_utils.py
+│       ├── search.py
+│       └── serializers.py
 ├── static/
 ├── scripts/
 ├── data/
 ├── requirements.txt
 └── translations.db
 ```
+
+### 后端分层说明
+
+- `backend/main.py`：应用装配入口，只负责创建 `FastAPI`、注册路由、中间件和启动钩子。
+- `backend/api/routers/`：HTTP 路由层，处理请求参数与响应拼装，不承载复杂业务。
+- `backend/core/`：配置、数据库连接、FastAPI 依赖、启动期 schema 检查。
+- `backend/domains/`：相对纯粹的领域逻辑与规则，如标签树、消息类型、图表提取、CCF 映射。
+- `backend/integrations/`：外部服务集成，如 Poe、Semantic Scholar。
+- `backend/persistence/`：SQLModel 表结构和数据库读写封装。
+- `backend/schemas/`：Pydantic 请求/响应模型。
+- `backend/services/`：跨模块的应用服务，承接异步任务、搜索、注释提取、序列化等业务流程。
+
+更详细的后端分层约定可见：[docs/backend-structure.md](docs/backend-structure.md)。
 
 ## 常用维护脚本
 
