@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.semantic_scholar import build_result_payload, fetch_semantic_scholar_match
+from backend.integrations.semantic_scholar import build_result_payload, fetch_semantic_scholar_match
 
 
 def _read_json(path: str) -> dict[str, Any]:

@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.config import settings
-from backend.poe_utils import get_bot_response
+from backend.core.config import settings
+from backend.integrations.poe import get_bot_response
 
 
 def _read_json(path: str) -> dict[str, Any]:

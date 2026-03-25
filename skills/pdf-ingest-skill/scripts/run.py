@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from sqlmodel import Session
 
 from backend import crud
-from backend.database import engine
+from backend.core.database import engine
 
 
 def _read_json(path: str) -> dict[str, Any]:

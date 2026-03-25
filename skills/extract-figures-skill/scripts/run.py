@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.pdf_figures import extract_pdf_figures
+from backend.domains.pdf_figures import extract_pdf_figures
 
 
 def _read_json(path: str) -> dict[str, Any]:

@@ -19,7 +19,7 @@ Use when figure extraction is required before bundle persistence.
 
 ## Steps
 1. Load PDF bytes.
-2. Run `backend.pdf_figures.extract_pdf_figures`.
+2. Run `backend.domains.pdf_figures.extract_pdf_figures`.
 3. Convert binary image bytes to base64 for JSON transport.
 4. Return figure list.
 

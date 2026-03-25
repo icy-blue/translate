@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.config import settings
-from backend.paper_tags import extract_abstract_for_tagging
-from backend.poe_utils import classify_paper_tags
+from backend.core.config import settings
+from backend.domains.paper_tags import extract_abstract_for_tagging
+from backend.integrations.poe import classify_paper_tags
 
 
 def _read_json(path: str) -> dict[str, Any]:
