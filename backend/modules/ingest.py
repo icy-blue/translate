@@ -39,7 +39,21 @@ class IngestPdfTaskPayload(BaseModel):
 
 
 def find_existing_file(session: Session, fingerprint: str) -> Optional[FileRecord]:
-    return session.exec(select(FileRecord).where(FileRecord.fingerprint == fingerprint)).first()
+    matched_files = session.exec(
+        select(FileRecord)
+        .where(FileRecord.fingerprint == fingerprint)
+        .order_by(FileRecord.uploaded_at.desc())
+    ).all()
+    stale_files: list[FileRecord] = []
+    for file_record in matched_files:
+        if session.get(Conversation, file_record.conversation_id):
+            return file_record
+        stale_files.append(file_record)
+    if stale_files:
+        for stale_file in stale_files:
+            session.delete(stale_file)
+        session.commit()
+    return None
 
 
 def create_conversation_shell(
@@ -204,7 +218,6 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                 "title": final_title,
                 "messages": [message.model_dump() for message in detail.messages],
                 "translation_status": prepared_response["translation_status"],
-                "document_outline": prepared_response["document_outline"],
                 "content": response_content,
                 "display_reply": response_content,
                 "pdf_url": pdf_attachment.url,

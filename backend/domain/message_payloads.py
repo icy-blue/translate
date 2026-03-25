@@ -10,17 +10,6 @@ from .message_kinds import BOT_MESSAGE_KIND, LEGACY_INITIAL_PROMPTS, infer_messa
 
 TRANSLATION_STATUS_PATTERN = re.compile(r"\[TRANSLATION_STATUS\]\s*(.*?)\s*\[/TRANSLATION_STATUS\]", re.DOTALL)
 COMMAND_BLOCK_PATTERN = re.compile(r"\[COMMAND\]\s*(.*?)\s*\[/COMMAND\]", re.DOTALL)
-SEPARATOR_LINE_PATTERN = re.compile(r"^\s*[-*_—]{3,}\s*$")
-ABSTRACT_HEADING_PATTERNS = (
-    re.compile(r"^#{1,6}\s*(摘要|abstract)\s*$", re.IGNORECASE),
-    re.compile(r"^(摘要|abstract)\s*[:：]?\s*$", re.IGNORECASE),
-)
-OUTLINE_ENTRY_PATTERNS = (
-    re.compile(r"^(?:[-*+•]\s+).+"),
-    re.compile(r"^(?:\d+|[IVXLC]+)[\.\)．、]\s+.+", re.IGNORECASE),
-    re.compile(r"^第\s*[0-9一二三四五六七八九十IVXLC]+\s*[章节部分]\s*.*", re.IGNORECASE),
-    re.compile(r"^#{1,6}\s+.+"),
-)
 TRANSLATION_STATUS_KEYS = (
     "scope",
     "completed",
@@ -43,7 +32,12 @@ SCOPE_EXTENSION_COMMANDS = {
 }
 TRANSLATION_PHASES = {"body", "appendix", "acknowledgements", "references", "done"}
 NEXT_ACTION_TYPES = {"continue", "stop"}
-TRANSLATION_PAYLOAD_TEMP_KEYS = {"raw_translation_status_text", "raw_document_outline_text", "parse_error"}
+LEGACY_TRANSLATION_PAYLOAD_KEYS = {
+    "document_outline",
+    "raw_translation_status_text",
+    "raw_document_outline_text",
+    "parse_error",
+}
 
 
 def safe_json_loads(raw: str | None, default):
@@ -261,153 +255,29 @@ def strip_translation_status_block(content: str | None) -> str:
     return TRANSLATION_STATUS_PATTERN.sub("", content or "").strip()
 
 
-def normalize_document_outline_payload(document_outline: Any) -> dict[str, str] | None:
-    if not isinstance(document_outline, dict):
-        return None
-    title = str(document_outline.get("title", "")).strip()
-    content = str(document_outline.get("content", "")).strip()
-    if not title:
-        return None
-    return {"title": title, "content": content}
-
-
-def _is_separator_line(line: str) -> bool:
-    return bool(SEPARATOR_LINE_PATTERN.match(line or ""))
-
-
-def _is_abstract_heading(line: str) -> bool:
-    stripped = (line or "").strip()
-    return any(pattern.match(stripped) for pattern in ABSTRACT_HEADING_PATTERNS)
-
-
-def _normalize_outline_title_line(line: str) -> str:
-    stripped = (line or "").strip()
-    if not stripped:
-        return ""
-    normalized = re.sub(r"^#{1,6}\s*", "", stripped).strip()
-    normalized = re.sub(r"^(?:\*\*|__)\s*", "", normalized).strip()
-    normalized = re.sub(r"\s*(?:\*\*|__)$", "", normalized).strip()
-    return normalized
-
-
-def _extract_outline_title(line: str) -> str | None:
-    normalized = _normalize_outline_title_line(line)
-    if "全文结构概览" not in normalized and normalized != "结构概览":
-        return None
-    return normalized
-
-
-def _looks_like_outline_entry(line: str) -> bool:
-    stripped = (line or "").strip()
-    if not stripped or _is_separator_line(stripped):
-        return True
-    if _is_abstract_heading(stripped):
-        return False
-    if any(pattern.match(stripped) for pattern in OUTLINE_ENTRY_PATTERNS):
-        return True
-    if len(stripped) <= 80 and not re.search(r"[。！？!?：:；;]$", stripped):
-        return True
-    return False
-
-
-def parse_document_outline_block(content: str | None) -> dict[str, Any] | None:
-    text = content or ""
-    if not text.strip():
-        return None
-    lines = text.splitlines()
-    title_index = None
-    title_text = None
-    for index, line in enumerate(lines):
-        if not line.strip():
-            continue
-        title_text = _extract_outline_title(line)
-        if title_text:
-            title_index = index
-        break
-    if title_index is None or title_text is None:
-        return None
-    outline_lines: list[str] = []
-    boundary_index: int | None = None
-    outline_raw_end = title_index
-    saw_outline_entry = False
-    for index in range(title_index + 1, len(lines)):
-        line = lines[index]
-        stripped = line.strip()
-        if _is_abstract_heading(stripped):
-            boundary_index = index
-            break
-        if _is_separator_line(stripped) and saw_outline_entry:
-            boundary_index = index + 1
-            break
-        if _looks_like_outline_entry(stripped):
-            outline_lines.append(line)
-            outline_raw_end = index
-            if stripped and not _is_separator_line(stripped):
-                saw_outline_entry = True
-            continue
-        if saw_outline_entry:
-            boundary_index = index
-            break
-        return {"found": True, "parsed": False, "raw_text": "\n".join(lines[title_index : index + 1]).strip()}
-    if not saw_outline_entry:
-        return {"found": True, "parsed": False, "raw_text": lines[title_index].strip()}
-    remaining_lines = lines[boundary_index:] if boundary_index is not None else []
-    clean_lines = lines[:title_index] + remaining_lines
-    return {
-        "found": True,
-        "parsed": True,
-        "raw_text": "\n".join(lines[title_index : outline_raw_end + 1]).strip(),
-        "document_outline": {"title": title_text, "content": "\n".join(outline_lines).strip()},
-        "clean_content": "\n".join(clean_lines).strip(),
-    }
-
-
 def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = None) -> dict[str, Any]:
     original_content = content or ""
     existing_payload = _safe_payload_dict(client_payload)
     payload = {
         key: value
         for key, value in existing_payload.items()
-        if key not in {"translation_status", "document_outline", *TRANSLATION_PAYLOAD_TEMP_KEYS}
+        if key not in {"translation_status", *LEGACY_TRANSLATION_PAYLOAD_KEYS}
     }
     translation_status = normalize_translation_status_payload(existing_payload.get("translation_status"))
-    document_outline = normalize_document_outline_payload(existing_payload.get("document_outline"))
-    parse_errors: list[str] = []
     raw_status_text = extract_raw_translation_status_text(original_content)
     if raw_status_text:
         parsed_status = parse_raw_translation_status_block(original_content)
         if parsed_status is not None:
             translation_status = parsed_status
-        elif translation_status is None:
-            parse_errors.append("translation_status_parse_failed")
-    status_clean_content = original_content
-    if raw_status_text and (translation_status is not None or "translation_status_parse_failed" not in parse_errors):
-        status_clean_content = strip_translation_status_block(original_content)
-    outline_result = parse_document_outline_block(status_clean_content)
-    if outline_result and outline_result.get("parsed"):
-        document_outline = normalize_document_outline_payload(outline_result.get("document_outline"))
-        clean_content = str(outline_result.get("clean_content", "")).strip()
-    elif outline_result and document_outline is None:
-        parse_errors.append("document_outline_parse_failed")
-        clean_content = original_content
-    else:
-        clean_content = status_clean_content.strip()
-    if parse_errors:
-        clean_content = original_content
+    clean_content = strip_translation_status_block(original_content) if raw_status_text and translation_status is not None else original_content.strip()
     if translation_status is not None:
         payload["translation_status"] = translation_status
     else:
         payload.pop("translation_status", None)
-    if document_outline is not None:
-        payload["document_outline"] = document_outline
-    else:
-        payload.pop("document_outline", None)
     return {
         "content": clean_content,
         "client_payload": payload or None,
         "translation_status": translation_status,
-        "document_outline": document_outline,
-        "parse_errors": parse_errors,
     }
 
 

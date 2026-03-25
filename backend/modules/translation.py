@@ -10,7 +10,6 @@ from ..app.dependencies import check_read_only, get_api_key, get_db_session
 from ..domain.message_payloads import (
     build_continue_translation_prompt,
     infer_message_metadata,
-    normalize_document_outline_payload,
     normalize_translation_status_payload,
     preprocess_bot_reply_for_storage,
     safe_json_loads,
@@ -40,12 +39,11 @@ def _prepare_bot_response(response_text: str) -> dict:
         "display_reply": response_content,
         "section_category": None,
         "translation_status": prepared_response["translation_status"],
-        "document_outline": prepared_response["document_outline"],
         "client_payload": prepared_response["client_payload"],
     }
 
 
-def _get_latest_translation_context(session: Session, conversation_id: str) -> dict[str, dict]:
+def _get_latest_translation_context(session: Session, conversation_id: str) -> dict[str, object]:
     messages = get_messages(session, conversation_id)
     for message in reversed(messages):
         if infer_message_metadata(message)["role"] != "bot":
@@ -56,8 +54,7 @@ def _get_latest_translation_context(session: Session, conversation_id: str) -> d
         translation_status = normalize_translation_status_payload(payload.get("translation_status"))
         if translation_status is None:
             continue
-        document_outline = normalize_document_outline_payload(payload.get("document_outline"))
-        return {"translation_status": translation_status, "document_outline": document_outline}
+        return {"translation_status": translation_status}
     raise HTTPException(
         status_code=409,
         detail="会话缺少可用的 translation_status，无法继续无状态续翻。请先完成 payload backfill。",

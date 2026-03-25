@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import inspect, text
 
-from .database import engine
+from .config import engine
 
 LOCAL_TIMEZONE_OFFSET = datetime.now().astimezone().strftime("%z")
 

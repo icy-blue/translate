@@ -11,8 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from .config import settings
-from .database import engine
+from .config import engine, settings
 from .models import AsyncJob, Conversation
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])

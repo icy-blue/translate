@@ -146,6 +146,17 @@
       return "";
     }
 
+    function formatActionButtonLabel(action, options = {}) {
+      const { fallback = "继续正文", stopLabel = "无可继续内容" } = options;
+      if (!action || typeof action !== "object") {
+        return fallback;
+      }
+      if (action.type === "stop") {
+        return stopLabel;
+      }
+      return formatTranslationActionLabel(action) || fallback;
+    }
+
     /**
      * 瀑布流布局：将项目分配到指定数量的列中
      */
@@ -308,20 +319,6 @@
       };
     }
 
-    function normalizeDocumentOutline(documentOutline) {
-      if (!documentOutline || typeof documentOutline !== "object") {
-        return null;
-      }
-      const title = String(documentOutline.title || "").trim();
-      if (!title) {
-        return null;
-      }
-      return {
-        title,
-        content: String(documentOutline.content || "").trim(),
-      };
-    }
-
     function parseJsonObject(raw) {
       if (!raw) {
         return null;
@@ -356,9 +353,6 @@
       const translationStatus = normalizeTranslationStatus(
         messageLike?.translation_status || clientPayload?.translation_status
       );
-      const documentOutline = normalizeDocumentOutline(
-        messageLike?.document_outline || clientPayload?.document_outline
-      );
       const cleanContent = String(messageLike?.content || "");
       const messageKind = String(
         messageLike?.message_kind
@@ -372,7 +366,6 @@
         visible_to_user: messageLike?.visible_to_user !== false,
         content: cleanContent,
         translation_status: translationStatus,
-        document_outline: documentOutline,
       };
     }
 
@@ -452,6 +445,36 @@
         return nextAction;
       }
       return { type: "stop", command: "", target_scope: "none" };
+    }
+
+    function getContinueButtonMeta(status) {
+      const action = resolveAutomationAction(status, {
+        autoTranslateAppendix: false,
+        autoTranslateAcknowledgements: false,
+        autoTranslateReferences: false,
+        autoTranslateBreakerLimit: AUTO_TRANSLATE_BREAKER_DEFAULT,
+      });
+      if (status?.state === "ALL_DONE") {
+        return { action, enabled: false, label: "已完成" };
+      }
+      if (!action || action.type === "stop") {
+        return { action, enabled: false, label: "无可继续内容" };
+      }
+      return { action, enabled: true, label: formatActionButtonLabel(action) };
+    }
+
+    function getAutoTranslateButtonMeta(status, automationSettings) {
+      const action = resolveAutomationAction(status, automationSettings);
+      if (status?.state === "ALL_DONE") {
+        return { action, enabled: false, label: "已完成" };
+      }
+      if (!action || action.type === "stop") {
+        if (status?.state === "BODY_DONE") {
+          return { action, enabled: false, label: "正文已完成" };
+        }
+        return { action, enabled: false, label: "无可继续内容" };
+      }
+      return { action, enabled: true, label: "自动翻完" };
     }
 
     function getPaperTagChipClassName(tag, options = {}) {
@@ -681,8 +704,9 @@
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [mobileSearchDirty, setMobileSearchDirty] = useState(false);
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
-      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
-      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [defaultPoeModel, setDefaultPoeModel] = useState("GPT-5.2-Instant");
+      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "");
+      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
       const [autoTranslateAcknowledgements, setAutoTranslateAcknowledgements] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, false));
@@ -709,6 +733,8 @@
         autoTranslateReferences,
         autoTranslateBreakerLimit,
       });
+      const activePoeModel = poeModel || defaultPoeModel;
+      const activeTitleModel = titleModel || defaultPoeModel;
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -874,6 +900,9 @@
           if (res.ok) {
             const data = await res.json();
             setReadOnly(data.read_only || false);
+            if (data.default_poe_model) {
+              setDefaultPoeModel(data.default_poe_model);
+            }
           }
         } catch (err) {
           console.error("Failed to load config:", err);
@@ -899,8 +928,8 @@
 
       const saveConfig = () => {
         localStorage.setItem("poe_api_key", poeApiKey);
-        localStorage.setItem("poe_model", poeModel);
-        localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("poe_model", activePoeModel);
+        localStorage.setItem("title_model", activeTitleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, String(autoTranslateAcknowledgements));
@@ -1477,7 +1506,7 @@
                           icon={<PlusOutlined />}
                           onClick={() => { window.location.href = "/chat"; }}
                         >
-                          新建论文
+                          新建翻译
                         </Button>
                       </Tooltip>
                     </>
@@ -1584,7 +1613,7 @@
                             icon={<PlusOutlined />}
                             onClick={() => { window.location.href = "/chat"; }}
                           >
-                            新建论文
+                            新建翻译
                           </Button>
                         </Tooltip>
                       )}
@@ -1727,7 +1756,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={titleModel}
+                value={activeTitleModel}
                 onChange={setTitleModel}
                 options={modelOptions}
               />
@@ -1736,7 +1765,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={poeModel}
+                value={activePoeModel}
                 onChange={setPoeModel}
                 options={modelOptions}
               />
@@ -1915,8 +1944,9 @@
 
       // ===== 配置状态 =====
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
-      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
-      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [defaultPoeModel, setDefaultPoeModel] = useState("GPT-5.2-Instant");
+      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "");
+      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
       const [autoTranslateAcknowledgements, setAutoTranslateAcknowledgements] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, false));
@@ -1939,6 +1969,14 @@
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
       const [autoTranslating, setAutoTranslating] = useState(false);
+      const automationSettings = buildAutomationSettingsSnapshot({
+        autoTranslateAppendix,
+        autoTranslateAcknowledgements,
+        autoTranslateReferences,
+        autoTranslateBreakerLimit,
+      });
+      const activePoeModel = poeModel || defaultPoeModel;
+      const activeTitleModel = titleModel || defaultPoeModel;
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -1960,8 +1998,8 @@
        */
       const saveConfig = () => {
         localStorage.setItem("poe_api_key", poeApiKey);
-        localStorage.setItem("poe_model", poeModel);
-        localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("poe_model", activePoeModel);
+        localStorage.setItem("title_model", activeTitleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, String(autoTranslateAcknowledgements));
@@ -2078,43 +2116,63 @@
       }, []);
 
       // ===== 数据加载函数 =====
-      async function loadConversation(id) {
-        setPaperInfoLoaded(false);
-        setPaperTitle("");
-        setPdfUrl("");
-        setFigures([]);
-        setTables([]);
-        setTags([]);
-        setPaperMeta(normalizePaperMeta());
-        setTranslationStatus(null);
-        setFiguresExpanded(false);
-        setTablesExpanded(false);
-        setLoading(true);
-          const res = await fetch(`${BASE_URL}/conversations/${id}`);
-        if (!res.ok) {
-          message.error("会话不存在");
-          setLoading(false);
-          return;
-        }
-        const data = await res.json();
-        if (data.title) {
-          setPaperTitle(data.title);
-        }
-        if (data.pdf_url) {
-          setPdfUrl(data.pdf_url);
-        }
-        setFigures(Array.isArray(data.figures) ? data.figures : []);
-        setTables(Array.isArray(data.tables) ? data.tables : []);
-        setTags(Array.isArray(data.tags) ? data.tags : []);
-        setPaperMeta(normalizePaperMeta(data));
-        const conversationMessages = Array.isArray(data.messages) ? data.messages : [];
-        setTranslationStatus(
+      function applyConversationPayload(data) {
+        const conversationMessages = Array.isArray(data?.messages) ? data.messages : [];
+        const resolvedTranslationStatus =
           getLatestTranslationStatusFromMessages(conversationMessages)
-          || normalizeTranslationStatus(data.translation_status)
-        );
+          || normalizeTranslationStatus(data?.translation_status);
+        setPaperTitle(data?.title || "");
+        setPdfUrl(data?.pdf_url || "");
+        setFigures(Array.isArray(data?.figures) ? data.figures : []);
+        setTables(Array.isArray(data?.tables) ? data.tables : []);
+        setTags(Array.isArray(data?.tags) ? data.tags : []);
+        setPaperMeta(normalizePaperMeta(data));
+        setTranslationStatus(resolvedTranslationStatus);
         setBlocks(buildVisibleBlocks(conversationMessages));
         setPaperInfoLoaded(true);
-        setLoading(false);
+        return { ...data, resolvedTranslationStatus };
+      }
+
+      async function loadConversation(id, options = {}) {
+        const { showLoading = true, silentError = false } = options;
+        if (!id) {
+          return null;
+        }
+
+        if (showLoading) {
+          setPaperInfoLoaded(false);
+          setPaperTitle("");
+          setPdfUrl("");
+          setFigures([]);
+          setTables([]);
+          setTags([]);
+          setPaperMeta(normalizePaperMeta());
+          setTranslationStatus(null);
+          setFiguresExpanded(false);
+          setTablesExpanded(false);
+          setLoading(true);
+        }
+
+        try {
+          const res = await fetch(`${BASE_URL}/conversations/${id}`);
+          if (!res.ok) {
+            if (!silentError) {
+              message.error("会话不存在");
+            }
+            return null;
+          }
+          const data = await res.json();
+          return applyConversationPayload(data);
+        } catch (err) {
+          if (!silentError) {
+            message.error("会话加载失败");
+          }
+          return null;
+        } finally {
+          if (showLoading) {
+            setLoading(false);
+          }
+        }
       }
 
       async function loadConfig() {
@@ -2123,6 +2181,9 @@
           if (res.ok) {
             const data = await res.json();
             setReadOnly(data.read_only || false);
+            if (data.default_poe_model) {
+              setDefaultPoeModel(data.default_poe_model);
+            }
           }
         } catch (err) {
           console.error("Failed to load config:", err);
@@ -2203,7 +2264,7 @@
             message.error(data.detail || "保存标签失败");
             return;
           }
-          setTags(Array.isArray(data.tags) ? data.tags : []);
+          await loadConversation(conversationId, { showLoading: false });
           setTagPickerVisible(false);
           message.success("标签已更新");
         } finally {
@@ -2226,7 +2287,7 @@
         try {
           const formData = new FormData();
           formData.append("api_key", poeApiKey);
-          formData.append("tag_model", poeModel);
+          formData.append("tag_model", activePoeModel);
 
           const res = await fetch(`${BASE_URL}/metadata/${conversationId}/refresh`, {
             method: "POST",
@@ -2237,9 +2298,7 @@
             message.error(data.detail || "刷新失败");
             return;
           }
-          setTags(Array.isArray(data.tags) ? data.tags : []);
-          setPaperMeta(normalizePaperMeta(data));
-          setPaperInfoLoaded(true);
+          await loadConversation(conversationId, { showLoading: false });
           message.success("标签与论文信息已刷新");
         } finally {
           setTagRefreshing(false);
@@ -2299,7 +2358,6 @@
 
           const progressKey = `upload-progress-${Date.now()}`;
           let linkedConversationId = null;
-          let hasRefreshedAfterTitle = false;
           message.open({ key: progressKey, type: "loading", content: "正在上传：准备提交任务", duration: 0 });
           setLoading(true);
           setPaperInfoLoaded(false);
@@ -2319,8 +2377,8 @@
             const formData = new FormData();
             formData.append("file", file);
             formData.append("api_key", poeApiKey);
-            formData.append("poe_model", poeModel);
-            formData.append("title_model", titleModel);
+            formData.append("poe_model", activePoeModel);
+            formData.append("title_model", activeTitleModel);
             formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
             const enqueueRes = await fetch(`${BASE_URL}/tasks/ingest-pdf`, {
@@ -2340,18 +2398,13 @@
                   linkedConversationId = jobData.conversation_id;
                   setConversationId(linkedConversationId);
                   pushConversationToUrl(linkedConversationId);
-                  await loadConversation(linkedConversationId);
                 }
                 const conversationTitle = (jobData?.conversation_title || "").trim();
                 if (conversationTitle) {
                   setPaperTitle(conversationTitle);
-                  if (linkedConversationId && !hasRefreshedAfterTitle && !conversationTitle.toLowerCase().endsWith(".pdf")) {
-                    hasRefreshedAfterTitle = true;
-                    await loadConversation(linkedConversationId);
-                  }
                 }
               },
-              onProgress: async (progressText, jobData) => {
+              onProgress: async (progressText) => {
                 message.open({ key: progressKey, type: "loading", content: `上传处理中：${progressText}`, duration: 0 });
                 const titlePrefix = "标题已提取：";
                 if (typeof progressText === "string" && progressText.startsWith(titlePrefix)) {
@@ -2362,40 +2415,19 @@
                 }
               },
             });
-            if (data.pdf_url) {
-              setPdfUrl(data.pdf_url);
+            const finalConversationId = data.conversation_id || linkedConversationId;
+            if (!finalConversationId) {
+              throw new Error("上传任务未返回会话 ID");
             }
-            setFigures(Array.isArray(data.figures) ? data.figures : []);
-            setTables(Array.isArray(data.tables) ? data.tables : []);
-            setTags(Array.isArray(data.tags) ? data.tags : []);
-            setPaperMeta(normalizePaperMeta(data));
-            const responseMessages = Array.isArray(data.messages) ? data.messages : [];
-            setTranslationStatus(
-              getLatestTranslationStatusFromMessages(responseMessages)
-              || normalizeTranslationStatus(data.translation_status)
-            );
-            setPaperInfoLoaded(true);
+            setConversationId(finalConversationId);
+            pushConversationToUrl(finalConversationId);
+            await loadConversation(finalConversationId, { showLoading: false });
 
             if (data.exists) {
-              setConversationId(data.conversation_id);
-              if (data.title) { setPaperTitle(data.title); }
-              pushConversationToUrl(data.conversation_id);
-
-              const msgs = buildVisibleBlocks(responseMessages);
-              setBlocks(msgs);
               message.info("文件已存在，跳转到对应会话");
               return;
             }
 
-            setConversationId(data.conversation_id);
-            if (data.title) { setPaperTitle(data.title); }
-            pushConversationToUrl(data.conversation_id);
-            const msgsNew = buildVisibleBlocks(responseMessages);
-            setBlocks(
-              msgsNew.length
-                ? msgsNew
-                : [normalizeChatBlock({ role: "bot", message_kind: "bot_reply", content: "无回复" }, Date.now())]
-            );
             message.success("上传任务完成");
           } catch (err) {
             message.error(err?.message || "上传失败");
@@ -2416,7 +2448,7 @@
           const progressKey = action.progressKey || "continue-progress";
           const formData = new FormData();
           formData.append("api_key", poeApiKey);
-          formData.append("poe_model", poeModel);
+          formData.append("poe_model", activePoeModel);
           formData.append("action", action.type || "continue");
           formData.append("target_scope", action.target_scope || "body");
 
@@ -2439,25 +2471,8 @@
               });
             },
           });
-
-          const nextStatus = normalizeTranslationStatus(data.translation_status);
-          if (nextStatus) {
-            setTranslationStatus(nextStatus);
-          }
-          const nextBlock = normalizeChatBlock({
-            role: "bot",
-            message_kind: "bot_reply",
-            content: data.content || data.display_reply || data.reply,
-            translation_status: data.translation_status,
-            document_outline: data.document_outline,
-          }, Date.now());
-          if (nextBlock.content) {
-            setBlocks(prev => [
-              ...prev,
-              nextBlock
-            ]);
-          }
-          return { ok: true, data, status: nextStatus, block: nextBlock };
+          const refreshedConversation = await loadConversation(conversationId, { showLoading: false });
+          return { ok: true, data, status: refreshedConversation?.resolvedTranslationStatus || null };
         } catch (err) {
           message.error(err?.message || "请求失败");
           return { ok: false, reason: "request_failed" };
@@ -2771,6 +2786,8 @@
         : tagLibrary.filter(category => category.category_code === activeTagCategory);
 
       const translationStateMeta = translationStatus ? getTranslationStateMeta(translationStatus) : null;
+      const continueButtonMeta = getContinueButtonMeta(translationStatus);
+      const autoTranslateButtonMeta = getAutoTranslateButtonMeta(translationStatus, automationSettings);
 
       // ===== JSX 渲染 =====
       return (
@@ -2836,9 +2853,9 @@
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading || autoTranslating || !conversationId}
+                      disabled={loading || autoTranslating || !conversationId || !continueButtonMeta.enabled}
                     >
-                      {loading ? "翻译中..." : "继续"}
+                      {loading ? "翻译中..." : continueButtonMeta.label}
                     </Button>
 
                     <Button
@@ -2846,9 +2863,9 @@
                       icon={<CaretRightOutlined />}
                       onClick={handleAutoTranslate}
                       loading={autoTranslating}
-                      disabled={loading || autoTranslating || !conversationId}
+                      disabled={loading || autoTranslating || !conversationId || !autoTranslateButtonMeta.enabled}
                     >
-                      {autoTranslating ? "自动翻译中..." : "自动翻完"}
+                      {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                     </Button>
 
                   </>
@@ -2861,9 +2878,9 @@
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading || autoTranslating}
+                      disabled={loading || autoTranslating || !continueButtonMeta.enabled}
                     >
-                      {loading ? "翻译中..." : "继续"}
+                      {loading ? "翻译中..." : continueButtonMeta.label}
                     </Button>
 
                     <Dropdown
@@ -2872,8 +2889,8 @@
                           <Menu.Item icon={<SettingOutlined />} onClick={() => setConfigModalVisible(true)}>
                             配置
                           </Menu.Item>
-                          <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating}>
-                            {autoTranslating ? "自动翻译中..." : "自动翻完"}
+                          <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating || !autoTranslateButtonMeta.enabled}>
+                            {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                           </Menu.Item>
                         </Menu>
                       )}
@@ -3115,7 +3132,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={titleModel}
+                value={activeTitleModel}
                 onChange={setTitleModel}
                 options={modelOptions}
               />
@@ -3124,7 +3141,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={poeModel}
+                value={activePoeModel}
                 onChange={setPoeModel}
                 options={modelOptions}
               />
