@@ -453,7 +453,7 @@ def get_active_translation_job(session: Session, conversation_id: str) -> AsyncJ
         select(AsyncJob)
         .where(
             AsyncJob.conversation_id == conversation_id,
-            AsyncJob.job_type.in_(["continue", "custom_message"]),
+            AsyncJob.job_type.in_(["translate_action"]),
             AsyncJob.status.in_(["queued", "running"]),
         )
         .order_by(AsyncJob.created_at.asc())

@@ -16,6 +16,8 @@ if str(ROOT) not in sys.path:
 
 from backend.core.config import settings
 from backend.integrations.poe import get_bot_response
+from backend.services.message_utils import normalize_translation_status_payload, preprocess_bot_reply_for_storage
+from backend.services.translation_prompts import build_continue_translation_prompt, build_initial_translation_prompt
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -38,9 +40,8 @@ def _result_error(code: str, message: str, messages: list[dict[str, Any]] | None
 async def _run(payload: dict[str, Any]) -> dict[str, Any]:
     api_key = str(payload.get("api_key", "")).strip()
     poe_model = str(payload.get("poe_model", "")).strip() or settings.poe_model
-    initial_prompt = str(payload.get("initial_prompt", "")).strip() or settings.initial_prompt
+    initial_prompt = build_initial_translation_prompt(str(payload.get("initial_prompt", "")).strip() or settings.initial_prompt)
     continue_count = int(payload.get("continue_count", 0) or 0)
-    continue_message = str(payload.get("continue_message", "")).strip() or "继续"
     attachment_payload = payload.get("poe_attachment") if isinstance(payload.get("poe_attachment"), dict) else None
 
     if not api_key:
@@ -55,30 +56,59 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         return _result_error("invalid_input", "poe_attachment.url is required.")
 
     attachment = fp.Attachment(url=attachment_url, content_type=attachment_type, name=attachment_name)
-    poe_messages: list[fp.ProtocolMessage] = [
-        fp.ProtocolMessage(role="user", content=initial_prompt, attachments=[attachment])
-    ]
     result_messages: list[dict[str, Any]] = [{"role": "user", "content": initial_prompt}]
     errors: list[dict[str, Any]] = []
 
     try:
-        first_reply = await get_bot_response(poe_messages, poe_model, api_key)
+        first_reply = await get_bot_response(
+            [fp.ProtocolMessage(role="user", content=initial_prompt, attachments=[attachment])],
+            poe_model,
+            api_key,
+        )
     except Exception as exc:
         return _result_error("initial_translate_failed", f"Initial translation failed: {exc}", result_messages)
 
     first_reply = first_reply or ""
-    poe_messages.append(fp.ProtocolMessage(role="bot", content=first_reply))
     result_messages.append({"role": "bot", "content": first_reply})
 
+    latest_status = normalize_translation_status_payload(
+        preprocess_bot_reply_for_storage(first_reply)["translation_status"]
+    )
     continue_count_used = 0
     for _ in range(max(0, continue_count)):
-        poe_messages.append(fp.ProtocolMessage(role="user", content=continue_message))
-        result_messages.append({"role": "user", "content": continue_message})
+        if latest_status is None:
+            errors.append(
+                {
+                    "skill": "translate-full-paper-skill",
+                    "type": "warning",
+                    "message": "Continue loop interrupted: latest reply has no canonical translation_status.",
+                    "retryable": False,
+                }
+            )
+            break
+        next_action = latest_status.get("next_action") if isinstance(latest_status.get("next_action"), dict) else {}
+        next_action_type = str(next_action.get("type", "")).strip().lower()
+        next_target_scope = str(next_action.get("target_scope", "")).strip().lower() or "body"
+        if next_action_type == "stop" or next_target_scope == "none":
+            break
+        continue_prompt = build_continue_translation_prompt(
+            settings.continue_prompt,
+            translation_status=latest_status,
+            action="continue",
+            target_scope=next_target_scope,
+        )
+        result_messages.append({"role": "user", "content": continue_prompt})
         try:
-            reply = await get_bot_response(poe_messages, poe_model, api_key)
+            reply = await get_bot_response(
+                [fp.ProtocolMessage(role="user", content=continue_prompt, attachments=[attachment])],
+                poe_model,
+                api_key,
+            )
             reply = reply or ""
-            poe_messages.append(fp.ProtocolMessage(role="bot", content=reply))
             result_messages.append({"role": "bot", "content": reply})
+            latest_status = normalize_translation_status_payload(
+                preprocess_bot_reply_for_storage(reply)["translation_status"]
+            )
             continue_count_used += 1
         except Exception as exc:
             errors.append(

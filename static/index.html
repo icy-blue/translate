@@ -43,8 +43,7 @@
 
     const { useState, useEffect } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
-    const { TextArea } = Input;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
 
     const BASE_URL = "";
     const AUTO_TRANSLATE_BREAKER_DEFAULT = 8;
@@ -116,12 +115,6 @@
       };
     }
 
-    function appendAutomationOptionsToFormData(formData, settings) {
-      formData.append("auto_translate_appendix", settings.autoTranslateAppendix ? "true" : "false");
-      formData.append("auto_translate_acknowledgements", settings.autoTranslateAcknowledgements ? "true" : "false");
-      formData.append("auto_translate_references", settings.autoTranslateReferences ? "true" : "false");
-    }
-
     function getEnabledAutoScopeTargets(settings) {
       const scopes = [];
       if (settings.autoTranslateAppendix) scopes.push("appendix");
@@ -136,7 +129,21 @@
       if (scope === "references") return "参考文献";
       if (scope === "body") return "正文";
       if (scope === "done") return "全部内容";
+      if (scope === "none") return "无";
       return "当前范围";
+    }
+
+    function formatTranslationActionLabel(nextAction) {
+      if (!nextAction || typeof nextAction !== "object") {
+        return "";
+      }
+      if (nextAction.type === "stop") {
+        return "停止";
+      }
+      if (nextAction.type === "continue") {
+        return `继续翻译${getScopeLabel(nextAction.target_scope || "body")}`;
+      }
+      return "";
     }
 
     /**
@@ -417,7 +424,7 @@
       }
 
       const nextAction = status.next_action;
-      if ((nextAction?.type === "continue" || nextAction?.type === "custom_message") && nextAction.command) {
+      if (nextAction?.type === "continue" && nextAction.target_scope) {
         return nextAction;
       }
 
@@ -437,11 +444,7 @@
           if (!enabledScopes.includes(scope) || !availableScopes.includes(scope)) {
             continue;
           }
-          const command = status.extension_commands?.[scope] || SCOPE_EXTENSION_COMMANDS[scope];
-          if (!command) {
-            continue;
-          }
-          return { type: "custom_message", command, target_scope: scope };
+          return { type: "continue", command: status.extension_commands?.[scope] || SCOPE_EXTENSION_COMMANDS[scope], target_scope: scope };
         }
       }
 
@@ -1923,9 +1926,6 @@
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
       // ===== 其他状态 =====
-      const [customModalVisible, setCustomModalVisible] = useState(false);
-      const [customMessage, setCustomMessage] = useState("");
-      const [saveToRecord, setSaveToRecord] = useState(true);
       const [assetDirectionModalVisible, setAssetDirectionModalVisible] = useState(false);
       const [figureDirectionValue, setFigureDirectionValue] = useState("above");
       const [tableDirectionValue, setTableDirectionValue] = useState("above");
@@ -2417,22 +2417,13 @@
           const formData = new FormData();
           formData.append("api_key", poeApiKey);
           formData.append("poe_model", poeModel);
-          appendAutomationOptionsToFormData(formData, automationSettings);
+          formData.append("action", action.type || "continue");
+          formData.append("target_scope", action.target_scope || "body");
 
-          let enqueueRes;
-          if (action.type === "custom_message") {
-            formData.append("message", action.command);
-            formData.append("save_to_record", "true");
-            enqueueRes = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
-              method: "POST",
-              body: formData
-            });
-          } else {
-            enqueueRes = await fetch(
-              `${BASE_URL}/continue/${conversationId}`,
-              { method: "POST", body: formData }
-            );
-          }
+          const enqueueRes = await fetch(
+            `${BASE_URL}/conversation/${conversationId}/translate`,
+            { method: "POST", body: formData }
+          );
           const enqueueData = await enqueueRes.json();
           if (!enqueueRes.ok) {
             message.error(enqueueData.detail || "请求失败");
@@ -2487,7 +2478,19 @@
           duration: 0
         });
         setLoading(true);
-        await performTranslationAction({ type: "continue", command: "继续", target_scope: "body", progressKey: "continue-progress" });
+        const action = resolveAutomationAction(translationStatus, {
+          autoTranslateAppendix: false,
+          autoTranslateAcknowledgements: false,
+          autoTranslateReferences: false,
+          autoTranslateBreakerLimit: AUTO_TRANSLATE_BREAKER_DEFAULT,
+        });
+        if (!action || action.type === "stop") {
+          setLoading(false);
+          message.destroy("continue-progress");
+          message.info("当前状态没有可继续的默认翻译动作");
+          return;
+        }
+        await performTranslationAction({ ...action, progressKey: "continue-progress" });
         setLoading(false);
         message.destroy("continue-progress");
       };
@@ -2527,7 +2530,7 @@
             message.open({
               key: "continue-progress",
               type: "loading",
-              content: `自动翻完：第 ${i + 1}/${breakerLimit} 次，当前 ${getScopeLabel(currentStatus?.phase || "body")}，目标 ${getScopeLabel(action.target_scope)}，命令「${action.command}」`,
+              content: `自动翻完：第 ${i + 1}/${breakerLimit} 次，当前 ${getScopeLabel(currentStatus?.phase || "body")}，目标 ${getScopeLabel(action.target_scope)}，动作「${formatTranslationActionLabel(action) || getScopeLabel(action.target_scope)}」`,
               duration: 0
             });
 
@@ -2587,69 +2590,6 @@
           setLoading(false);
           setAutoTranslating(false);
           message.destroy("continue-progress");
-        }
-      };
-
-      /**
-       * 自定义对话提交
-       */
-      const handleCustomSubmit = async () => {
-        if (!conversationId) { message.warning("请先上传论文"); return; }
-        if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
-        if (!customMessage.trim()) { message.warning("请输入消息"); return; }
-
-        const progressKey = "custom-progress";
-        message.open({ key: progressKey, type: "loading", content: "追问处理中：准备提交任务", duration: 0 });
-        setLoading(true);
-        const formData = new FormData();
-        formData.append("api_key", poeApiKey);
-        formData.append("message", customMessage);
-        formData.append("save_to_record", saveToRecord);
-        formData.append("poe_model", poeModel);
-        appendAutomationOptionsToFormData(formData, automationSettings);
-
-        try {
-          const enqueueRes = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
-            method: "POST",
-            body: formData
-          });
-          const enqueueData = await enqueueRes.json();
-          if (!enqueueRes.ok) {
-            message.error(enqueueData.detail || "请求失败");
-            return;
-          }
-
-          const data = await waitForJobResult(enqueueData.job_id, {
-            onProgress: (progressText) => {
-              message.open({ key: progressKey, type: "loading", content: `追问处理中：${progressText}`, duration: 0 });
-            },
-          });
-          const nextStatus = normalizeTranslationStatus(data.translation_status);
-          if (nextStatus) {
-            setTranslationStatus(nextStatus);
-          }
-          const nextBotBlock = normalizeChatBlock({
-            role: "bot",
-            message_kind: "bot_reply",
-            content: data.content || data.display_reply || data.reply,
-            translation_status: data.translation_status,
-            document_outline: data.document_outline,
-          }, Date.now() + 1);
-          setBlocks(prev => [
-            ...prev,
-            normalizeChatBlock({ role: "user", message_kind: "user_message", content: customMessage }, Date.now()),
-            ...(nextBotBlock.content ? [nextBotBlock] : []),
-          ]);
-          if (!saveToRecord) {
-            message.info("对话完成（未保存到记录）");
-          }
-          setCustomModalVisible(false);
-          setCustomMessage("");
-        } catch (err) {
-          message.error(err?.message || "请求失败");
-        } finally {
-          setLoading(false);
-          message.destroy(progressKey);
         }
       };
 
@@ -2911,13 +2851,6 @@
                       {autoTranslating ? "自动翻译中..." : "自动翻完"}
                     </Button>
 
-                    <Button
-                      icon={<MessageOutlined />}
-                      onClick={() => setCustomModalVisible(true)}
-                      disabled={loading || autoTranslating || !conversationId}
-                    >
-                      自定义对话
-                    </Button>
                   </>
                 )}
 
@@ -2941,9 +2874,6 @@
                           </Menu.Item>
                           <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating}>
                             {autoTranslating ? "自动翻译中..." : "自动翻完"}
-                          </Menu.Item>
-                          <Menu.Item icon={<MessageOutlined />} onClick={() => setCustomModalVisible(true)} disabled={loading || autoTranslating || !conversationId}>
-                            自定义对话
                           </Menu.Item>
                         </Menu>
                       )}
@@ -3080,9 +3010,9 @@
                             可继续范围：{translationStatus.available_scope_extensions.map(getScopeLabel).join(" / ")}
                           </span>
                         ) : null}
-                        {translationStatus.next_action?.command ? (
+                        {formatTranslationActionLabel(translationStatus.next_action) ? (
                           <span className="translation-status-value">
-                            建议动作：{translationStatus.next_action.command}
+                            建议动作：{formatTranslationActionLabel(translationStatus.next_action)}
                           </span>
                         ) : null}
                       </div>
@@ -3165,28 +3095,6 @@
               </div>
             ))}
           </Drawer>
-
-          <Modal
-            title="自定义对话"
-            open={customModalVisible}
-            onOk={handleCustomSubmit}
-            onCancel={() => setCustomModalVisible(false)}
-            confirmLoading={loading}
-          >
-            <TextArea
-              rows={4}
-              placeholder="请输入追问内容"
-              value={customMessage}
-              onChange={e => setCustomMessage(e.target.value)}
-            />
-            <Checkbox
-              checked={saveToRecord}
-              onChange={e => setSaveToRecord(e.target.checked)}
-              style={{ marginTop: 10 }}
-            >
-              保存到翻译记录里
-            </Checkbox>
-          </Modal>
 
           <Modal
             title="Poe API 配置"

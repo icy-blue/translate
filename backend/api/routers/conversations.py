@@ -33,13 +33,12 @@ from ...services.serializers import (
 router = APIRouter()
 
 
-@router.post("/continue/{conversation_id}")
-async def continue_translation(
+@router.post("/conversation/{conversation_id}/translate")
+async def translate_conversation_action(
     conversation_id: str,
+    action: str = Form(default="continue"),
+    target_scope: str = Form(default="body"),
     poe_model: str = Form(default=settings.poe_model),
-    auto_translate_appendix: bool = Form(default=False),
-    auto_translate_acknowledgements: bool = Form(default=False),
-    auto_translate_references: bool = Form(default=False),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only),
@@ -56,58 +55,13 @@ async def continue_translation(
                 detail=f"会话已有翻译任务进行中（job_id={active_job.id}，状态={active_job.status}）。请等待完成后再继续。",
             )
         return enqueue_async_job(
-            "continue",
+            "translate_action",
             {
                 "conversation_id": conversation_id,
-                "new_user_message": "继续",
+                "action": action,
+                "target_scope": target_scope,
                 "poe_model": poe_model,
                 "api_key": api_key,
-                "save_to_record": True,
-                "auto_translate_appendix": auto_translate_appendix,
-                "auto_translate_acknowledgements": auto_translate_acknowledgements,
-                "auto_translate_references": auto_translate_references,
-            },
-            conversation_id=conversation_id,
-        )
-
-
-@router.post("/custom_message/{conversation_id}")
-async def custom_message(
-    conversation_id: str,
-    message: str = Form(...),
-    save_to_record: bool = Form(...),
-    poe_model: str = Form(default=settings.poe_model),
-    auto_translate_appendix: bool = Form(default=False),
-    auto_translate_acknowledgements: bool = Form(default=False),
-    auto_translate_references: bool = Form(default=False),
-    api_key: str = Depends(get_api_key),
-    session: Session = Depends(get_db_session),
-    _read_only: None = Depends(check_read_only),
-):
-    if not message.strip():
-        raise HTTPException(status_code=400, detail="Message cannot be empty.")
-    conversation = crud.get_conversation(session, conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-    enqueue_lock = await get_session_enqueue_lock(conversation_id)
-    async with enqueue_lock:
-        active_job = crud.get_active_translation_job(session, conversation_id)
-        if active_job:
-            raise HTTPException(
-                status_code=409,
-                detail=f"会话已有翻译任务进行中（job_id={active_job.id}，状态={active_job.status}）。请等待完成后再发送新消息。",
-            )
-        return enqueue_async_job(
-            "custom_message",
-            {
-                "conversation_id": conversation_id,
-                "new_user_message": message,
-                "poe_model": poe_model,
-                "api_key": api_key,
-                "save_to_record": save_to_record,
-                "auto_translate_appendix": auto_translate_appendix,
-                "auto_translate_acknowledgements": auto_translate_acknowledgements,
-                "auto_translate_references": auto_translate_references,
             },
             conversation_id=conversation_id,
         )

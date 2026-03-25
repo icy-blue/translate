@@ -17,6 +17,10 @@ TRANSLATION_STATUS_PATTERN = re.compile(
     r"\[TRANSLATION_STATUS\]\s*(.*?)\s*\[/TRANSLATION_STATUS\]",
     re.DOTALL,
 )
+COMMAND_BLOCK_PATTERN = re.compile(
+    r"\[COMMAND\]\s*(.*?)\s*\[/COMMAND\]",
+    re.DOTALL,
+)
 SEPARATOR_LINE_PATTERN = re.compile(r"^\s*[-*_—]{3,}\s*$")
 ABSTRACT_HEADING_PATTERNS = (
     re.compile(r"^#{1,6}\s*(摘要|abstract)\s*$", re.IGNORECASE),
@@ -47,6 +51,13 @@ SCOPE_EXTENSION_COMMANDS = {
     "appendix": "继续翻译附录",
     "acknowledgements": "继续翻译致谢",
     "references": "继续翻译参考文献",
+}
+TRANSLATION_PHASES = {"body", "appendix", "acknowledgements", "references", "done"}
+NEXT_ACTION_TYPES = {"continue", "stop"}
+TRANSLATION_PAYLOAD_TEMP_KEYS = {
+    "raw_translation_status_text",
+    "raw_document_outline_text",
+    "parse_error",
 }
 
 
@@ -113,6 +124,30 @@ def _parse_scope_extension_list(raw: Any) -> list[str]:
     return _normalize_scope_extensions(parts)
 
 
+def _build_command_block(action: str, target_scope: str) -> str:
+    return f"[COMMAND]\naction={action}\ntarget={target_scope}\n[/COMMAND]"
+
+
+def _parse_command_block(raw_command: str | None) -> dict[str, str]:
+    text = str(raw_command or "").strip()
+    if not text:
+        return {}
+    match = COMMAND_BLOCK_PATTERN.search(text)
+    if not match:
+        return {}
+
+    result: dict[str, str] = {}
+    for raw_line in match.group(1).splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        normalized_key = key.strip().lower()
+        if normalized_key in {"action", "target"}:
+            result[normalized_key] = value.strip()
+    return result
+
+
 def normalize_translation_status_payload(status: Any) -> dict[str, Any] | None:
     if not isinstance(status, dict):
         return None
@@ -123,20 +158,35 @@ def normalize_translation_status_payload(status: Any) -> dict[str, Any] | None:
         return None
 
     phase = _normalize_scope_extension_name(str(normalized.get("phase", "")).strip())
-    if phase not in {"body", "appendix", "acknowledgements", "references", "done"}:
+    if phase not in TRANSLATION_PHASES:
         phase = ""
 
     available_scope_extensions = _parse_scope_extension_list(normalized.get("available_scope_extensions"))
     explicit_next_action = normalized.get("next_action") if isinstance(normalized.get("next_action"), dict) else {}
-    next_action_type = str(
-        explicit_next_action.get("type", normalized.get("next_action_type", ""))
-    ).strip().lower()
-    next_action_command = str(
+    raw_next_action_command = str(
         explicit_next_action.get("command", normalized.get("next_action_command", ""))
     ).strip()
+    command_fields = _parse_command_block(raw_next_action_command)
+    next_action_type = str(
+        explicit_next_action.get("type", normalized.get("next_action_type", command_fields.get("action", "")))
+    ).strip().lower()
+    if next_action_type not in NEXT_ACTION_TYPES:
+        next_action_type = ""
     next_action_target_scope = _normalize_scope_extension_name(
-        str(explicit_next_action.get("target_scope", normalized.get("next_action_target_scope", ""))).strip()
+        str(
+            explicit_next_action.get(
+                "target_scope",
+                normalized.get("next_action_target_scope", command_fields.get("target", "")),
+            )
+        ).strip()
     )
+    if next_action_type == "stop":
+        next_action_target_scope = "none"
+    elif next_action_target_scope == "none":
+        next_action_target_scope = ""
+    next_action_command = raw_next_action_command
+    if next_action_type and (next_action_target_scope or next_action_type == "stop"):
+        next_action_command = _build_command_block(next_action_type, next_action_target_scope or "none")
 
     normalized["scope"] = str(normalized.get("scope", "")).strip()
     normalized["completed"] = str(normalized.get("completed", "")).strip()
@@ -153,10 +203,10 @@ def normalize_translation_status_payload(status: Any) -> dict[str, Any] | None:
     normalized["next_action"] = {
         "type": next_action_type,
         "command": next_action_command,
-        "target_scope": next_action_target_scope or "",
+        "target_scope": next_action_target_scope or ("none" if next_action_type == "stop" else ""),
     }
     normalized["recommended_stop_reason"] = str(normalized.get("recommended_stop_reason", "")).strip().lower()
-    normalized["source"] = str(normalized.get("source", "")).strip() or "status_block"
+    normalized["source"] = str(normalized.get("source", "")).strip() or "canonical_payload"
     normalized["is_completed"] = state in {"BODY_DONE", "ALL_DONE"}
     normalized["is_all_done"] = state == "ALL_DONE"
     return normalized
@@ -169,15 +219,35 @@ def parse_raw_translation_status_block(content: str | None) -> dict[str, Any] | 
         return None
 
     payload: dict[str, Any] = {key: "" for key in TRANSLATION_STATUS_KEYS}
+    current_key: str | None = None
+    current_buffer: list[str] = []
+
+    def _flush_current_buffer() -> None:
+        nonlocal current_key, current_buffer
+        if current_key is None:
+            return
+        payload[current_key] = "\n".join(current_buffer).strip()
+        current_key = None
+        current_buffer = []
+
     for raw_line in match.group(1).splitlines():
         line = raw_line.strip()
-        if not line or "=" not in line:
+        if not line:
+            if current_key == "next_action_command":
+                current_buffer.append("")
             continue
-        key, value = line.split("=", 1)
-        normalized_key = key.strip().lower()
-        if normalized_key not in TRANSLATION_STATUS_KEYS:
+        if "=" in line:
+            key, value = line.split("=", 1)
+            normalized_key = key.strip().lower()
+            if normalized_key in TRANSLATION_STATUS_KEYS:
+                _flush_current_buffer()
+                current_key = normalized_key
+                current_buffer = [value.strip() if normalized_key != "next_action_command" else value.rstrip()]
+                continue
+        if current_key == "next_action_command":
+            current_buffer.append(raw_line.rstrip())
             continue
-        payload[normalized_key] = value.strip()
+    _flush_current_buffer()
 
     raw_available_scope_extensions = str(payload.get("available_scope_extensions", "")).strip()
     payload["available_scope_extensions"] = [
@@ -237,7 +307,7 @@ def _normalize_outline_title_line(line: str) -> str:
 
 def _extract_outline_title(line: str) -> str | None:
     normalized = _normalize_outline_title_line(line)
-    if "全文结构概览" not in normalized:
+    if "全文结构概览" not in normalized and normalized != "结构概览":
         return None
     return normalized
 
@@ -326,9 +396,14 @@ def parse_document_outline_block(content: str | None) -> dict[str, Any] | None:
 
 def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = None) -> dict[str, Any]:
     original_content = content or ""
-    payload = _safe_payload_dict(client_payload)
-    translation_status = normalize_translation_status_payload(payload.get("translation_status"))
-    document_outline = normalize_document_outline_payload(payload.get("document_outline"))
+    existing_payload = _safe_payload_dict(client_payload)
+    payload = {
+        key: value
+        for key, value in existing_payload.items()
+        if key not in {"translation_status", "document_outline", *TRANSLATION_PAYLOAD_TEMP_KEYS}
+    }
+    translation_status = normalize_translation_status_payload(existing_payload.get("translation_status"))
+    document_outline = normalize_document_outline_payload(existing_payload.get("document_outline"))
     parse_errors: list[str] = []
 
     raw_status_text = extract_raw_translation_status_text(original_content)
@@ -365,23 +440,6 @@ def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = 
         payload["document_outline"] = document_outline
     else:
         payload.pop("document_outline", None)
-
-    if parse_errors:
-        if "translation_status_parse_failed" in parse_errors and raw_status_text:
-            payload["raw_translation_status_text"] = raw_status_text
-        else:
-            payload.pop("raw_translation_status_text", None)
-
-        if "document_outline_parse_failed" in parse_errors and outline_result:
-            payload["raw_document_outline_text"] = str(outline_result.get("raw_text", "")).strip()
-        else:
-            payload.pop("raw_document_outline_text", None)
-
-        payload["parse_error"] = "; ".join(parse_errors)
-    else:
-        payload.pop("raw_translation_status_text", None)
-        payload.pop("raw_document_outline_text", None)
-        payload.pop("parse_error", None)
 
     return {
         "content": clean_content,

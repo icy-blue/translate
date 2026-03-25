@@ -162,7 +162,6 @@ def main() -> int:
             "poe_model": request.get("poe_model") or settings.poe_model,
             "initial_prompt": request.get("initial_prompt") or settings.initial_prompt,
             "continue_count": int(request.get("continue_count", 0) or 0),
-            "continue_message": request.get("continue_message") or "继续",
             "poe_attachment": bootstrap.get("poe_attachment"),
         },
     )

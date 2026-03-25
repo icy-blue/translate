@@ -24,12 +24,13 @@ from .annotations import (
     extract_and_store_tags,
     refresh_conversation_semantic_result,
 )
-from .conversations import continue_conversation
+from .conversations import translate_conversation_stateless
 from .message_utils import (
     infer_message_metadata,
     preprocess_bot_reply_for_storage,
     safe_json_loads,
 )
+from .translation_prompts import build_initial_translation_prompt
 from .serializers import (
     serialize_async_job,
     serialize_figures,
@@ -171,8 +172,8 @@ async def process_async_job(job_id: str, worker_index: int):
     try:
         if job_type == "upload":
             result = await run_upload_job(job_id, payload)
-        elif job_type in {"continue", "custom_message"}:
-            result = await run_continue_job(job_id, payload, job_type)
+        elif job_type == "translate_action":
+            result = await run_translate_action_job(job_id, payload)
         else:
             raise RuntimeError(f"Unsupported async job type: {job_type}")
 
@@ -338,7 +339,7 @@ async def run_upload_job(job_id: str, payload: dict) -> dict:
         mark_job_progress(job_id, f"标题已提取：{final_title}")
 
         mark_job_progress(job_id, "调用翻译模型生成摘要/首章")
-        initial_prompt = settings.initial_prompt
+        initial_prompt = build_initial_translation_prompt(settings.initial_prompt)
         message = fp.ProtocolMessage(role="user", content=initial_prompt, attachments=[pdf_attachment])
         response_text = await get_bot_response([message], poe_model, api_key)
 
@@ -405,31 +406,31 @@ async def run_upload_job(job_id: str, payload: dict) -> dict:
         if upload_path.exists():
             upload_path.unlink()
 
-
-async def run_continue_job(job_id: str, payload: dict, job_type: str) -> dict:
+async def run_translate_action_job(job_id: str, payload: dict) -> dict:
     conversation_id = str(payload.get("conversation_id", "")).strip()
-    new_user_message = str(payload.get("new_user_message", "")).strip()
+    action = str(payload.get("action", "continue")).strip().lower() or "continue"
+    target_scope = str(payload.get("target_scope", "body")).strip().lower() or "body"
     poe_model = str(payload.get("poe_model", settings.poe_model))
     api_key = str(payload.get("api_key", "")).strip()
-    save_to_record = as_bool(payload.get("save_to_record", True))
 
     if not conversation_id:
         raise HTTPException(status_code=400, detail="conversation_id is required.")
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required.")
-    if not new_user_message:
-        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    if action != "continue":
+        raise HTTPException(status_code=400, detail="Only action=continue is supported.")
+    if target_scope not in {"body", "appendix", "acknowledgements", "references"}:
+        raise HTTPException(status_code=400, detail="Unsupported target_scope.")
 
-    mark_job_progress(job_id, "加载会话上下文")
+    mark_job_progress(job_id, "加载最新翻译状态")
     with Session(engine) as session:
-        response = await continue_conversation(
+        response = await translate_conversation_stateless(
             conversation_id=conversation_id,
-            new_user_message=new_user_message,
+            action=action,
+            target_scope=target_scope,
             poe_model=poe_model,
             api_key=api_key,
             session=session,
-            save_to_record=save_to_record,
-            is_continue_command=(job_type == "continue"),
             progress_callback=lambda progress: mark_job_progress(job_id, progress),
         )
     mark_job_progress(job_id, "整理返回结果")

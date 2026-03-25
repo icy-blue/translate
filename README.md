@@ -60,6 +60,7 @@ cp .env.example .env
 | `POE_MODEL` | `GPT-5.2-Instant` | 后端默认模型（可被前端请求参数覆盖） |
 | `TITLE_PROMPT` | 内置中文提示词 | 标题提取提示词 |
 | `INITIAL_PROMPT` | 内置中文提示词 | 首轮翻译提示词 |
+| `CONTINUE_PROMPT` | 内置中文提示词 | 无状态续翻提示词模板 |
 | `READ_ONLY` | `false` | 是否启用只读模式 |
 | `ASYNC_JOB_WORKERS` | `2` | 异步任务 worker 数量（上传/续翻/追问） |
 | `AGENT_INGEST_TOKEN` | `-` | Agent 批量提交流水线结果到后端时的鉴权 Token（`x-agent-token`） |
@@ -83,8 +84,7 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/upload` | 上传 PDF，创建异步任务（立即返回 `job_id`） |
-| `POST` | `/continue/{conversation_id}` | 对会话发送“继续”（异步任务） |
-| `POST` | `/custom_message/{conversation_id}` | 自定义追问（异步任务） |
+| `POST` | `/conversation/{conversation_id}/translate` | 依据最新翻译状态推进下一轮翻译（异步任务） |
 | `GET` | `/jobs/{job_id}` | 查询任务状态与结果（轮询） |
 | `GET` | `/conversation/{conversation_id}` | 获取会话详情 |
 | `GET` | `/conversations` | 分页会话列表（支持过滤） |
@@ -101,9 +101,9 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 说明：
 
 - 写接口受只读模式保护（`READ_ONLY=true` 时返回 403）
-- 上传、继续、追问接口需要提交 `api_key`（表单字段）
-- 上传/继续/追问接口只负责入队；客户端需轮询 `/jobs/{job_id}` 获取最终结果
-- 同一会话在 `continue/custom_message` 任务未完成时会加锁；重复提交返回 `409`
+- 上传和翻译推进接口需要提交 `api_key`（表单字段）
+- 上传/翻译推进接口只负责入队；客户端需轮询 `/jobs/{job_id}` 获取最终结果
+- 同一会话在翻译推进任务未完成时会加锁；重复提交返回 `409`
 
 ## 目录结构
 
@@ -213,7 +213,7 @@ python scripts/scrape_ccf_conferences.py
 
 ### 如何改默认模型或提示词？
 
-在 `.env` 中调整 `POE_MODEL`、`TITLE_PROMPT`、`INITIAL_PROMPT`，重启服务即可。
+在 `.env` 中调整 `POE_MODEL`、`TITLE_PROMPT`、`INITIAL_PROMPT`、`CONTINUE_PROMPT`，重启服务即可。
 
 ### 如何进入只读模式？
 

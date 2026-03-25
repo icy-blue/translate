@@ -15,7 +15,6 @@ Use after bootstrap when you have a Poe attachment and need full translation out
 - `poe_model` (optional)
 - `initial_prompt` (required)
 - `continue_count` (optional, default `0`)
-- `continue_message` (optional, default `继续`)
 - `poe_attachment` (`url/content_type/name`, required)
 
 ## Output
@@ -26,7 +25,7 @@ Use after bootstrap when you have a Poe attachment and need full translation out
 ## Steps
 1. Send initial prompt with attachment.
 2. Append bot response.
-3. Loop `continue_count` times using `continue_message`.
+3. Loop `continue_count` times using the latest `translation_status` to build stateless continuation prompts.
 4. Return full message list.
 
 ## Failure Handling
