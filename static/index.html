@@ -47,17 +47,9 @@
 
     const BASE_URL = "";
     const AUTO_TRANSLATE_BREAKER_DEFAULT = 8;
-    const AUTO_TRANSLATE_SCOPE_ORDER = ["appendix", "acknowledgements", "references"];
     const AUTO_TRANSLATE_LOCAL_KEYS = {
       appendix: "auto_translate_appendix",
-      acknowledgements: "auto_translate_acknowledgements",
-      references: "auto_translate_references",
       breakerLimit: "auto_translate_breaker_limit",
-    };
-    const SCOPE_EXTENSION_COMMANDS = {
-      appendix: "继续翻译附录",
-      acknowledgements: "继续翻译致谢",
-      references: "继续翻译参考文献",
     };
     const TAG_CATEGORY_META = {
       L: { className: "tag-chip-learning" },
@@ -101,14 +93,10 @@
 
     function buildAutomationSettingsSnapshot({
       autoTranslateAppendix,
-      autoTranslateAcknowledgements,
-      autoTranslateReferences,
       autoTranslateBreakerLimit,
     }) {
       return {
         autoTranslateAppendix: Boolean(autoTranslateAppendix),
-        autoTranslateAcknowledgements: Boolean(autoTranslateAcknowledgements),
-        autoTranslateReferences: Boolean(autoTranslateReferences),
         autoTranslateBreakerLimit: Number.isFinite(Number(autoTranslateBreakerLimit))
           ? Math.max(1, Number(autoTranslateBreakerLimit))
           : AUTO_TRANSLATE_BREAKER_DEFAULT,
@@ -118,15 +106,11 @@
     function getEnabledAutoScopeTargets(settings) {
       const scopes = [];
       if (settings.autoTranslateAppendix) scopes.push("appendix");
-      if (settings.autoTranslateAcknowledgements) scopes.push("acknowledgements");
-      if (settings.autoTranslateReferences) scopes.push("references");
       return scopes;
     }
 
     function getScopeLabel(scope) {
       if (scope === "appendix") return "附录";
-      if (scope === "acknowledgements") return "致谢";
-      if (scope === "references") return "参考文献";
       if (scope === "body") return "正文";
       if (scope === "done") return "全部内容";
       if (scope === "none") return "无";
@@ -141,7 +125,7 @@
         return "停止";
       }
       if (nextAction.type === "continue") {
-        return `继续翻译${getScopeLabel(nextAction.target_scope || "body")}`;
+        return nextAction.target_scope === "appendix" ? "继续翻译附录" : "继续翻译正文";
       }
       return "";
     }
@@ -154,7 +138,10 @@
       if (action.type === "stop") {
         return stopLabel;
       }
-      return formatTranslationActionLabel(action) || fallback;
+      if (action.target_scope === "appendix") {
+        return "继续附录";
+      }
+      return "继续正文";
     }
 
     /**
@@ -280,43 +267,120 @@
       if (!status || typeof status !== "object") {
         return null;
       }
+      const protocol = String(status.protocol || "").trim();
+      if (protocol && protocol !== "unit_v1") {
+        return null;
+      }
       const state = String(status.state || "").toUpperCase();
       if (!state) {
         return null;
       }
-      const availableScopeExtensions = Array.isArray(status.available_scope_extensions)
-        ? status.available_scope_extensions.map(item => String(item || "").trim().toLowerCase()).filter(Boolean)
+      const activeUnits = Array.isArray(status.active_units)
+        ? status.active_units.map(item => String(item || "").trim()).filter(Boolean)
         : [];
-      const nextAction = status.next_action && typeof status.next_action === "object"
-        ? {
-            type: String(status.next_action.type || "").trim().toLowerCase(),
-            command: String(status.next_action.command || "").trim(),
-            target_scope: String(status.next_action.target_scope || "").trim().toLowerCase(),
-          }
-        : null;
-      const extensionCommands = status.extension_commands && typeof status.extension_commands === "object"
-        ? Object.fromEntries(
-            Object.entries(status.extension_commands)
-              .map(([key, value]) => [String(key || "").trim(), String(value || "").trim()])
-              .filter(([, value]) => value)
-          )
-        : {};
+      const completedUnitIds = Array.isArray(status.completed_unit_ids)
+        ? status.completed_unit_ids.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const remainingUnitIds = Array.isArray(status.remaining_unit_ids)
+        ? status.remaining_unit_ids.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const currentUnitIndex = Number.isFinite(Number(status.current_unit_index))
+        ? Number(status.current_unit_index)
+        : -1;
+      const totalUnitCount = Number.isFinite(Number(status.total_unit_count))
+        ? Number(status.total_unit_count)
+        : completedUnitIds.length + remainingUnitIds.length;
+      const completedUnitCount = Number.isFinite(Number(status.completed_unit_count))
+        ? Number(status.completed_unit_count)
+        : completedUnitIds.length;
       return {
-        scope: String(status.scope || ""),
-        completed: String(status.completed || ""),
-        current: String(status.current || ""),
-        next: String(status.next || ""),
-        remaining: String(status.remaining || ""),
+        protocol: protocol || "unit_v1",
+        planner_status: String(status.planner_status || "").trim().toLowerCase(),
+        active_scope: String(status.active_scope || "").trim().toLowerCase(),
+        active_units: activeUnits,
+        current_unit_id: String(status.current_unit_id || "").trim(),
+        current_unit_index: currentUnitIndex,
+        completed_unit_ids: completedUnitIds,
+        remaining_unit_ids: remainingUnitIds,
+        next_unit_id: String(status.next_unit_id || "").trim(),
         state,
-        phase: String(status.phase || "").trim().toLowerCase(),
-        available_scope_extensions: availableScopeExtensions,
-        next_action: nextAction,
-        extension_commands: extensionCommands,
-        recommended_stop_reason: String(status.recommended_stop_reason || "").trim().toLowerCase(),
+        reason: String(status.reason || "").trim(),
+        total_unit_count: totalUnitCount,
+        completed_unit_count: completedUnitCount,
         source: String(status.source || ""),
         is_completed: Boolean(status.is_completed),
         is_all_done: Boolean(status.is_all_done),
       };
+    }
+
+    function normalizeTranslationPlan(plan) {
+      if (!plan || typeof plan !== "object") {
+        return null;
+      }
+      const protocol = String(plan.protocol || "").trim();
+      if (protocol && protocol !== "unit_v1") {
+        return null;
+      }
+      const status = String(plan.status || "").trim().toLowerCase();
+      if (status && status !== "ok" && status !== "unsupported") {
+        return null;
+      }
+      const units = Array.isArray(plan.units)
+        ? plan.units.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const appendixUnits = Array.isArray(plan.appendix_units)
+        ? plan.appendix_units.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      return {
+        protocol: protocol || "unit_v1",
+        status,
+        units,
+        appendix_units: appendixUnits,
+        reason: String(plan.reason || "").trim(),
+      };
+    }
+
+    function buildTranslationProgressBreakdown(status, plan) {
+      const fallbackOverallCompleted = Number.isFinite(Number(status?.completed_unit_count))
+        ? Number(status.completed_unit_count)
+        : 0;
+      const fallbackOverallTotal = Number.isFinite(Number(status?.total_unit_count))
+        ? Number(status.total_unit_count)
+        : 0;
+      const bodyUnits = Array.isArray(plan?.units) ? plan.units : [];
+      const appendixUnits = Array.isArray(plan?.appendix_units) ? plan.appendix_units : [];
+      const hasScopedPlan = bodyUnits.length > 0 || appendixUnits.length > 0 || String(plan?.status || "").trim().toLowerCase() === "unsupported";
+      const completedSet = new Set(
+        Array.isArray(status?.completed_unit_ids)
+          ? status.completed_unit_ids.map(item => String(item || "").trim()).filter(Boolean)
+          : []
+      );
+      const bodyCompleted = bodyUnits.filter(unitId => completedSet.has(unitId)).length;
+      const appendixCompleted = appendixUnits.filter(unitId => completedSet.has(unitId)).length;
+      const overallCompleted = hasScopedPlan ? bodyCompleted + appendixCompleted : fallbackOverallCompleted;
+      const overallTotal = hasScopedPlan ? bodyUnits.length + appendixUnits.length : fallbackOverallTotal;
+      return {
+        hasScopedPlan,
+        overallCompleted,
+        overallTotal,
+        bodyCompleted: hasScopedPlan ? bodyCompleted : null,
+        bodyTotal: hasScopedPlan ? bodyUnits.length : null,
+        appendixCompleted: hasScopedPlan ? appendixCompleted : null,
+        appendixTotal: hasScopedPlan ? appendixUnits.length : null,
+      };
+    }
+
+    function formatUnitProgress(completed, total, options = {}) {
+      const { emptyText = "0 / 0 块" } = options;
+      if (!Number.isFinite(Number(total))) {
+        return emptyText;
+      }
+      const safeTotal = Math.max(0, Number(total));
+      if (safeTotal === 0) {
+        return emptyText;
+      }
+      const safeCompleted = Math.min(safeTotal, Math.max(0, Number(completed) || 0));
+      return `${safeCompleted} / ${safeTotal} 块`;
     }
 
     function parseJsonObject(raw) {
@@ -369,8 +433,10 @@
       };
     }
 
-    function getLatestTranslationStatusFromMessages(messages) {
+    function getLatestTranslationContextFromMessages(messages) {
       const items = Array.isArray(messages) ? messages : [];
+      let latestTranslationStatus = null;
+      let latestTranslationPlan = null;
       for (let i = items.length - 1; i >= 0; i -= 1) {
         const messageLike = items[i];
         const messageKind = String(
@@ -386,11 +452,23 @@
         const translationStatus = normalizeTranslationStatus(
           messageLike?.translation_status || clientPayload?.translation_status
         );
-        if (translationStatus) {
-          return translationStatus;
+        const translationPlan = normalizeTranslationPlan(
+          messageLike?.translation_plan || clientPayload?.translation_plan
+        );
+        if (!latestTranslationStatus && translationStatus) {
+          latestTranslationStatus = translationStatus;
+        }
+        if (!latestTranslationPlan && translationPlan) {
+          latestTranslationPlan = translationPlan;
+        }
+        if (latestTranslationStatus && latestTranslationPlan) {
+          break;
         }
       }
-      return null;
+      return {
+        translationStatus: latestTranslationStatus,
+        translationPlan: latestTranslationPlan,
+      };
     }
 
     function buildVisibleBlocks(messages) {
@@ -405,57 +483,54 @@
       if (state === "ALL_DONE") {
         return { label: "全部完成", className: "translation-status-done" };
       }
+      if (state === "UNSUPPORTED") {
+        return { label: "无法继续", className: "translation-status-body-done" };
+      }
+      if (state === "BODY_DONE" && status?.active_scope === "appendix" && (status?.completed_unit_count || 0) > 0) {
+        return { label: "附录进行中", className: "translation-status-progress" };
+      }
       if (state === "BODY_DONE") {
         return { label: "正文完成", className: "translation-status-body-done" };
       }
       return { label: "进行中", className: "translation-status-progress" };
     }
 
-    function resolveAutomationAction(status, settings) {
-      if (!status) {
-        return { type: "continue", command: "继续", target_scope: "body" };
-      }
-
-      const nextAction = status.next_action;
-      if (nextAction?.type === "continue" && nextAction.target_scope) {
-        return nextAction;
-      }
-
-      const enabledScopes = getEnabledAutoScopeTargets(settings);
-      if (status.state === "IN_PROGRESS") {
-        return { type: "continue", command: "继续", target_scope: status.phase || "body" };
-      }
-      if (status.state === "ALL_DONE") {
+    function getNextUnitAction(status) {
+      if (!status || typeof status !== "object") {
         return { type: "stop", command: "", target_scope: "none" };
       }
-
-      if (status.state === "BODY_DONE") {
-        const availableScopes = Array.isArray(status.available_scope_extensions)
-          ? status.available_scope_extensions
-          : [];
-        for (const scope of AUTO_TRANSLATE_SCOPE_ORDER) {
-          if (!enabledScopes.includes(scope) || !availableScopes.includes(scope)) {
-            continue;
-          }
-          return { type: "continue", command: status.extension_commands?.[scope] || SCOPE_EXTENSION_COMMANDS[scope], target_scope: scope };
-        }
+      if (status.state === "UNSUPPORTED" || status.state === "ALL_DONE") {
+        return { type: "stop", command: "", target_scope: "none" };
       }
-
-      if (nextAction?.type === "stop") {
-        return nextAction;
+      if (!Array.isArray(status.remaining_unit_ids) || status.remaining_unit_ids.length === 0) {
+        return { type: "stop", command: "", target_scope: "none" };
       }
-      return { type: "stop", command: "", target_scope: "none" };
+      const targetScope = status.active_scope === "appendix" ? "appendix" : "body";
+      return {
+        type: "continue",
+        command: formatTranslationActionLabel({ type: "continue", target_scope: targetScope }),
+        target_scope: targetScope,
+      };
+    }
+
+    function resolveAutomationAction(status, settings) {
+      const action = getNextUnitAction(status);
+      if (action.type !== "continue") {
+        return action;
+      }
+      if (action.target_scope === "appendix" && !settings.autoTranslateAppendix) {
+        return { type: "stop", command: "", target_scope: "none" };
+      }
+      return action;
     }
 
     function getContinueButtonMeta(status) {
-      const action = resolveAutomationAction(status, {
-        autoTranslateAppendix: false,
-        autoTranslateAcknowledgements: false,
-        autoTranslateReferences: false,
-        autoTranslateBreakerLimit: AUTO_TRANSLATE_BREAKER_DEFAULT,
-      });
+      const action = getNextUnitAction(status);
       if (status?.state === "ALL_DONE") {
         return { action, enabled: false, label: "已完成" };
+      }
+      if (status?.state === "UNSUPPORTED") {
+        return { action, enabled: false, label: "无法继续" };
       }
       if (!action || action.type === "stop") {
         return { action, enabled: false, label: "无可继续内容" };
@@ -467,6 +542,9 @@
       const action = resolveAutomationAction(status, automationSettings);
       if (status?.state === "ALL_DONE") {
         return { action, enabled: false, label: "已完成" };
+      }
+      if (status?.state === "UNSUPPORTED") {
+        return { action, enabled: false, label: "无法继续" };
       }
       if (!action || action.type === "stop") {
         if (status?.state === "BODY_DONE") {
@@ -709,8 +787,6 @@
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
-      const [autoTranslateAcknowledgements, setAutoTranslateAcknowledgements] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, false));
-      const [autoTranslateReferences, setAutoTranslateReferences] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.references, false));
       const [autoTranslateBreakerLimit, setAutoTranslateBreakerLimit] = useState(getStoredInteger(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, AUTO_TRANSLATE_BREAKER_DEFAULT));
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
@@ -729,8 +805,6 @@
 
       const automationSettings = buildAutomationSettingsSnapshot({
         autoTranslateAppendix,
-        autoTranslateAcknowledgements,
-        autoTranslateReferences,
         autoTranslateBreakerLimit,
       });
       const activePoeModel = poeModel || defaultPoeModel;
@@ -932,8 +1006,6 @@
         localStorage.setItem("title_model", activeTitleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
-        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, String(autoTranslateAcknowledgements));
-        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.references, String(autoTranslateReferences));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
@@ -1787,12 +1859,6 @@
                 <Checkbox checked={autoTranslateAppendix} onChange={e => setAutoTranslateAppendix(e.target.checked)}>
                   自动翻译附录
                 </Checkbox>
-                <Checkbox checked={autoTranslateAcknowledgements} onChange={e => setAutoTranslateAcknowledgements(e.target.checked)}>
-                  自动翻译致谢
-                </Checkbox>
-                <Checkbox checked={autoTranslateReferences} onChange={e => setAutoTranslateReferences(e.target.checked)}>
-                  自动翻译参考文献
-                </Checkbox>
               </div>
             </div>
             <div style={{ marginBottom: 20 }}>
@@ -1933,6 +1999,7 @@
       const [paperMeta, setPaperMeta] = useState(normalizePaperMeta());
       const [tagLibrary, setTagLibrary] = useState([]);
       const [translationStatus, setTranslationStatus] = useState(null);
+      const [translationPlan, setTranslationPlan] = useState(null);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -1949,8 +2016,6 @@
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
-      const [autoTranslateAcknowledgements, setAutoTranslateAcknowledgements] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, false));
-      const [autoTranslateReferences, setAutoTranslateReferences] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.references, false));
       const [autoTranslateBreakerLimit, setAutoTranslateBreakerLimit] = useState(getStoredInteger(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, AUTO_TRANSLATE_BREAKER_DEFAULT));
       const [readOnly, setReadOnly] = useState(false);
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
@@ -1971,8 +2036,6 @@
       const [autoTranslating, setAutoTranslating] = useState(false);
       const automationSettings = buildAutomationSettingsSnapshot({
         autoTranslateAppendix,
-        autoTranslateAcknowledgements,
-        autoTranslateReferences,
         autoTranslateBreakerLimit,
       });
       const activePoeModel = poeModel || defaultPoeModel;
@@ -2002,8 +2065,6 @@
         localStorage.setItem("title_model", activeTitleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
-        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.acknowledgements, String(autoTranslateAcknowledgements));
-        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.references, String(autoTranslateReferences));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
@@ -2118,9 +2179,13 @@
       // ===== 数据加载函数 =====
       function applyConversationPayload(data) {
         const conversationMessages = Array.isArray(data?.messages) ? data.messages : [];
+        const latestTranslationContext = getLatestTranslationContextFromMessages(conversationMessages);
         const resolvedTranslationStatus =
-          getLatestTranslationStatusFromMessages(conversationMessages)
+          latestTranslationContext.translationStatus
           || normalizeTranslationStatus(data?.translation_status);
+        const resolvedTranslationPlan =
+          latestTranslationContext.translationPlan
+          || normalizeTranslationPlan(data?.translation_plan);
         setPaperTitle(data?.title || "");
         setPdfUrl(data?.pdf_url || "");
         setFigures(Array.isArray(data?.figures) ? data.figures : []);
@@ -2128,9 +2193,10 @@
         setTags(Array.isArray(data?.tags) ? data.tags : []);
         setPaperMeta(normalizePaperMeta(data));
         setTranslationStatus(resolvedTranslationStatus);
+        setTranslationPlan(resolvedTranslationPlan);
         setBlocks(buildVisibleBlocks(conversationMessages));
         setPaperInfoLoaded(true);
-        return { ...data, resolvedTranslationStatus };
+        return { ...data, resolvedTranslationStatus, resolvedTranslationPlan };
       }
 
       async function loadConversation(id, options = {}) {
@@ -2148,6 +2214,7 @@
           setTags([]);
           setPaperMeta(normalizePaperMeta());
           setTranslationStatus(null);
+          setTranslationPlan(null);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           setLoading(true);
@@ -2368,6 +2435,7 @@
           setTags([]);
           setPaperMeta(normalizePaperMeta());
           setTranslationStatus(null);
+          setTranslationPlan(null);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           const tempTitle = file.name.replace(/\.pdf$/i, "");
@@ -2495,8 +2563,6 @@
         setLoading(true);
         const action = resolveAutomationAction(translationStatus, {
           autoTranslateAppendix: false,
-          autoTranslateAcknowledgements: false,
-          autoTranslateReferences: false,
           autoTranslateBreakerLimit: AUTO_TRANSLATE_BREAKER_DEFAULT,
         });
         if (!action || action.type === "stop") {
@@ -2518,7 +2584,7 @@
         let currentStatus = translationStatus;
         let previousReplySignature = "";
         let previousStateSignature = currentStatus
-          ? `${currentStatus.state}|${currentStatus.phase}|${currentStatus.next_action?.type || ""}|${currentStatus.next_action?.target_scope || ""}`
+          ? `${currentStatus.state}|${currentStatus.active_scope}|${currentStatus.current_unit_id}|${currentStatus.next_unit_id}|${currentStatus.completed_unit_count}|${(currentStatus.remaining_unit_ids || []).join("|")}`
           : "";
         let stoppedByBreaker = true;
 
@@ -2529,13 +2595,12 @@
             const action = resolveAutomationAction(currentStatus, automationSettings);
             if (!action || action.type === "stop") {
               stoppedByBreaker = false;
-              const stopReason = currentStatus?.recommended_stop_reason || (currentStatus?.state === "ALL_DONE" ? "all_done" : "body_done");
-              if (stopReason === "all_done") {
+              if (currentStatus?.state === "ALL_DONE") {
                 message.success("自动翻译已完成");
-              } else if (stopReason === "body_done") {
+              } else if (currentStatus?.state === "BODY_DONE") {
                 message.info("自动翻译已在正文完成后停止");
-              } else if (stopReason === "unsupported") {
-                message.warning("自动翻译已停止：当前状态无法安全推导下一步");
+              } else if (currentStatus?.state === "UNSUPPORTED") {
+                message.warning(`自动翻译已停止：${currentStatus?.reason || "当前 unit 无法可靠定位"}`);
               } else {
                 message.info("自动翻译已停止");
               }
@@ -2545,7 +2610,7 @@
             message.open({
               key: "continue-progress",
               type: "loading",
-              content: `自动翻完：第 ${i + 1}/${breakerLimit} 次，当前 ${getScopeLabel(currentStatus?.phase || "body")}，目标 ${getScopeLabel(action.target_scope)}，动作「${formatTranslationActionLabel(action) || getScopeLabel(action.target_scope)}」`,
+              content: `自动翻完：第 ${i + 1}/${breakerLimit} 次，当前 ${getScopeLabel(currentStatus?.active_scope || "body")}，目标 ${getScopeLabel(action.target_scope)}，动作「${formatTranslationActionLabel(action) || getScopeLabel(action.target_scope)}」`,
               duration: 0
             });
 
@@ -2563,7 +2628,7 @@
             }
 
             const replySignature = String(result.data?.content || result.data?.display_reply || result.data?.reply || "").trim();
-            const nextStateSignature = `${nextStatus.state}|${nextStatus.phase}|${nextStatus.next_action?.type || ""}|${nextStatus.next_action?.target_scope || ""}`;
+            const nextStateSignature = `${nextStatus.state}|${nextStatus.active_scope}|${nextStatus.current_unit_id}|${nextStatus.next_unit_id}|${nextStatus.completed_unit_count}|${(nextStatus.remaining_unit_ids || []).join("|")}`;
             if (
               replySignature === previousReplySignature &&
               nextStateSignature === previousStateSignature
@@ -2586,11 +2651,10 @@
             const nextAction = resolveAutomationAction(currentStatus, automationSettings);
             if (!nextAction || nextAction.type === "stop") {
               stoppedByBreaker = false;
-              const stopReason = currentStatus.recommended_stop_reason || (currentStatus.state === "BODY_DONE" ? "body_done" : "");
-              if (stopReason === "body_done") {
+              if (currentStatus.state === "BODY_DONE") {
                 message.info("自动翻译已在正文完成后停止");
-              } else if (stopReason === "unsupported") {
-                message.warning("自动翻译已停止：当前状态无法安全推导下一步");
+              } else if (currentStatus.state === "UNSUPPORTED") {
+                message.warning(`自动翻译已停止：${currentStatus.reason || "当前 unit 无法可靠定位"}`);
               } else {
                 message.info("自动翻译已停止");
               }
@@ -2786,6 +2850,9 @@
         : tagLibrary.filter(category => category.category_code === activeTagCategory);
 
       const translationStateMeta = translationStatus ? getTranslationStateMeta(translationStatus) : null;
+      const translationProgress = translationStatus
+        ? buildTranslationProgressBreakdown(translationStatus, translationPlan)
+        : null;
       const continueButtonMeta = getContinueButtonMeta(translationStatus);
       const autoTranslateButtonMeta = getAutoTranslateButtonMeta(translationStatus, automationSettings);
 
@@ -2886,9 +2953,6 @@
                     <Dropdown
                       overlay={(
                         <Menu>
-                          <Menu.Item icon={<SettingOutlined />} onClick={() => setConfigModalVisible(true)}>
-                            配置
-                          </Menu.Item>
                           <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating || !autoTranslateButtonMeta.enabled}>
                             {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                           </Menu.Item>
@@ -2991,50 +3055,59 @@
                   </div>
                 )}
                 {translationStatus && translationStateMeta && (
-                  <div className={`translation-status-card ${translationStateMeta.className}`}>
-                    <div className="translation-status-header">
-                      <div className="translation-status-title">翻译状态</div>
-                      <span className="translation-status-badge">{translationStateMeta.label}</span>
-                    </div>
-                    <div className="translation-status-grid">
-                      <div className="translation-status-item">
-                        <span className="translation-status-label">范围</span>
-                        <span className="translation-status-value">{translationStatus.scope || "默认正文范围"}</span>
-                      </div>
-                      <div className="translation-status-item">
-                        <span className="translation-status-label">已完成</span>
-                        <span className="translation-status-value">{translationStatus.completed || "待模型填充"}</span>
-                      </div>
-                      <div className="translation-status-item">
-                        <span className="translation-status-label">当前块</span>
-                        <span className="translation-status-value">{translationStatus.current || "当前回复"}</span>
-                      </div>
-                      <div className="translation-status-item">
-                        <span className="translation-status-label">下一块</span>
-                        <span className="translation-status-value">{translationStatus.next || "暂无"}</span>
-                      </div>
-                    </div>
-                    {!!translationStatus.remaining && (
-                      <div className="translation-status-footer">
-                        <span className="translation-status-label">剩余内容</span>
-                        <span className="translation-status-value">{translationStatus.remaining}</span>
-                      </div>
-                    )}
-                    {(translationStatus.available_scope_extensions?.length || translationStatus.next_action?.command) && (
-                      <div className="translation-status-footer">
-                        {translationStatus.available_scope_extensions?.length ? (
-                          <span className="translation-status-value">
-                            可继续范围：{translationStatus.available_scope_extensions.map(getScopeLabel).join(" / ")}
-                          </span>
-                        ) : null}
-                        {formatTranslationActionLabel(translationStatus.next_action) ? (
-                          <span className="translation-status-value">
-                            建议动作：{formatTranslationActionLabel(translationStatus.next_action)}
-                          </span>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
+	                <div className={`translation-status-card ${translationStateMeta.className}`}>
+	                    <div className="translation-status-header">
+	                      <div className="translation-status-title">翻译状态</div>
+	                      <span className="translation-status-badge">{translationStateMeta.label}</span>
+	                    </div>
+	                    <div className="translation-status-grid">
+	                      <div className="translation-status-item">
+	                        <span className="translation-status-label">当前范围</span>
+	                        <span className="translation-status-value">{getScopeLabel(translationStatus.active_scope || "body")}</span>
+	                      </div>
+	                      <div className="translation-status-item translation-status-item-progress">
+	                        <span className="translation-status-label">总进度</span>
+	                        <span className="translation-status-value">{formatUnitProgress(translationProgress?.overallCompleted, translationProgress?.overallTotal)}</span>
+	                      </div>
+	                      <div className="translation-status-item translation-status-item-progress">
+	                        <span className="translation-status-label">正文进度</span>
+	                        <span className="translation-status-value">
+	                          {translationProgress?.hasScopedPlan
+	                            ? formatUnitProgress(translationProgress.bodyCompleted, translationProgress.bodyTotal, { emptyText: "无正文" })
+	                            : "待解析"}
+	                        </span>
+	                      </div>
+	                      <div className="translation-status-item translation-status-item-progress">
+	                        <span className="translation-status-label">附录进度</span>
+	                        <span className="translation-status-value">
+	                          {translationProgress?.hasScopedPlan
+	                            ? formatUnitProgress(translationProgress.appendixCompleted, translationProgress.appendixTotal, { emptyText: "无附录" })
+	                            : "待解析"}
+	                        </span>
+	                      </div>
+	                      <div className="translation-status-item">
+	                        <span className="translation-status-label">当前 Unit</span>
+	                        <span className="translation-status-value">{translationStatus.current_unit_id || "暂无"}</span>
+	                      </div>
+	                      <div className="translation-status-item">
+	                        <span className="translation-status-label">下一 Unit</span>
+	                        <span className="translation-status-value">{translationStatus.next_unit_id || "暂无"}</span>
+	                      </div>
+	                    </div>
+	                    {Array.isArray(translationStatus.remaining_unit_ids) && translationStatus.remaining_unit_ids.length > 0 && (
+	                      <div className="translation-status-footer">
+	                        <span className="translation-status-label">剩余 Units</span>
+	                        <span className="translation-status-value">{translationStatus.remaining_unit_ids.join(" / ")}</span>
+	                      </div>
+	                    )}
+	                    {!!translationStatus.reason && (
+	                      <div className="translation-status-footer">
+	                        <span className="translation-status-value">
+	                          原因：{translationStatus.reason}
+	                        </span>
+	                      </div>
+	                    )}
+	                  </div>
                 )}
                 {renderAssetSection({
                   id: "figures-section",
@@ -3162,12 +3235,6 @@
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <Checkbox checked={autoTranslateAppendix} onChange={e => setAutoTranslateAppendix(e.target.checked)}>
                   自动翻译附录
-                </Checkbox>
-                <Checkbox checked={autoTranslateAcknowledgements} onChange={e => setAutoTranslateAcknowledgements(e.target.checked)}>
-                  自动翻译致谢
-                </Checkbox>
-                <Checkbox checked={autoTranslateReferences} onChange={e => setAutoTranslateReferences(e.target.checked)}>
-                  自动翻译参考文献
                 </Checkbox>
               </div>
             </div>

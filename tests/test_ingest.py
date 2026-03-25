@@ -105,7 +105,16 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             patch.object(ingest, "update_task_record"),
             patch.object(ingest, "upload_file", AsyncMock(side_effect=[uploaded_attachment, first_page_attachment])),
             patch.object(ingest, "extract_title_from_pdf", AsyncMock(return_value="Recovered Title")),
-            patch.object(ingest, "get_bot_response", AsyncMock(return_value="# 摘要\n译文内容")),
+            patch.object(
+                ingest,
+                "get_bot_response",
+                AsyncMock(
+                    side_effect=[
+                        '{"status":"ok","units":["ABSTRACT","1 INTRODUCTION"],"appendix_units":["APPENDIX A"],"reason":""}',
+                        '[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 摘要\n译文内容',
+                    ]
+                ),
+            ),
             patch.object(ingest, "extract_and_store_figures", return_value=[]),
             patch.object(ingest, "extract_and_store_tables", return_value=[]),
             patch.object(ingest, "refresh_conversation_semantic_result", return_value=None),
@@ -114,8 +123,10 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
 
         self.assertEqual(result["title"], "Recovered Title")
         self.assertNotEqual(result["conversation_id"], "missing-conversation")
-        self.assertNotIn("document_outline", result)
-        self.assertTrue(all("document_outline" not in message for message in result["messages"]))
+        self.assertEqual(result["translation_plan"]["units"], ["ABSTRACT", "1 INTRODUCTION"])
+        self.assertEqual(result["translation_status"]["current_unit_id"], "ABSTRACT")
+        self.assertEqual(result["translation_status"]["next_unit_id"], "1 INTRODUCTION")
+        self.assertEqual(result["translation_status"]["state"], "IN_PROGRESS")
 
         with Session(self.engine) as session:
             conversation = session.get(Conversation, result["conversation_id"])
@@ -130,7 +141,8 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             ).first()
             self.assertIsNotNone(first_bot_message)
             payload = json.loads(first_bot_message.client_payload_json or "{}")
-            self.assertNotIn("document_outline", payload)
+            self.assertEqual(payload["translation_plan"]["appendix_units"], ["APPENDIX A"])
+            self.assertEqual(payload["translation_status"]["current_unit_id"], "ABSTRACT")
 
 
 if __name__ == "__main__":

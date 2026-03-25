@@ -8,12 +8,12 @@ metadata:
 # Translate Full Paper Skill
 
 ## Trigger
-Use after bootstrap when you have a Poe attachment and need full translation output before persistence.
+Use after bootstrap when you have a Poe attachment and need planner-driven unit translation output before persistence.
 
 ## Input
 - `api_key` (required)
 - `poe_model` (optional)
-- `initial_prompt` (required)
+- `initial_prompt` (required planner prompt)
 - `continue_count` (optional, default `0`)
 - `poe_attachment` (`url/content_type/name`, required)
 
@@ -21,15 +21,18 @@ Use after bootstrap when you have a Poe attachment and need full translation out
 - `messages` (ordered user/bot turns)
 - `first_bot_message`
 - `continue_count_used`
+- `translation_plan`
+- `translation_status`
 
 ## Steps
-1. Send initial prompt with attachment.
-2. Append bot response.
-3. Loop `continue_count` times using the latest `translation_status` to build stateless continuation prompts.
-4. Return full message list.
+1. Send planner prompt with attachment and parse the unit plan.
+2. Translate the first unit and append the user/bot turn.
+3. Loop `continue_count` times using the latest canonical unit `translation_status`.
+4. Return full message list and the latest planner/unit status.
 
 ## Failure Handling
-- Initial call fails: `error.code=initial_translate_failed`.
+- Planner call fails: `error.code=planner_failed`.
+- Initial translation call fails: `error.code=initial_translate_failed`.
 - Continue loop failure: stop loop, return partial messages with warning.
 
 ## References

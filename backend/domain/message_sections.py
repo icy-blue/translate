@@ -117,11 +117,11 @@ def classify_message_section(
             }
 
     if isinstance(translation_status, dict):
-        phase = str(translation_status.get("phase", "")).strip().lower()
-        if phase in PHASE_TO_SECTION:
+        scope = str(translation_status.get("active_scope", translation_status.get("phase", ""))).strip().lower()
+        if scope in PHASE_TO_SECTION:
             return {
-                "section_category": PHASE_TO_SECTION[phase],
-                "source": "translation_status.phase",
+                "section_category": PHASE_TO_SECTION[scope],
+                "source": "translation_status.active_scope",
             }
 
     if original_text:

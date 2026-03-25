@@ -12,6 +12,7 @@ from sqlmodel import Session, func, select
 from ..app.dependencies import get_db_session
 from ..domain.message_kinds import infer_message_kind, is_bot_message_kind
 from ..domain.message_payloads import (
+    normalize_translation_plan_payload,
     normalize_translation_status_payload,
     preprocess_bot_reply_for_storage,
     safe_json_loads,
@@ -38,6 +39,7 @@ class MessageResponse(BaseModel):
     section_category: Optional[str] = None
     visible_to_user: bool
     content: str
+    translation_plan: Optional[dict[str, Any]] = None
     translation_status: Optional[dict[str, Any]] = None
     client_payload_json: Optional[str] = None
     created_at: datetime
@@ -257,6 +259,7 @@ def count_conversations(session: Session) -> int:
 
 def serialize_message(message: Message) -> MessageResponse:
     payload = safe_json_loads(message.client_payload_json, {})
+    translation_plan = normalize_translation_plan_payload(payload.get("translation_plan")) if isinstance(payload, dict) else None
     translation_status = normalize_translation_status_payload(payload.get("translation_status")) if isinstance(payload, dict) else None
     return MessageResponse(
         id=message.id,
@@ -265,6 +268,7 @@ def serialize_message(message: Message) -> MessageResponse:
         section_category=message.section_category,
         visible_to_user=message.visible_to_user,
         content=message.content,
+        translation_plan=translation_plan,
         translation_status=translation_status,
         client_payload_json=message.client_payload_json,
         created_at=ensure_local_timezone(message.created_at),

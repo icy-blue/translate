@@ -14,7 +14,16 @@ from pypdf import PdfReader, PdfWriter
 from sqlmodel import Session, select
 
 from ..app.dependencies import check_read_only, get_api_key
-from ..domain.message_payloads import build_initial_translation_prompt, preprocess_bot_reply_for_storage
+from ..domain.message_payloads import (
+    build_initial_translation_prompt,
+    build_translation_status_payload,
+    build_unit_translation_prompt,
+    normalize_raw_translation_result_payload,
+    normalize_translation_plan_payload,
+    parse_raw_translation_status_block,
+    parse_translation_plan_response,
+    preprocess_bot_reply_for_storage,
+)
 from ..platform.config import engine, settings
 from ..platform.gateways.poe import extract_title_from_pdf, get_bot_response, upload_file
 from ..platform.models import Conversation, FileRecord
@@ -184,19 +193,61 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                 raise RuntimeError(f"Failed to update conversation title for {conversation_id}.")
 
         mark_task_progress(task_id, "生成首轮翻译")
-        initial_prompt = build_initial_translation_prompt(settings.initial_prompt)
-        response_text = await get_bot_response(
-            [fp.ProtocolMessage(role="user", content=initial_prompt, attachments=[pdf_attachment])],
+        planner_prompt = build_initial_translation_prompt(settings.initial_prompt)
+        planner_response_text = await get_bot_response(
+            [fp.ProtocolMessage(role="user", content=planner_prompt, attachments=[pdf_attachment])],
             payload.poe_model,
             payload.api_key,
         )
-        prepared_response = preprocess_bot_reply_for_storage(response_text)
+        translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_response_text))
+        if translation_plan is None:
+            translation_plan = normalize_translation_plan_payload(
+                {"status": "unsupported", "units": [], "appendix_units": [], "reason": "planner_parse_failed"}
+            )
+        response_text = ""
+        current_unit_id = ""
+        raw_translation_result = None
+        if translation_plan and translation_plan["status"] == "ok" and translation_plan["units"]:
+            current_unit_id = translation_plan["units"][0]
+            unit_prompt = build_unit_translation_prompt(
+                settings.continue_prompt,
+                active_units=translation_plan["units"],
+                current_unit_id=current_unit_id,
+            )
+            response_text = await get_bot_response(
+                [fp.ProtocolMessage(role="user", content=unit_prompt, attachments=[pdf_attachment])],
+                payload.poe_model,
+                payload.api_key,
+            )
+            raw_translation_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(response_text))
+            if raw_translation_result is None:
+                raw_translation_result = {
+                    "current_unit_id": current_unit_id,
+                    "state": "UNSUPPORTED",
+                    "reason": "translator_status_missing",
+                }
+        completed_unit_ids = [current_unit_id] if raw_translation_result and raw_translation_result["state"] == "OK" and current_unit_id else []
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=completed_unit_ids,
+            current_unit_id=current_unit_id,
+            attempted_scope="body",
+            raw_translation_result=raw_translation_result,
+        )
+        prepared_response = preprocess_bot_reply_for_storage(
+            response_text,
+            {"translation_plan": translation_plan, "translation_status": translation_status},
+        )
         response_content = str(prepared_response["content"])
         with Session(engine) as session:
             create_message_pair(
                 session,
                 conversation_id,
-                initial_prompt,
+                build_unit_translation_prompt(
+                    settings.continue_prompt,
+                    active_units=translation_plan["units"] if translation_plan else [],
+                    current_unit_id=current_unit_id,
+                ) if current_unit_id else planner_prompt,
                 response_text,
                 user_message_kind="system_prompt",
                 user_visible_to_user=False,
@@ -217,6 +268,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                 "conversation_id": conversation_id,
                 "title": final_title,
                 "messages": [message.model_dump() for message in detail.messages],
+                "translation_plan": prepared_response["translation_plan"],
                 "translation_status": prepared_response["translation_status"],
                 "content": response_content,
                 "display_reply": response_content,

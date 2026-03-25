@@ -683,6 +683,16 @@ body {
   border: 1px solid rgba(210, 223, 238, 0.9);
 }
 
+.translation-status-item-progress {
+  background: linear-gradient(180deg, rgba(245, 250, 255, 0.98) 0%, rgba(255, 255, 255, 0.92) 100%);
+  border-color: rgba(196, 216, 240, 0.95);
+}
+
+.translation-status-item-progress .translation-status-value {
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .translation-status-footer {
   margin-top: 12px;
 }

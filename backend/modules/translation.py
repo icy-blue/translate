@@ -8,9 +8,13 @@ from sqlmodel import Session
 
 from ..app.dependencies import check_read_only, get_api_key, get_db_session
 from ..domain.message_payloads import (
-    build_continue_translation_prompt,
+    build_translation_status_payload,
+    build_unit_translation_prompt,
     infer_message_metadata,
+    normalize_raw_translation_result_payload,
+    normalize_translation_plan_payload,
     normalize_translation_status_payload,
+    parse_raw_translation_status_block,
     preprocess_bot_reply_for_storage,
     safe_json_loads,
 )
@@ -30,14 +34,18 @@ class ContinueTranslationTaskPayload(BaseModel):
     api_key: str
 
 
-def _prepare_bot_response(response_text: str) -> dict:
-    prepared_response = preprocess_bot_reply_for_storage(response_text)
+def _prepare_bot_response(response_text: str, *, translation_plan: dict[str, object], translation_status: dict[str, object]) -> dict:
+    prepared_response = preprocess_bot_reply_for_storage(
+        response_text,
+        {"translation_plan": translation_plan, "translation_status": translation_status},
+    )
     response_content = str(prepared_response["content"])
     return {
         "reply": response_text,
         "content": response_content,
         "display_reply": response_content,
         "section_category": None,
+        "translation_plan": prepared_response["translation_plan"],
         "translation_status": prepared_response["translation_status"],
         "client_payload": prepared_response["client_payload"],
     }
@@ -51,14 +59,33 @@ def _get_latest_translation_context(session: Session, conversation_id: str) -> d
         payload = safe_json_loads(message.client_payload_json, {})
         if not isinstance(payload, dict):
             continue
+        translation_plan = normalize_translation_plan_payload(payload.get("translation_plan"))
         translation_status = normalize_translation_status_payload(payload.get("translation_status"))
-        if translation_status is None:
+        if translation_plan is None or translation_status is None:
             continue
-        return {"translation_status": translation_status}
+        return {"translation_plan": translation_plan, "translation_status": translation_status}
     raise HTTPException(
         status_code=409,
-        detail="会话缺少可用的 translation_status，无法继续无状态续翻。请先完成 payload backfill。",
+        detail="会话缺少可用的 translation_plan / translation_status，无法继续按 unit 协议续翻。",
     )
+
+
+def _get_next_unit_id(translation_plan: dict[str, object], translation_status: dict[str, object], target_scope: str) -> str:
+    normalized_plan = normalize_translation_plan_payload(translation_plan)
+    normalized_status = normalize_translation_status_payload(translation_status)
+    if normalized_plan is None or normalized_status is None:
+        return ""
+    completed_ids = set(normalized_status["completed_unit_ids"])
+    if target_scope == "appendix":
+        if any(unit_id not in completed_ids for unit_id in normalized_plan["units"]):
+            return ""
+        units = normalized_plan["appendix_units"]
+    else:
+        units = normalized_plan["units"]
+    for unit_id in units:
+        if unit_id not in completed_ids:
+            return unit_id
+    return ""
 
 
 async def queue_continue_translation(
@@ -98,7 +125,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
         raise HTTPException(status_code=400, detail="API Key is required.")
     if payload.action != "continue":
         raise HTTPException(status_code=400, detail="Only action=continue is supported.")
-    if payload.target_scope not in {"body", "appendix", "acknowledgements", "references"}:
+    if payload.target_scope not in {"body", "appendix"}:
         raise HTTPException(status_code=400, detail="Unsupported target_scope.")
 
     with Session(engine) as session:
@@ -111,11 +138,20 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             raise HTTPException(status_code=404, detail="File record not found.")
         mark_task_progress(task_id, "读取最新翻译状态")
         latest_context = _get_latest_translation_context(session, payload.conversation_id)
-        prompt = build_continue_translation_prompt(
+        latest_status = normalize_translation_status_payload(latest_context["translation_status"])
+        latest_plan = normalize_translation_plan_payload(latest_context["translation_plan"])
+        if latest_status is None or latest_plan is None:
+            raise HTTPException(status_code=409, detail="最新翻译状态不可用。")
+        if latest_status["state"] in {"UNSUPPORTED", "ALL_DONE"}:
+            raise HTTPException(status_code=409, detail="当前会话没有可继续的 unit。")
+        next_unit_id = _get_next_unit_id(latest_plan, latest_status, payload.target_scope)
+        if not next_unit_id:
+            raise HTTPException(status_code=409, detail="当前 scope 没有可继续的 unit。")
+        active_units = latest_plan["units"] if payload.target_scope == "body" else latest_plan["appendix_units"]
+        prompt = build_unit_translation_prompt(
             settings.continue_prompt,
-            translation_status=latest_context["translation_status"],
-            action=payload.action,
-            target_scope=payload.target_scope,
+            active_units=active_units,
+            current_unit_id=next_unit_id,
         )
         pdf_attachment = fp.Attachment(url=file_record.poe_url, content_type=file_record.content_type, name=file_record.poe_name)
         mark_task_progress(task_id, "等待 Poe 返回翻译结果")
@@ -124,7 +160,28 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             payload.poe_model,
             payload.api_key,
         )
-        prepared_response = _prepare_bot_response(response_text)
+        raw_translation_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(response_text))
+        if raw_translation_result is None:
+            raw_translation_result = {
+                "current_unit_id": next_unit_id,
+                "state": "UNSUPPORTED",
+                "reason": "translator_status_missing",
+            }
+        completed_unit_ids = list(latest_status["completed_unit_ids"])
+        if raw_translation_result and raw_translation_result["state"] == "OK" and next_unit_id not in completed_unit_ids:
+            completed_unit_ids.append(next_unit_id)
+        canonical_status = build_translation_status_payload(
+            latest_plan,
+            completed_unit_ids=completed_unit_ids,
+            current_unit_id=next_unit_id,
+            attempted_scope=payload.target_scope,
+            raw_translation_result=raw_translation_result,
+        )
+        prepared_response = _prepare_bot_response(
+            response_text,
+            translation_plan=latest_plan,
+            translation_status=canonical_status,
+        )
         mark_task_progress(task_id, "写入会话消息")
         create_message_pair(
             session,

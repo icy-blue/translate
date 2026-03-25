@@ -15,10 +15,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.domain.message_payloads import (
-    build_continue_translation_prompt,
     build_initial_translation_prompt,
+    build_translation_status_payload,
+    build_unit_translation_prompt,
+    normalize_raw_translation_result_payload,
+    normalize_translation_plan_payload,
     normalize_translation_status_payload,
-    preprocess_bot_reply_for_storage,
+    parse_raw_translation_status_block,
+    parse_translation_plan_response,
 )
 from backend.platform.config import settings
 from backend.platform.gateways.poe import get_bot_response
@@ -44,7 +48,7 @@ def _result_error(code: str, message: str, messages: list[dict[str, Any]] | None
 async def _run(payload: dict[str, Any]) -> dict[str, Any]:
     api_key = str(payload.get("api_key", "")).strip()
     poe_model = str(payload.get("poe_model", "")).strip() or settings.poe_model
-    initial_prompt = build_initial_translation_prompt(str(payload.get("initial_prompt", "")).strip() or settings.initial_prompt)
+    planner_prompt = build_initial_translation_prompt(str(payload.get("initial_prompt", "")).strip() or settings.initial_prompt)
     continue_count = int(payload.get("continue_count", 0) or 0)
     attachment_payload = payload.get("poe_attachment") if isinstance(payload.get("poe_attachment"), dict) else None
 
@@ -60,12 +64,55 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         return _result_error("invalid_input", "poe_attachment.url is required.")
 
     attachment = fp.Attachment(url=attachment_url, content_type=attachment_type, name=attachment_name)
-    result_messages: list[dict[str, Any]] = [{"role": "user", "content": initial_prompt}]
+    result_messages: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
 
     try:
+        planner_reply = await get_bot_response(
+            [fp.ProtocolMessage(role="user", content=planner_prompt, attachments=[attachment])],
+            poe_model,
+            api_key,
+        )
+    except Exception as exc:
+        return _result_error("planner_failed", f"Planner failed: {exc}", result_messages)
+
+    translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_reply))
+    if translation_plan is None:
+        translation_plan = normalize_translation_plan_payload(
+            {"status": "unsupported", "units": [], "appendix_units": [], "reason": "planner_parse_failed"}
+        )
+    if translation_plan is None:
+        return _result_error("planner_failed", "Failed to normalize planner output.", result_messages)
+    if translation_plan["status"] == "unsupported" or not translation_plan["units"]:
+        return {
+            "ok": True,
+            "messages": [
+                {
+                    "role": "bot",
+                    "content": "",
+                    "client_payload": {
+                        "translation_plan": translation_plan,
+                        "translation_status": build_translation_status_payload(translation_plan, completed_unit_ids=[]),
+                    },
+                }
+            ],
+            "first_bot_message": "",
+            "continue_count_used": 0,
+            "translation_plan": translation_plan,
+            "translation_status": build_translation_status_payload(translation_plan, completed_unit_ids=[]),
+            "errors": errors,
+        }
+
+    current_unit_id = translation_plan["units"][0]
+    unit_prompt = build_unit_translation_prompt(
+        settings.continue_prompt,
+        active_units=translation_plan["units"],
+        current_unit_id=current_unit_id,
+    )
+    result_messages.append({"role": "user", "content": unit_prompt})
+    try:
         first_reply = await get_bot_response(
-            [fp.ProtocolMessage(role="user", content=initial_prompt, attachments=[attachment])],
+            [fp.ProtocolMessage(role="user", content=unit_prompt, attachments=[attachment])],
             poe_model,
             api_key,
         )
@@ -73,10 +120,27 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         return _result_error("initial_translate_failed", f"Initial translation failed: {exc}", result_messages)
 
     first_reply = first_reply or ""
-    result_messages.append({"role": "bot", "content": first_reply})
-
-    latest_status = normalize_translation_status_payload(
-        preprocess_bot_reply_for_storage(first_reply)["translation_status"]
+    first_raw_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(first_reply))
+    if first_raw_result is None:
+        first_raw_result = {
+            "current_unit_id": current_unit_id,
+            "state": "UNSUPPORTED",
+            "reason": "translator_status_missing",
+        }
+    completed_unit_ids = [current_unit_id] if first_raw_result and first_raw_result["state"] == "OK" else []
+    latest_status = build_translation_status_payload(
+        translation_plan,
+        completed_unit_ids=completed_unit_ids,
+        current_unit_id=current_unit_id,
+        attempted_scope="body",
+        raw_translation_result=first_raw_result,
+    )
+    result_messages.append(
+        {
+            "role": "bot",
+            "content": first_reply,
+            "client_payload": {"translation_plan": translation_plan, "translation_status": latest_status},
+        }
     )
     continue_count_used = 0
     for _ in range(max(0, continue_count)):
@@ -85,21 +149,25 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
                 {
                     "skill": "translate-full-paper-skill",
                     "type": "warning",
-                    "message": "Continue loop interrupted: latest reply has no canonical translation_status.",
+                    "message": "Continue loop interrupted: latest reply has no canonical unit translation_status.",
                     "retryable": False,
                 }
             )
             break
-        next_action = latest_status.get("next_action") if isinstance(latest_status.get("next_action"), dict) else {}
-        next_action_type = str(next_action.get("type", "")).strip().lower()
-        next_target_scope = str(next_action.get("target_scope", "")).strip().lower() or "body"
-        if next_action_type == "stop" or next_target_scope == "none":
+        latest_status = normalize_translation_status_payload(latest_status)
+        if latest_status is None or latest_status["state"] in {"UNSUPPORTED", "ALL_DONE"}:
             break
-        continue_prompt = build_continue_translation_prompt(
+        if latest_status["active_scope"] == "appendix":
+            active_units = translation_plan["appendix_units"]
+        else:
+            active_units = translation_plan["units"]
+        next_unit_id = str(latest_status.get("next_unit_id", "")).strip()
+        if not next_unit_id:
+            break
+        continue_prompt = build_unit_translation_prompt(
             settings.continue_prompt,
-            translation_status=latest_status,
-            action="continue",
-            target_scope=next_target_scope,
+            active_units=active_units,
+            current_unit_id=next_unit_id,
         )
         result_messages.append({"role": "user", "content": continue_prompt})
         try:
@@ -109,9 +177,28 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
                 api_key,
             )
             reply = reply or ""
-            result_messages.append({"role": "bot", "content": reply})
-            latest_status = normalize_translation_status_payload(
-                preprocess_bot_reply_for_storage(reply)["translation_status"]
+            raw_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(reply))
+            if raw_result is None:
+                raw_result = {
+                    "current_unit_id": next_unit_id,
+                    "state": "UNSUPPORTED",
+                    "reason": "translator_status_missing",
+                }
+            if raw_result and raw_result["state"] == "OK" and next_unit_id not in completed_unit_ids:
+                completed_unit_ids.append(next_unit_id)
+            latest_status = build_translation_status_payload(
+                translation_plan,
+                completed_unit_ids=completed_unit_ids,
+                current_unit_id=next_unit_id,
+                attempted_scope=latest_status["active_scope"] or "body",
+                raw_translation_result=raw_result,
+            )
+            result_messages.append(
+                {
+                    "role": "bot",
+                    "content": reply,
+                    "client_payload": {"translation_plan": translation_plan, "translation_status": latest_status},
+                }
             )
             continue_count_used += 1
         except Exception as exc:
@@ -130,6 +217,8 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         "messages": result_messages,
         "first_bot_message": first_reply,
         "continue_count_used": continue_count_used,
+        "translation_plan": translation_plan,
+        "translation_status": latest_status,
         "errors": errors,
     }
 

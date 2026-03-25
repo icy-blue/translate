@@ -8,30 +8,15 @@ from ..platform.config import settings
 from ..platform.models import Message
 from .message_kinds import BOT_MESSAGE_KIND, LEGACY_INITIAL_PROMPTS, infer_message_kind, role_from_message_kind
 
-TRANSLATION_STATUS_PATTERN = re.compile(r"\[TRANSLATION_STATUS\]\s*(.*?)\s*\[/TRANSLATION_STATUS\]", re.DOTALL)
-COMMAND_BLOCK_PATTERN = re.compile(r"\[COMMAND\]\s*(.*?)\s*\[/COMMAND\]", re.DOTALL)
-TRANSLATION_STATUS_KEYS = (
-    "scope",
-    "completed",
-    "current",
-    "next",
-    "remaining",
-    "state",
-    "phase",
-    "available_scope_extensions",
-    "next_action_type",
-    "next_action_command",
-    "next_action_target_scope",
-    "recommended_stop_reason",
+TRANSLATION_PLAN_PROTOCOL = "unit_v1"
+TRANSLATION_PLAN_STATUSES = {"ok", "unsupported"}
+TRANSLATION_RESULT_STATES = {"OK", "UNSUPPORTED"}
+TRANSLATION_STATES = {"IN_PROGRESS", "BODY_DONE", "ALL_DONE", "UNSUPPORTED"}
+TRANSLATION_SCOPES = {"body", "appendix", "done"}
+TRANSLATION_STATUS_JSON_PATTERN = re.compile(
+    r"\[TRANSLATION_STATUS_JSON\]\s*(\{.*?\})\s*\[/TRANSLATION_STATUS_JSON\]",
+    re.DOTALL,
 )
-SCOPE_EXTENSION_ORDER = ("appendix", "acknowledgements", "references")
-SCOPE_EXTENSION_COMMANDS = {
-    "appendix": "继续翻译附录",
-    "acknowledgements": "继续翻译致谢",
-    "references": "继续翻译参考文献",
-}
-TRANSLATION_PHASES = {"body", "appendix", "acknowledgements", "references", "done"}
-NEXT_ACTION_TYPES = {"continue", "stop"}
 LEGACY_TRANSLATION_PAYLOAD_KEYS = {
     "document_outline",
     "raw_translation_status_text",
@@ -58,201 +43,247 @@ def _safe_payload_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _normalize_scope_extension_name(value: str | None) -> str | None:
-    text = (value or "").strip().lower()
-    if not text:
-        return None
-    if text in {"appendix", "appendices"}:
-        return "appendix"
-    if text in {"acknowledgement", "acknowledgements", "acknowledgment", "acknowledgments"}:
-        return "acknowledgements"
-    if text in {"reference", "references"}:
-        return "references"
-    if text in {"body", "main_body", "body_only"}:
-        return "body"
-    if text in {"done", "all_done", "none"}:
-        return "done" if text != "none" else "none"
-    if "附录" in text or "补充材料" in text or "supplement" in text:
-        return "appendix"
-    if "致谢" in text or "acknowledg" in text:
-        return "acknowledgements"
-    if "参考文献" in text or "references" in text or "bibliograph" in text:
-        return "references"
-    if "正文" in text or "主体" in text:
-        return "body"
-    return None
+def _strip_code_fences(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if len(lines) >= 2 and lines[-1].strip() == "```":
+        return "\n".join(lines[1:-1]).strip()
+    return stripped
 
 
-def _normalize_scope_extensions(values: list[str]) -> list[str]:
+def _unique_unit_ids(values: Any) -> list[str]:
     ordered: list[str] = []
-    for scope in values:
-        normalized = _normalize_scope_extension_name(scope)
-        if normalized not in SCOPE_EXTENSION_ORDER or normalized in ordered:
+    seen: set[str] = set()
+    if not isinstance(values, list):
+        return ordered
+    for value in values:
+        unit_id = str(value or "").strip()
+        if not unit_id or unit_id in seen:
             continue
-        ordered.append(normalized)
-    return [scope for scope in SCOPE_EXTENSION_ORDER if scope in ordered]
+        seen.add(unit_id)
+        ordered.append(unit_id)
+    return ordered
 
 
-def _parse_scope_extension_list(raw: Any) -> list[str]:
-    if isinstance(raw, (list, tuple, set)):
-        return _normalize_scope_extensions([str(item) for item in raw])
-    text = str(raw or "").strip()
-    if not text:
-        return []
-    parts = [part.strip() for part in re.split(r"[,\|;/，、]+", text) if part.strip()]
-    return _normalize_scope_extensions(parts)
-
-
-def build_command_block(action: str, target_scope: str) -> str:
-    return f"[COMMAND]\naction={action}\ntarget={target_scope}\n[/COMMAND]"
-
-
-def build_input_status_block(status: dict[str, Any]) -> str:
-    return (
-        "[INPUT_STATUS]\n"
-        f"scope={str(status.get('scope', '')).strip()}\n"
-        f"completed={str(status.get('completed', '')).strip()}\n"
-        f"current={str(status.get('current', '')).strip()}\n"
-        f"next={str(status.get('next', '')).strip()}\n"
-        f"remaining={str(status.get('remaining', '')).strip()}\n"
-        f"state={str(status.get('state', '')).strip()}\n"
-        f"phase={str(status.get('phase', '')).strip()}\n"
-        "[/INPUT_STATUS]"
-    )
+def _normalize_scope(value: Any) -> str:
+    scope = str(value or "").strip().lower()
+    return scope if scope in TRANSLATION_SCOPES else ""
 
 
 def build_initial_translation_prompt(template: str) -> str:
     return str(template or "").strip()
 
 
-def build_continue_translation_prompt(template: str, *, translation_status: dict[str, Any], action: str, target_scope: str) -> str:
-    command_block = build_command_block(action=action, target_scope=target_scope)
-    input_status_block = build_input_status_block(translation_status)
+def build_unit_translation_prompt(template: str, *, active_units: list[str], current_unit_id: str) -> str:
     prompt = str(template or "").strip()
-    return prompt.replace("<<INPUT_STATUS_BLOCK>>", input_status_block).replace("<<COMMAND_BLOCK>>", command_block).strip()
+    prompt = prompt.replace("<<ACTIVE_UNITS_JSON>>", json.dumps(active_units, ensure_ascii=False))
+    prompt = prompt.replace("<<CURRENT_UNIT_ID>>", str(current_unit_id or "").strip())
+    return prompt.strip()
 
 
-def _parse_command_block(raw_command: str | None) -> dict[str, str]:
-    text = str(raw_command or "").strip()
+def normalize_translation_plan_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    status = str(payload.get("status", "")).strip().lower()
+    if status not in TRANSLATION_PLAN_STATUSES:
+        return None
+    units = _unique_unit_ids(payload.get("units"))
+    appendix_units = [unit_id for unit_id in _unique_unit_ids(payload.get("appendix_units")) if unit_id not in units]
+    reason = str(payload.get("reason", "")).strip()
+    normalized = {
+        "protocol": TRANSLATION_PLAN_PROTOCOL,
+        "status": status,
+        "units": units if status == "ok" else [],
+        "appendix_units": appendix_units if status == "ok" else [],
+        "reason": "" if status == "ok" else reason,
+    }
+    if normalized["status"] == "ok" and not normalized["units"]:
+        normalized["status"] = "unsupported"
+        normalized["reason"] = reason or "no_supported_units"
+    return normalized
+
+
+def parse_translation_plan_response(content: str | None) -> dict[str, Any] | None:
+    text = _strip_code_fences(content or "")
     if not text:
-        return {}
-    match = COMMAND_BLOCK_PATTERN.search(text)
+        return None
+    return normalize_translation_plan_payload(safe_json_loads(text, None))
+
+
+def normalize_raw_translation_result_payload(payload: Any) -> dict[str, str] | None:
+    if not isinstance(payload, dict):
+        return None
+    state = str(payload.get("state", "")).strip().upper()
+    if state not in TRANSLATION_RESULT_STATES:
+        return None
+    return {
+        "current_unit_id": str(payload.get("current_unit_id", "")).strip(),
+        "state": state,
+        "reason": str(payload.get("reason", "")).strip(),
+    }
+
+
+def parse_raw_translation_status_block(content: str | None) -> dict[str, str] | None:
+    text = content or ""
+    match = TRANSLATION_STATUS_JSON_PATTERN.search(text)
     if not match:
-        return {}
-    result: dict[str, str] = {}
-    for raw_line in match.group(1).splitlines():
-        line = raw_line.strip()
-        if not line or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        normalized_key = key.strip().lower()
-        if normalized_key in {"action", "target"}:
-            result[normalized_key] = value.strip()
-    return result
+        return None
+    return normalize_raw_translation_result_payload(safe_json_loads(match.group(1).strip(), None))
+
+
+def extract_raw_translation_status_text(content: str | None) -> str | None:
+    text = content or ""
+    match = TRANSLATION_STATUS_JSON_PATTERN.search(text)
+    return match.group(0).strip() if match else None
+
+
+def strip_translation_status_block(content: str | None) -> str:
+    return TRANSLATION_STATUS_JSON_PATTERN.sub("", content or "").strip()
+
+
+def _normalize_completed_ids(value: Any, all_unit_ids: list[str]) -> list[str]:
+    completed_set = set(_unique_unit_ids(value))
+    return [unit_id for unit_id in all_unit_ids if unit_id in completed_set]
+
+
+def build_translation_status_payload(
+    translation_plan: dict[str, Any],
+    *,
+    completed_unit_ids: list[str],
+    current_unit_id: str = "",
+    attempted_scope: str = "body",
+    raw_translation_result: dict[str, str] | None = None,
+    source: str = "canonical_payload",
+) -> dict[str, Any]:
+    normalized_plan = normalize_translation_plan_payload(translation_plan) or {
+        "protocol": TRANSLATION_PLAN_PROTOCOL,
+        "status": "unsupported",
+        "units": [],
+        "appendix_units": [],
+        "reason": "missing_translation_plan",
+    }
+    body_units = list(normalized_plan["units"])
+    appendix_units = list(normalized_plan["appendix_units"])
+    all_units = body_units + appendix_units
+    completed_ids = _normalize_completed_ids(completed_unit_ids, all_units)
+    body_remaining = [unit_id for unit_id in body_units if unit_id not in completed_ids]
+    appendix_remaining = [unit_id for unit_id in appendix_units if unit_id not in completed_ids]
+    attempted_scope = _normalize_scope(attempted_scope) or "body"
+    current_unit_id = str(current_unit_id or "").strip()
+    raw_result = normalize_raw_translation_result_payload(raw_translation_result)
+
+    active_scope = "body"
+    active_units = body_units
+    remaining_unit_ids = body_remaining
+    state = "IN_PROGRESS"
+    reason = ""
+    next_unit_id = body_remaining[0] if body_remaining else ""
+
+    if normalized_plan["status"] == "unsupported":
+        active_scope = "body"
+        active_units = []
+        remaining_unit_ids = []
+        state = "UNSUPPORTED"
+        reason = normalized_plan["reason"]
+        current_unit_id = ""
+        next_unit_id = ""
+    elif raw_result and raw_result["state"] == "UNSUPPORTED":
+        active_scope = attempted_scope if attempted_scope in {"body", "appendix"} else ("body" if body_remaining else "appendix")
+        active_units = body_units if active_scope == "body" else appendix_units
+        remaining_unit_ids = body_remaining if active_scope == "body" else appendix_remaining
+        state = "UNSUPPORTED"
+        reason = raw_result["reason"]
+        current_unit_id = raw_result["current_unit_id"] or current_unit_id
+        next_unit_id = ""
+    elif body_remaining:
+        active_scope = "body"
+        active_units = body_units
+        remaining_unit_ids = body_remaining
+        state = "IN_PROGRESS"
+        next_unit_id = body_remaining[0]
+    elif appendix_remaining:
+        active_scope = "appendix"
+        active_units = appendix_units
+        remaining_unit_ids = appendix_remaining
+        state = "BODY_DONE"
+        next_unit_id = appendix_remaining[0]
+    else:
+        active_scope = "done"
+        active_units = []
+        remaining_unit_ids = []
+        state = "ALL_DONE"
+        next_unit_id = ""
+
+    current_unit_index = active_units.index(current_unit_id) if current_unit_id in active_units else -1
+    return {
+        "protocol": TRANSLATION_PLAN_PROTOCOL,
+        "planner_status": normalized_plan["status"],
+        "active_scope": active_scope,
+        "active_units": active_units,
+        "current_unit_id": current_unit_id,
+        "current_unit_index": current_unit_index,
+        "completed_unit_ids": completed_ids,
+        "remaining_unit_ids": remaining_unit_ids,
+        "next_unit_id": next_unit_id,
+        "state": state,
+        "reason": reason,
+        "total_unit_count": len(all_units),
+        "completed_unit_count": len(completed_ids),
+        "source": str(source or "").strip() or "canonical_payload",
+        "is_completed": state in {"BODY_DONE", "ALL_DONE"},
+        "is_all_done": state == "ALL_DONE",
+    }
 
 
 def normalize_translation_status_payload(status: Any) -> dict[str, Any] | None:
     if not isinstance(status, dict):
         return None
-    normalized = dict(status)
-    state = str(normalized.get("state", "")).strip().upper()
-    if not state:
+    protocol = str(status.get("protocol", "")).strip() or TRANSLATION_PLAN_PROTOCOL
+    planner_status = str(status.get("planner_status", "")).strip().lower()
+    state = str(status.get("state", "")).strip().upper()
+    active_scope = _normalize_scope(status.get("active_scope"))
+    if protocol != TRANSLATION_PLAN_PROTOCOL or planner_status not in TRANSLATION_PLAN_STATUSES or state not in TRANSLATION_STATES:
         return None
-    phase = _normalize_scope_extension_name(str(normalized.get("phase", "")).strip())
-    if phase not in TRANSLATION_PHASES:
-        phase = ""
-    available_scope_extensions = _parse_scope_extension_list(normalized.get("available_scope_extensions"))
-    explicit_next_action = normalized.get("next_action") if isinstance(normalized.get("next_action"), dict) else {}
-    raw_next_action_command = str(explicit_next_action.get("command", normalized.get("next_action_command", ""))).strip()
-    command_fields = _parse_command_block(raw_next_action_command)
-    next_action_type = str(explicit_next_action.get("type", normalized.get("next_action_type", command_fields.get("action", "")))).strip().lower()
-    if next_action_type not in NEXT_ACTION_TYPES:
-        next_action_type = ""
-    next_action_target_scope = _normalize_scope_extension_name(
-        str(explicit_next_action.get("target_scope", normalized.get("next_action_target_scope", command_fields.get("target", "")))).strip()
-    )
-    if next_action_type == "stop":
-        next_action_target_scope = "none"
-    elif next_action_target_scope == "none":
-        next_action_target_scope = ""
-    next_action_command = raw_next_action_command
-    if next_action_type and (next_action_target_scope or next_action_type == "stop"):
-        next_action_command = build_command_block(next_action_type, next_action_target_scope or "none")
 
-    normalized["scope"] = str(normalized.get("scope", "")).strip()
-    normalized["completed"] = str(normalized.get("completed", "")).strip()
-    normalized["current"] = str(normalized.get("current", "")).strip()
-    normalized["next"] = str(normalized.get("next", "")).strip()
-    normalized["remaining"] = str(normalized.get("remaining", "")).strip()
-    normalized["state"] = state
-    normalized["phase"] = phase
-    normalized["available_scope_extensions"] = available_scope_extensions
-    normalized["extension_commands"] = {scope: SCOPE_EXTENSION_COMMANDS[scope] for scope in available_scope_extensions}
-    normalized["next_action"] = {
-        "type": next_action_type,
-        "command": next_action_command,
-        "target_scope": next_action_target_scope or ("none" if next_action_type == "stop" else ""),
+    active_units = _unique_unit_ids(status.get("active_units"))
+    completed_unit_ids = _unique_unit_ids(status.get("completed_unit_ids"))
+    remaining_unit_ids = _unique_unit_ids(status.get("remaining_unit_ids"))
+    current_unit_id = str(status.get("current_unit_id", "")).strip()
+    next_unit_id = str(status.get("next_unit_id", "")).strip()
+    try:
+        current_unit_index = int(status.get("current_unit_index", -1))
+    except (TypeError, ValueError):
+        current_unit_index = -1
+    try:
+        total_unit_count = int(status.get("total_unit_count", len(completed_unit_ids) + len(remaining_unit_ids)))
+    except (TypeError, ValueError):
+        total_unit_count = len(completed_unit_ids) + len(remaining_unit_ids)
+    try:
+        completed_unit_count = int(status.get("completed_unit_count", len(completed_unit_ids)))
+    except (TypeError, ValueError):
+        completed_unit_count = len(completed_unit_ids)
+
+    normalized = {
+        "protocol": protocol,
+        "planner_status": planner_status,
+        "active_scope": active_scope,
+        "active_units": active_units,
+        "current_unit_id": current_unit_id,
+        "current_unit_index": current_unit_index if current_unit_index >= 0 else -1,
+        "completed_unit_ids": completed_unit_ids,
+        "remaining_unit_ids": remaining_unit_ids,
+        "next_unit_id": next_unit_id,
+        "state": state,
+        "reason": str(status.get("reason", "")).strip(),
+        "total_unit_count": max(0, total_unit_count),
+        "completed_unit_count": max(0, completed_unit_count),
+        "source": str(status.get("source", "")).strip() or "canonical_payload",
+        "is_completed": state in {"BODY_DONE", "ALL_DONE"},
+        "is_all_done": state == "ALL_DONE",
     }
-    normalized["recommended_stop_reason"] = str(normalized.get("recommended_stop_reason", "")).strip().lower()
-    normalized["source"] = str(normalized.get("source", "")).strip() or "canonical_payload"
-    normalized["is_completed"] = state in {"BODY_DONE", "ALL_DONE"}
-    normalized["is_all_done"] = state == "ALL_DONE"
     return normalized
-
-
-def parse_raw_translation_status_block(content: str | None) -> dict[str, Any] | None:
-    text = content or ""
-    match = TRANSLATION_STATUS_PATTERN.search(text)
-    if not match:
-        return None
-    payload: dict[str, Any] = {key: "" for key in TRANSLATION_STATUS_KEYS}
-    current_key: str | None = None
-    current_buffer: list[str] = []
-
-    def flush_current_buffer() -> None:
-        nonlocal current_key, current_buffer
-        if current_key is None:
-            return
-        payload[current_key] = "\n".join(current_buffer).strip()
-        current_key = None
-        current_buffer = []
-
-    for raw_line in match.group(1).splitlines():
-        line = raw_line.strip()
-        if not line:
-            if current_key == "next_action_command":
-                current_buffer.append("")
-            continue
-        if "=" in line:
-            key, value = line.split("=", 1)
-            normalized_key = key.strip().lower()
-            if normalized_key in TRANSLATION_STATUS_KEYS:
-                flush_current_buffer()
-                current_key = normalized_key
-                current_buffer = [value.strip() if normalized_key != "next_action_command" else value.rstrip()]
-                continue
-        if current_key == "next_action_command":
-            current_buffer.append(raw_line.rstrip())
-            continue
-    flush_current_buffer()
-    raw_available_scope_extensions = str(payload.get("available_scope_extensions", "")).strip()
-    payload["available_scope_extensions"] = [part.strip() for part in re.split(r"[,\|;/，、]+", raw_available_scope_extensions) if part.strip()]
-    payload["next_action"] = {
-        "type": str(payload.get("next_action_type", "")).strip(),
-        "command": str(payload.get("next_action_command", "")).strip(),
-        "target_scope": str(payload.get("next_action_target_scope", "")).strip(),
-    }
-    return normalize_translation_status_payload(payload)
-
-
-def extract_raw_translation_status_text(content: str | None) -> str | None:
-    text = content or ""
-    match = TRANSLATION_STATUS_PATTERN.search(text)
-    return match.group(0).strip() if match else None
-
-
-def strip_translation_status_block(content: str | None) -> str:
-    return TRANSLATION_STATUS_PATTERN.sub("", content or "").strip()
 
 
 def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = None) -> dict[str, Any]:
@@ -261,15 +292,16 @@ def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = 
     payload = {
         key: value
         for key, value in existing_payload.items()
-        if key not in {"translation_status", *LEGACY_TRANSLATION_PAYLOAD_KEYS}
+        if key not in {"translation_status", "translation_plan", *LEGACY_TRANSLATION_PAYLOAD_KEYS}
     }
+    translation_plan = normalize_translation_plan_payload(existing_payload.get("translation_plan"))
     translation_status = normalize_translation_status_payload(existing_payload.get("translation_status"))
-    raw_status_text = extract_raw_translation_status_text(original_content)
-    if raw_status_text:
-        parsed_status = parse_raw_translation_status_block(original_content)
-        if parsed_status is not None:
-            translation_status = parsed_status
-    clean_content = strip_translation_status_block(original_content) if raw_status_text and translation_status is not None else original_content.strip()
+    raw_translation_result = parse_raw_translation_status_block(original_content)
+    clean_content = strip_translation_status_block(original_content) if raw_translation_result is not None else original_content.strip()
+    if translation_plan is not None:
+        payload["translation_plan"] = translation_plan
+    else:
+        payload.pop("translation_plan", None)
     if translation_status is not None:
         payload["translation_status"] = translation_status
     else:
@@ -277,7 +309,9 @@ def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = 
     return {
         "content": clean_content,
         "client_payload": payload or None,
+        "translation_plan": translation_plan,
         "translation_status": translation_status,
+        "raw_translation_result": raw_translation_result,
     }
 
 
