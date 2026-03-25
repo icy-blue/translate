@@ -1275,6 +1275,7 @@
       const selectedFilterCount = getSelectedFilterCount();
       const browseSubtitle = `已翻译 ${libraryTotalCount || totalCount} 篇论文`;
       const hasKeywordSearch = !!searchQuery.trim();
+      const shouldShowRelevance = showSearchResults && hasKeywordSearch;
       const exactResultCount = searchResults.exact_matches.length;
       const fuzzyResultCount = searchResults.fuzzy_matches.length;
       const totalSearchResultCount = exactResultCount + fuzzyResultCount;
@@ -1542,7 +1543,7 @@
                 )}
               </div>
             )}
-            {paper.relevance !== undefined && (
+            {shouldShowRelevance && paper.relevance !== undefined && (
               <div style={{ marginTop: 10, fontSize: 12, color: '#999' }}>
                 相关度: {paper.relevance}
               </div>
