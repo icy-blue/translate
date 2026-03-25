@@ -5,10 +5,10 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-from ...core.config import settings
+from ..platform.config import settings
 
-router = APIRouter()
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+router = APIRouter(tags=["system"])
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = PROJECT_ROOT / "static"
 
 

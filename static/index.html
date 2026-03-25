@@ -2090,7 +2090,7 @@
         setFiguresExpanded(false);
         setTablesExpanded(false);
         setLoading(true);
-        const res = await fetch(`${BASE_URL}/conversation/${id}`);
+          const res = await fetch(`${BASE_URL}/conversations/${id}`);
         if (!res.ok) {
           message.error("会话不存在");
           setLoading(false);
@@ -2194,8 +2194,8 @@
           const formData = new FormData();
           draftTagCodes.forEach(tagCode => formData.append("tag_code", tagCode));
 
-          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/tags`, {
-            method: "POST",
+          const res = await fetch(`${BASE_URL}/metadata/${conversationId}/tags`, {
+            method: "PUT",
             body: formData,
           });
           const data = await res.json();
@@ -2228,7 +2228,7 @@
           formData.append("api_key", poeApiKey);
           formData.append("tag_model", poeModel);
 
-          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/refresh_metadata`, {
+          const res = await fetch(`${BASE_URL}/metadata/${conversationId}/refresh`, {
             method: "POST",
             body: formData,
           });
@@ -2254,7 +2254,7 @@
         let lastProgress = null;
 
         while (true) {
-          const res = await fetch(`${BASE_URL}/jobs/${jobId}`);
+          const res = await fetch(`${BASE_URL}/tasks/${jobId}`);
           const data = await res.json();
           if (!res.ok) {
             throw new Error(data.detail || "任务状态获取失败");
@@ -2323,7 +2323,7 @@
             formData.append("title_model", titleModel);
             formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
-            const enqueueRes = await fetch(`${BASE_URL}/upload`, {
+            const enqueueRes = await fetch(`${BASE_URL}/tasks/ingest-pdf`, {
               method: "POST",
               body: formData
             });
@@ -2334,7 +2334,7 @@
             }
 
             message.open({ key: progressKey, type: "loading", content: "正在上传：任务已入队，等待 worker 处理", duration: 0 });
-            const data = await waitForJobResult(enqueueData.job_id, {
+            const data = await waitForJobResult(enqueueData.task_id, {
               onTick: async (jobData) => {
                 if (jobData?.conversation_id && !linkedConversationId) {
                   linkedConversationId = jobData.conversation_id;
@@ -2421,7 +2421,7 @@
           formData.append("target_scope", action.target_scope || "body");
 
           const enqueueRes = await fetch(
-            `${BASE_URL}/conversation/${conversationId}/translate`,
+            `${BASE_URL}/translations/${conversationId}/continue`,
             { method: "POST", body: formData }
           );
           const enqueueData = await enqueueRes.json();
@@ -2429,7 +2429,7 @@
             message.error(enqueueData.detail || "请求失败");
             return { ok: false, reason: "request_failed" };
           }
-          const data = await waitForJobResult(enqueueData.job_id, {
+          const data = await waitForJobResult(enqueueData.task_id, {
             onProgress: (progressText) => {
               message.open({
                 key: progressKey,
@@ -2611,7 +2611,7 @@
           formData.append("figure_caption_direction", figureDirectionValue);
           formData.append("table_caption_direction", tableDirectionValue);
 
-          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/reprocess_assets`, {
+          const res = await fetch(`${BASE_URL}/assets/${conversationId}/reprocess`, {
             method: "POST",
             body: formData
           });

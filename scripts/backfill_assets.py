@@ -16,10 +16,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import backend.persistence.crud as crud
 from backend.core.database import engine
 from backend.main import _ensure_asset_columns
 from backend.domains.pdf_figures import extract_pdf_figures, extract_pdf_tables
+from backend.modules.assets import replace_figures, replace_tables
 from backend.persistence.models import FileRecord
 
 
@@ -158,8 +158,8 @@ def backfill_record(
     )
     figures = extract_pdf_figures(pdf_bytes)
     tables = extract_pdf_tables(pdf_bytes)
-    crud.replace_figures(session, file_record.conversation_id, figures)
-    crud.replace_tables(session, file_record.conversation_id, tables)
+    replace_figures(session, file_record.conversation_id, figures)
+    replace_tables(session, file_record.conversation_id, tables)
     return len(figures), len(tables), cache_hit, cache_path
 
 

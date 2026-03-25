@@ -1,6 +1,3 @@
-from sqlmodel import create_engine
+from ..platform.database import engine
 
-from .config import settings
-
-DATABASE_URL = settings.database_url
-engine = create_engine(DATABASE_URL, echo=False)
+__all__ = ["engine"]

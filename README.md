@@ -31,7 +31,7 @@
 - PDF 与资产处理：pypdf + PyMuPDF + Pillow
 - 前端：`static/index.html`（React + Ant Design CDN）
 
-后端 Python 模块统一放在 `backend/`，并按 `api / core / domains / integrations / persistence / schemas / services` 分类组织。根目录 `app.py` 仅作为启动兼容入口（`uvicorn app:app`）。
+后端 Python 模块统一放在 `backend/`，并按 `app / platform / domain / modules` 组织。根目录 `app.py` 保持启动入口（`uvicorn app:app`），真正的应用装配位于 `backend/app/factory.py`。
 
 ## 快速启动
 
@@ -83,16 +83,17 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/upload` | 上传 PDF，创建异步任务（立即返回 `job_id`） |
-| `POST` | `/conversation/{conversation_id}/translate` | 依据最新翻译状态推进下一轮翻译（异步任务） |
-| `GET` | `/jobs/{job_id}` | 查询任务状态与结果（轮询） |
-| `GET` | `/conversation/{conversation_id}` | 获取会话详情 |
+| `POST` | `/tasks/ingest-pdf` | 上传 PDF，创建 ingest 任务（立即返回 `task_id`） |
+| `GET` | `/tasks/{task_id}` | 查询任务状态与结果（轮询） |
+| `POST` | `/translations/{conversation_id}/continue` | 依据最新翻译状态推进下一轮翻译（异步任务） |
+| `GET` | `/conversations/{conversation_id}` | 获取会话详情 |
 | `GET` | `/conversations` | 分页会话列表（支持过滤） |
 | `GET` | `/search` | 标题搜索（精确 + 模糊） |
 | `GET` | `/tags/library` | 标签树与使用计数 |
-| `POST` | `/conversation/{conversation_id}/tags` | 手动更新标签 |
-| `POST` | `/conversation/{conversation_id}/reprocess_assets` | 按 caption 方向重提图/表 |
-| `POST` | `/agent/pipeline/commit` | Agent 一次性批量提交处理结果入库（需 `x-agent-token`） |
+| `POST` | `/metadata/{conversation_id}/refresh` | 刷新标签与 Semantic Scholar 元数据 |
+| `PUT` | `/metadata/{conversation_id}/tags` | 手动更新标签 |
+| `POST` | `/assets/{conversation_id}/reprocess` | 按 caption 方向重提图/表 |
+| `POST` | `/pipeline/commits` | Agent 一次性批量提交处理结果入库（需 `x-agent-token`） |
 | `GET` | `/assets/figures/{figure_id}` | 获取图像二进制 |
 | `GET` | `/assets/tables/{table_id}` | 获取表格二进制 |
 | `GET` | `/search/filters` | 过滤器统计（CCF/venue/year） |
@@ -101,8 +102,8 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 说明：
 
 - 写接口受只读模式保护（`READ_ONLY=true` 时返回 403）
-- 上传和翻译推进接口需要提交 `api_key`（表单字段）
-- 上传/翻译推进接口只负责入队；客户端需轮询 `/jobs/{job_id}` 获取最终结果
+- ingest 和翻译推进接口需要提交 `api_key`（表单字段）
+- `POST /tasks/ingest-pdf` 与 `POST /translations/{conversation_id}/continue` 只负责入队；客户端需轮询 `/tasks/{task_id}` 获取最终结果
 - 同一会话在翻译推进任务未完成时会加锁；重复提交返回 `409`
 
 ## 目录结构
@@ -111,35 +112,32 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 translate/
 ├── app.py
 ├── backend/
-│   ├── main.py
-│   ├── api/
-│   │   └── routers/
-│   ├── core/
+│   ├── app/
+│   │   ├── factory.py
+│   │   ├── lifespan.py
+│   │   └── dependencies.py
+│   ├── platform/
 │   │   ├── config.py
 │   │   ├── database.py
-│   │   ├── dependencies.py
-│   │   └── db_maintenance.py
-│   ├── domains/
+│   │   ├── models.py
+│   │   ├── schema_maintenance.py
+│   │   ├── task_runtime.py
+│   │   └── gateways/
+│   ├── domain/
 │   │   ├── ccf_mapping.py
 │   │   ├── message_kinds.py
-│   │   ├── message_sections.py
+│   │   ├── message_payloads.py
 │   │   ├── paper_tags.py
 │   │   └── pdf_figures.py
-│   ├── integrations/
-│   │   ├── poe.py
-│   │   └── semantic_scholar.py
-│   ├── persistence/
-│   │   ├── crud.py
-│   │   └── models.py
-│   ├── schemas/
-│   │   └── pipeline.py
-│   └── services/
-│       ├── annotations.py
-│       ├── async_jobs.py
-│       ├── conversations.py
-│       ├── message_utils.py
-│       ├── search.py
-│       └── serializers.py
+│   └── modules/
+│       ├── ingest/__init__.py
+│       ├── translation/__init__.py
+│       ├── conversations/__init__.py
+│       ├── metadata/__init__.py
+│       ├── assets/__init__.py
+│       ├── search/__init__.py
+│       ├── pipeline/__init__.py
+│       └── system/__init__.py
 ├── static/
 ├── scripts/
 ├── data/
@@ -147,16 +145,13 @@ translate/
 └── translations.db
 ```
 
-### 后端分层说明
+### 后端组织说明
 
-- `backend/main.py`：应用装配入口，只负责创建 `FastAPI`、注册路由、中间件和启动钩子。
-- `backend/api/routers/`：HTTP 路由层，处理请求参数与响应拼装，不承载复杂业务。
-- `backend/core/`：配置、数据库连接、FastAPI 依赖、启动期 schema 检查。
-- `backend/domains/`：相对纯粹的领域逻辑与规则，如标签树、消息类型、图表提取、CCF 映射。
-- `backend/integrations/`：外部服务集成，如 Poe、Semantic Scholar。
-- `backend/persistence/`：SQLModel 表结构和数据库读写封装。
-- `backend/schemas/`：Pydantic 请求/响应模型。
-- `backend/services/`：跨模块的应用服务，承接异步任务、搜索、注释提取、序列化等业务流程。
+- `backend/app/`：应用装配与 FastAPI 依赖。
+- `backend/platform/`：配置、数据库、模型、任务运行时、外部 gateway。
+- `backend/domain/`：纯领域规则与消息 payload 解析。
+- `backend/modules/<task>/__init__.py`：按任务成组的单文件模块，内部包含该任务的路由、service、repository 与 schema。
+- 旧 `core / integrations / persistence / services` 仅保留兼容转发入口，不再承载主实现。
 
 更详细的后端分层约定可见：[docs/backend-structure.md](docs/backend-structure.md)。
 
@@ -196,13 +191,13 @@ python scripts/scrape_ccf_conferences.py
 
 ```text
 1. 上传 PDF
-2. 服务创建异步任务并立即返回 `job_id`
+2. 服务创建异步任务并立即返回 `task_id`
 3. worker 上传到 Poe CDN
 4. 提取标题并发起首轮翻译
 5. 入库 Conversation / Message / FileRecord
 6. 可选提取 tags / figures / tables
 7. 用户继续翻译或自定义追问（同样走异步任务）
-8. 前端轮询任务状态并渲染结果
+8. 前端轮询 `/tasks/{task_id}` 并渲染结果
 ```
 
 ## 常见问题

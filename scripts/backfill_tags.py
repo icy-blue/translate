@@ -15,12 +15,13 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import backend.persistence.crud as crud
 from backend.core.config import settings
 from backend.core.database import engine
 from backend.domains.message_kinds import BOT_MESSAGE_KIND
 from backend.domains.paper_tags import extract_abstract_for_tagging
 from backend.integrations.poe import classify_paper_tags
+from backend.modules.conversations import get_conversation
+from backend.modules.metadata import replace_tags
 from backend.persistence.models import FileRecord, Message, PaperTag
 
 
@@ -104,7 +105,7 @@ async def backfill_record(
     poe_model: str,
     api_key: str,
 ) -> list[dict]:
-    conversation = crud.get_conversation(session, file_record.conversation_id)
+    conversation = get_conversation(session, file_record.conversation_id)
     if conversation is None:
         raise RuntimeError("Conversation not found.")
 
@@ -114,7 +115,7 @@ async def backfill_record(
         raise RuntimeError("Missing title or first bot abstract.")
 
     tags = await classify_paper_tags(conversation.title, abstract, poe_model, api_key)
-    crud.replace_tags(session, file_record.conversation_id, tags)
+    replace_tags(session, file_record.conversation_id, tags)
     return tags
 
 
@@ -137,7 +138,7 @@ async def async_main() -> int:
         failure_count = 0
 
         for index, record in enumerate(records, start=1):
-            conversation = crud.get_conversation(session, record.conversation_id)
+            conversation = get_conversation(session, record.conversation_id)
             label = record.conversation_id
             if conversation and conversation.title:
                 label = f"{record.conversation_id} ({conversation.title})"

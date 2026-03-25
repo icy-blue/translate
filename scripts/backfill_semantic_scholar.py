@@ -14,9 +14,9 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import backend.persistence.crud as crud
 from backend.core.database import engine
 from backend.integrations.semantic_scholar import refresh_semantic_scholar_result
+from backend.modules.conversations import get_conversation
 from backend.persistence.models import FileRecord, PaperSemanticScholarResult
 
 
@@ -123,7 +123,7 @@ def main() -> int:
         failure_count = 0
 
         for index, record in enumerate(records, start=1):
-            conversation = crud.get_conversation(session, record.conversation_id)
+            conversation = get_conversation(session, record.conversation_id)
             title = (conversation.title or "").strip() if conversation else ""
             label = record.conversation_id
             if title:
