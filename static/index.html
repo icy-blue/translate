@@ -1742,6 +1742,33 @@
                 开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
               </div>
             </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完范围：</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Checkbox checked={autoTranslateAppendix} onChange={e => setAutoTranslateAppendix(e.target.checked)}>
+                  自动翻译附录
+                </Checkbox>
+                <Checkbox checked={autoTranslateAcknowledgements} onChange={e => setAutoTranslateAcknowledgements(e.target.checked)}>
+                  自动翻译致谢
+                </Checkbox>
+                <Checkbox checked={autoTranslateReferences} onChange={e => setAutoTranslateReferences(e.target.checked)}>
+                  自动翻译参考文献
+                </Checkbox>
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完熔断次数：</label>
+              <InputNumber
+                min={1}
+                max={50}
+                value={autoTranslateBreakerLimit}
+                onChange={value => setAutoTranslateBreakerLimit(value || AUTO_TRANSLATE_BREAKER_DEFAULT)}
+                style={{ width: 120 }}
+              />
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                自动翻完时最多连续请求的轮数，默认 {AUTO_TRANSLATE_BREAKER_DEFAULT} 次，用于避免 bot 异常循环。
+              </div>
+            </div>
             <div>
               <label style={{ display: "block", marginBottom: 8 }}>分享链接基础路径 (URL Base)：</label>
               <Input
@@ -3196,6 +3223,33 @@
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
                 开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完范围：</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Checkbox checked={autoTranslateAppendix} onChange={e => setAutoTranslateAppendix(e.target.checked)}>
+                  自动翻译附录
+                </Checkbox>
+                <Checkbox checked={autoTranslateAcknowledgements} onChange={e => setAutoTranslateAcknowledgements(e.target.checked)}>
+                  自动翻译致谢
+                </Checkbox>
+                <Checkbox checked={autoTranslateReferences} onChange={e => setAutoTranslateReferences(e.target.checked)}>
+                  自动翻译参考文献
+                </Checkbox>
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完熔断次数：</label>
+              <InputNumber
+                min={1}
+                max={50}
+                value={autoTranslateBreakerLimit}
+                onChange={value => setAutoTranslateBreakerLimit(value || AUTO_TRANSLATE_BREAKER_DEFAULT)}
+                style={{ width: 120 }}
+              />
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                自动翻完时最多连续请求的轮数，默认 {AUTO_TRANSLATE_BREAKER_DEFAULT} 次，用于避免 bot 异常循环。
               </div>
             </div>
             <div>
