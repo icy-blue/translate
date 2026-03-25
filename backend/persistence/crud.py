@@ -20,6 +20,7 @@ from .models import (
     AsyncJob,
 )
 from ..domains.message_kinds import infer_message_kind, is_bot_message_kind
+from ..services.message_utils import preprocess_bot_reply_for_storage
 
 
 def _json_default(value):
@@ -54,13 +55,19 @@ def add_message(
 ) -> Message:
     normalized_message_kind = infer_message_kind(message_kind=message_kind, content=content)
     normalized_section_category = section_category if is_bot_message_kind(normalized_message_kind) else None
+    normalized_content = content
+    normalized_client_payload = client_payload
+    if is_bot_message_kind(normalized_message_kind):
+        prepared = preprocess_bot_reply_for_storage(content, client_payload)
+        normalized_content = str(prepared["content"])
+        normalized_client_payload = prepared["client_payload"]
     message = Message(
         conversation_id=conversation_id,
         message_kind=normalized_message_kind,
         section_category=normalized_section_category,
         visible_to_user=visible_to_user,
-        content=content,
-        client_payload_json=_normalize_message_payload_json(client_payload),
+        content=normalized_content,
+        client_payload_json=_normalize_message_payload_json(normalized_client_payload),
         created_at=created_at or datetime.now(timezone.utc),
     )
     session.add(message)

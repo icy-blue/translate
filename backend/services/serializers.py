@@ -6,7 +6,11 @@ from typing import Any
 from ..domains.paper_tags import get_tag_definition
 from ..persistence import crud
 from ..persistence.models import Conversation, Message
-from .message_utils import safe_json_loads
+from .message_utils import (
+    normalize_document_outline_payload,
+    normalize_translation_status_payload,
+    safe_json_loads,
+)
 
 LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo or timezone.utc
 
@@ -16,6 +20,9 @@ def ensure_local_timezone(dt: datetime) -> datetime:
 
 
 def serialize_message_record(message: Message) -> dict[str, Any]:
+    payload = safe_json_loads(message.client_payload_json, {})
+    translation_status = normalize_translation_status_payload(payload.get("translation_status")) if isinstance(payload, dict) else None
+    document_outline = normalize_document_outline_payload(payload.get("document_outline")) if isinstance(payload, dict) else None
     return {
         "id": message.id,
         "conversation_id": message.conversation_id,
@@ -23,6 +30,8 @@ def serialize_message_record(message: Message) -> dict[str, Any]:
         "section_category": message.section_category,
         "visible_to_user": message.visible_to_user,
         "content": message.content,
+        "translation_status": translation_status,
+        "document_outline": document_outline,
         "client_payload_json": message.client_payload_json,
         "created_at": message.created_at,
     }
@@ -130,7 +139,8 @@ def build_conversation_data_with_semantic(
     relevance_score: int = 0,
 ) -> dict[str, Any]:
     first_bot_msg = crud.get_first_bot_message(session, conversation.id)
-    summary = (first_bot_msg.content[:200] + "...") if first_bot_msg and len(first_bot_msg.content) > 200 else (first_bot_msg.content if first_bot_msg else "")
+    first_bot_content = first_bot_msg.content if first_bot_msg else ""
+    summary = (first_bot_content[:200] + "...") if len(first_bot_content) > 200 else first_bot_content
 
     file_record = crud.get_file_record(session, conversation.id)
     pdf_url = file_record.poe_url if file_record else None

@@ -12,7 +12,8 @@
 
 ### 1.3 代码锚点
 - `/Users/icynew/dev/translate/backend/main.py`
-- `/Users/icynew/dev/translate/backend/poe_utils.py`
+- `/Users/icynew/dev/translate/backend/services/async_jobs.py`
+- `/Users/icynew/dev/translate/backend/integrations/poe.py`
 - `/Users/icynew/dev/translate/static/index.html`
 
 ---

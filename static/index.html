@@ -301,9 +301,18 @@
       };
     }
 
-    function stripTranslationStatusBlock(content) {
-      const text = String(content || "");
-      return text.replace(/\[TRANSLATION_STATUS\][\s\S]*?\[\/TRANSLATION_STATUS\]/g, "").trim();
+    function normalizeDocumentOutline(documentOutline) {
+      if (!documentOutline || typeof documentOutline !== "object") {
+        return null;
+      }
+      const title = String(documentOutline.title || "").trim();
+      if (!title) {
+        return null;
+      }
+      return {
+        title,
+        content: String(documentOutline.content || "").trim(),
+      };
     }
 
     function parseJsonObject(raw) {
@@ -340,25 +349,23 @@
       const translationStatus = normalizeTranslationStatus(
         messageLike?.translation_status || clientPayload?.translation_status
       );
-      const rawContent = String(messageLike?.content || "");
+      const documentOutline = normalizeDocumentOutline(
+        messageLike?.document_outline || clientPayload?.document_outline
+      );
+      const cleanContent = String(messageLike?.content || "");
       const messageKind = String(
         messageLike?.message_kind
           || messageLike?.message_type
           || (messageLike?.role === "bot" ? "bot_reply" : "user_message")
       ).trim().toLowerCase();
-      const displayContent = String(
-        messageLike?.display_content !== undefined
-          ? messageLike.display_content
-          : stripTranslationStatusBlock(rawContent)
-      );
       return {
         id: messageLike?.id ?? fallbackId,
         role: messageLike?.role || getRoleFromMessageKind(messageKind),
         message_kind: messageKind,
         visible_to_user: messageLike?.visible_to_user !== false,
-        content: rawContent,
-        display_content: displayContent,
+        content: cleanContent,
         translation_status: translationStatus,
+        document_outline: documentOutline,
       };
     }
 
@@ -2449,11 +2456,11 @@
           const nextBlock = normalizeChatBlock({
             role: "bot",
             message_kind: "bot_reply",
-            content: data.reply,
-            display_content: data.display_reply,
+            content: data.content || data.display_reply || data.reply,
             translation_status: data.translation_status,
+            document_outline: data.document_outline,
           }, Date.now());
-          if (nextBlock.display_content) {
+          if (nextBlock.content) {
             setBlocks(prev => [
               ...prev,
               nextBlock
@@ -2537,7 +2544,7 @@
               break;
             }
 
-            const replySignature = String(result.data?.display_reply || result.data?.reply || "").trim();
+            const replySignature = String(result.data?.content || result.data?.display_reply || result.data?.reply || "").trim();
             const nextStateSignature = `${nextStatus.state}|${nextStatus.phase}|${nextStatus.next_action?.type || ""}|${nextStatus.next_action?.target_scope || ""}`;
             if (
               replySignature === previousReplySignature &&
@@ -2624,14 +2631,14 @@
           const nextBotBlock = normalizeChatBlock({
             role: "bot",
             message_kind: "bot_reply",
-            content: data.reply,
-            display_content: data.display_reply,
+            content: data.content || data.display_reply || data.reply,
             translation_status: data.translation_status,
+            document_outline: data.document_outline,
           }, Date.now() + 1);
           setBlocks(prev => [
             ...prev,
             normalizeChatBlock({ role: "user", message_kind: "user_message", content: customMessage }, Date.now()),
-            ...(nextBotBlock.display_content ? [nextBotBlock] : []),
+            ...(nextBotBlock.content ? [nextBotBlock] : []),
           ]);
           if (!saveToRecord) {
             message.info("对话完成（未保存到记录）");
@@ -3099,12 +3106,12 @@
                   type: "table"
                 })}
                 {blocks.map(block => (
-                  block.display_content ? (
+                  block.content ? (
                   <div
                     key={block.id}
                     className={block.role === "user" ? "user-message-block" : "message-block"}
                     dangerouslySetInnerHTML={{
-                      __html: MathUtils.renderMarkdownWithMath(block.display_content)
+                      __html: MathUtils.renderMarkdownWithMath(block.content)
                     }}
                   />
                   ) : null

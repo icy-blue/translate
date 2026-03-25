@@ -17,14 +17,14 @@
 - 判重分支提前执行：若 `fingerprint` 命中，默认不重写，直接返回 `existing_conversation_id`（可配置 `force_rebuild=false`）。
 
 3. **后端提交接口与类型（供持久化 skill 调用）**
-- 新增 agent 专用提交接口（建议放在 [backend/main.py](/Users/icynew/dev/translate/backend/main.py)）：`POST /agent/pipeline/commit`。
-- 新增请求/响应模型（可放在 [backend/models.py](/Users/icynew/dev/translate/backend/models.py) 或同模块 Pydantic 模型）：
+- 新增 agent 专用提交接口（当前放在 [backend/api/routers/conversations.py](/Users/icynew/dev/translate/backend/api/routers/conversations.py) 并由 [backend/main.py](/Users/icynew/dev/translate/backend/main.py) 挂载）：`POST /agent/pipeline/commit`。
+- 新增请求/响应模型（当前放在 [backend/schemas/pipeline.py](/Users/icynew/dev/translate/backend/schemas/pipeline.py)）：
   - Request: `PipelineBundleDTO`（完整渲染所需字段，含 `fingerprint` 和可选 `conversation_id`）。
   - Response: `status`, `conversation_id`, `exists`, `committed_parts`, `errors`。
 - 鉴权建议：独立 `AGENT_INGEST_TOKEN`（不复用前端 API key）。
 
 4. **数据库批量提交实现（单事务）**
-- 在 [backend/crud.py](/Users/icynew/dev/translate/backend/crud.py) 新增 `persist_pipeline_bundle(session, bundle)`：
+- 在 [backend/persistence/crud.py](/Users/icynew/dev/translate/backend/persistence/crud.py) 新增 `persist_pipeline_bundle(session, bundle)`：
   - 先查重 `FileRecord.fingerprint`。
   - 未命中则在一个事务里依次写 `Conversation`、`FileRecord`、`Message*`、`PaperFigure*`、`PaperTable*`、`PaperTag*`、可选 `PaperSemanticScholarResult`。
   - 全部成功后 `commit` 一次；任何异常 `rollback`，保证前端看不到半成品会话。

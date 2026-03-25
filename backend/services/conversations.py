@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from ..integrations.poe import get_bot_response
 from ..persistence import crud
-from .message_utils import infer_message_metadata, parse_raw_translation_status_block
+from .message_utils import infer_message_metadata, preprocess_bot_reply_for_storage
 
 
 async def continue_conversation(
@@ -47,8 +47,11 @@ async def continue_conversation(
     if progress_callback:
         progress_callback("等待 Poe 返回翻译结果")
     response_text = await get_bot_response(poe_messages, poe_model, api_key)
-    response_status = parse_raw_translation_status_block(response_text)
-    response_client_payload = {"translation_status": response_status} if response_status else None
+    prepared_response = preprocess_bot_reply_for_storage(response_text)
+    response_content = str(prepared_response["content"])
+    response_status = prepared_response["translation_status"]
+    response_outline = prepared_response["document_outline"]
+    response_client_payload = prepared_response["client_payload"]
     response_section_category = None
 
     if save_to_record:
@@ -69,7 +72,9 @@ async def continue_conversation(
         progress_callback("翻译结果已生成")
     return {
         "reply": response_text,
-        "display_reply": response_text,
+        "content": response_content,
+        "display_reply": response_content,
         "section_category": response_section_category,
         "translation_status": response_status,
+        "document_outline": response_outline,
     }

@@ -25,7 +25,11 @@ from .annotations import (
     refresh_conversation_semantic_result,
 )
 from .conversations import continue_conversation
-from .message_utils import infer_message_metadata, parse_raw_translation_status_block, safe_json_loads
+from .message_utils import (
+    infer_message_metadata,
+    preprocess_bot_reply_for_storage,
+    safe_json_loads,
+)
 from .serializers import (
     serialize_async_job,
     serialize_figures,
@@ -339,8 +343,11 @@ async def run_upload_job(job_id: str, payload: dict) -> dict:
         response_text = await get_bot_response([message], poe_model, api_key)
 
         mark_job_progress(job_id, "写入首轮翻译消息")
-        response_status = parse_raw_translation_status_block(response_text)
-        response_client_payload = {"translation_status": response_status} if response_status else None
+        prepared_response = preprocess_bot_reply_for_storage(response_text)
+        response_content = str(prepared_response["content"])
+        response_status = prepared_response["translation_status"]
+        response_outline = prepared_response["document_outline"]
+        response_client_payload = prepared_response["client_payload"]
         response_section_category = None
 
         with Session(engine) as session:
@@ -360,7 +367,7 @@ async def run_upload_job(job_id: str, payload: dict) -> dict:
             tables = extract_and_store_tables(session, conversation_id, file_bytes)
             mark_job_progress(job_id, "提取论文标签")
             tags = (
-                await extract_and_store_tags(session, conversation_id, final_title, response_text, tag_model, api_key)
+                await extract_and_store_tags(session, conversation_id, final_title, response_content, tag_model, api_key)
                 if extract_tags_enabled
                 else []
             )
@@ -376,14 +383,16 @@ async def run_upload_job(job_id: str, payload: dict) -> dict:
                         "message_kind": "bot_reply",
                         "section_category": response_section_category,
                         "visible_to_user": True,
-                        "content": response_text,
-                        "display_content": response_text,
+                        "content": response_content,
                         **({"client_payload": response_client_payload} if response_client_payload else {}),
                         **({"translation_status": response_status} if response_status else {}),
+                        **({"document_outline": response_outline} if response_outline else {}),
                     }
                 ],
                 "translation_status": response_status,
-                "display_reply": response_text,
+                "document_outline": response_outline,
+                "content": response_content,
+                "display_reply": response_content,
                 "pdf_url": pdf_attachment.url,
                 "figures": serialize_figures(figures),
                 "tables": serialize_tables(tables),
