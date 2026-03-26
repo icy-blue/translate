@@ -1,6 +1,6 @@
 # PDF 论文翻译助手
 
-一个基于 FastAPI + Poe API 的论文翻译服务，支持 PDF 上传、分章续翻、会话管理，以及标签/图表/语义检索信息的增量维护。
+一个基于 FastAPI + Poe 的 PDF 论文翻译服务。当前版本已经从“整篇长对话续翻”切到“先规划 unit，再按 unit 逐段翻译”的任务流，支持异步上传、按正文/附录继续翻译、标签与元数据维护、图表资产提取，以及 Agent 批量入库。
 
 ## Demo
 
@@ -12,60 +12,48 @@
 ![列表](static/conversations2.jpg)
 ![文章页面](static/translate.jpg)
 
-## 核心能力
+## 当前能力
 
-- PDF 上传后自动创建翻译会话，并生成首轮翻译结果
-- 支持“继续”续翻，按章节逐步推进
-- 支持会话内自定义追问（可选择是否写入历史）
-- 支持论文标签自动提取与手动改写
-- 支持论文图片/表格提取并以二进制资产存储
-- 支持标题搜索（精确 + 模糊）与标签/CCF/会议/年份过滤
-- 支持只读模式（禁用写操作，仅浏览）
+- 上传 PDF 后创建异步 ingest 任务，返回 `task_id`，客户端轮询 `/tasks/{task_id}` 获取结果。
+- 首轮翻译先让模型输出 `translation_plan`，把正文放进 `units`、附录放进 `appendix_units`。
+- 后续续翻按 unit 推进，翻译状态以 `translation_status` 持久化到消息 payload 中。
+- 同一 PDF 会按 SHA-256 指纹去重，重复上传会直接返回已有会话。
+- 自动提取论文标题、图、表；标签提取可在上传时开启，也可后续单独刷新。
+- 接入 Semantic Scholar 元数据，并支持按标签、CCF、venue、年份过滤与搜索。
+- 支持只读模式，统一拦截所有写接口。
+- 支持 Agent 通过 `/pipeline/commits` 一次性提交完整流水线结果。
 
 ## 技术栈
 
 - 后端：FastAPI
-- 数据层：SQLModel + SQLAlchemy
-- 数据库：SQLite（默认）/ PostgreSQL
-- AI：fastapi-poe（Poe）
-- PDF 与资产处理：pypdf + PyMuPDF + Pillow
-- 前端：`static/index.html`（React + Ant Design CDN）
+- 数据层：SQLModel / SQLAlchemy
+- 数据库：SQLite 默认，兼容 PostgreSQL
+- 模型调用：`fastapi-poe`
+- PDF 处理：`pypdf`、`pymupdf`
+- 图像处理：`pillow`
+- 前端：`static/index.html` 单页应用
 
-后端 Python 模块统一放在 `backend/`，并按 `app / platform / domain / modules` 组织。根目录 `app.py` 保持启动入口（`uvicorn app:app`），真正的应用装配位于 `backend/app/factory.py`。
+## 运行前说明
+
+- Python 3.10+
+- `backend/platform/config.py` 中的 `Settings` 是运行时默认值的最终来源。
+- `.env.example` 可以直接复制至 `.env` 使用。
 
 ## 快速启动
 
-### 1) 环境准备
-
-- Python 3.10+
-- pip
-
-### 2) 安装依赖
+安装依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3) 配置环境变量
+准备环境变量：
 
 ```bash
 cp .env.example .env
 ```
 
-按需修改 `.env`：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///translations.db` | 数据库连接串 |
-| `POE_MODEL` | `GPT-5.2-Instant` | 后端默认模型（可被前端请求参数覆盖） |
-| `TITLE_PROMPT` | 内置中文提示词 | 标题提取提示词 |
-| `INITIAL_PROMPT` | 内置中文提示词 | 首轮翻译提示词 |
-| `CONTINUE_PROMPT` | 内置中文提示词 | 无状态续翻提示词模板 |
-| `READ_ONLY` | `false` | 是否启用只读模式 |
-| `ASYNC_JOB_WORKERS` | `2` | 异步任务 worker 数量（上传/续翻/追问） |
-| `AGENT_INGEST_TOKEN` | `-` | Agent 批量提交流水线结果到后端时的鉴权 Token（`x-agent-token`） |
-
-### 4) 启动服务
+启动服务：
 
 ```bash
 uvicorn app:app --reload
@@ -73,38 +61,80 @@ uvicorn app:app --reload
 
 打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。
 
-## 生产部署示例
+生产示例：
 
 ```bash
 gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 ```
 
-## 接口概览
+## 关键环境变量
 
-| 方法 | 路径 | 说明 |
+| 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `POST` | `/tasks/ingest-pdf` | 上传 PDF，创建 ingest 任务（立即返回 `task_id`） |
-| `GET` | `/tasks/{task_id}` | 查询任务状态与结果（轮询） |
-| `POST` | `/translations/{conversation_id}/continue` | 依据最新翻译状态推进下一轮翻译（异步任务） |
-| `GET` | `/conversations/{conversation_id}` | 获取会话详情 |
-| `GET` | `/conversations` | 分页会话列表（支持过滤） |
-| `GET` | `/search` | 标题搜索（精确 + 模糊） |
-| `GET` | `/tags/library` | 标签树与使用计数 |
-| `POST` | `/metadata/{conversation_id}/refresh` | 刷新标签与 Semantic Scholar 元数据 |
-| `PUT` | `/metadata/{conversation_id}/tags` | 手动更新标签 |
-| `POST` | `/assets/{conversation_id}/reprocess` | 按 caption 方向重提图/表 |
-| `POST` | `/pipeline/commits` | Agent 一次性批量提交处理结果入库（需 `x-agent-token`） |
-| `GET` | `/assets/figures/{figure_id}` | 获取图像二进制 |
-| `GET` | `/assets/tables/{table_id}` | 获取表格二进制 |
-| `GET` | `/search/filters` | 过滤器统计（CCF/venue/year） |
-| `GET` | `/config` | 系统配置（只读状态、默认模型） |
+| `DATABASE_URL` | `sqlite:///translations.db` | 数据库连接串 |
+| `POE_MODEL` | `GPT-5.2-Instant` | 上传、标题提取、续翻默认模型 |
+| `TITLE_PROMPT` | 内置标题提取提示词 | 从 PDF 提取标题 |
+| `INITIAL_PROMPT` | 内置 `translation-plan extractor` 提示词 | 首轮先生成 unit 规划 |
+| `CONTINUE_PROMPT` | 内置 unit 翻译提示词 | 只翻当前 unit，并要求输出 `TRANSLATION_STATUS_JSON` |
+| `READ_ONLY` | `false` | 是否禁用写操作 |
+| `ASYNC_JOB_WORKERS` | `2` | 异步任务 worker 数量 |
+| `SEMANTIC_SCHOLAR_API_KEY` / `S2_API_KEY` | 空 | Semantic Scholar API key |
+| `AGENT_INGEST_TOKEN` | 空 | Agent 调用 `/pipeline/commits` 时通过 `x-agent-token` 传递 |
 
 说明：
 
-- 写接口受只读模式保护（`READ_ONLY=true` 时返回 403）
-- ingest 和翻译推进接口需要提交 `api_key`（表单字段）
-- `POST /tasks/ingest-pdf` 与 `POST /translations/{conversation_id}/continue` 只负责入队；客户端需轮询 `/tasks/{task_id}` 获取最终结果
-- 同一会话在翻译推进任务未完成时会加锁；重复提交返回 `409`
+- `api_key` 不是环境变量，而是前端/客户端通过表单字段提交给写接口的 Poe API key。
+- 应用启动时会自动执行建表、补资产列、校验 message schema、恢复未完成任务并启动 worker。
+- 如果启动时报 `message table schema is inconsistent`，先运行：
+
+```bash
+python scripts/maintain_message_kind_schema.py --write
+```
+
+## API 文档
+
+详细接口说明已经单独拆到 [API.md](API.md)，README 这里只保留项目概览。
+
+`API.md` 包含：
+
+- 页面与系统路由
+- ingest / continue 的异步任务接口
+- 会话、搜索、元数据、资产接口
+- Agent 批量入库接口
+- 关键表单字段、请求头和常见返回约束
+
+## 当前主流程
+
+```text
+1. 客户端上传 PDF 到 /tasks/ingest-pdf
+2. 服务写入 AsyncJob，后台 worker 开始处理
+3. 计算 PDF 指纹；若已存在有效会话则直接返回旧结果
+4. 上传原始 PDF 到 Poe，并尝试只用首页提取标题
+5. 调用 planner，生成 translation_plan（units / appendix_units）
+6. 若 planner 可用，则立刻翻译首个 unit
+7. 保存 Conversation / FileRecord / Message / 图 / 表 / 标签 / Semantic Scholar 结果
+8. 前端轮询 /tasks/{task_id}，得到会话详情与当前 translation_status
+9. 用户调用 /translations/{conversation_id}/continue，继续 body 或 appendix
+```
+
+## 数据模型
+
+核心表位于 `backend/platform/models.py`：
+
+- `Conversation`
+- `Message`
+- `FileRecord`
+- `PaperFigure`
+- `PaperTable`
+- `PaperTag`
+- `PaperSemanticScholarResult`
+- `AsyncJob`
+
+其中：
+
+- `Message.client_payload_json` 用来持久化 `translation_plan` 和 `translation_status`
+- `AsyncJob` 用来承载 ingest / continue 这类后台任务
+- 图表二进制直接保存在数据库中
 
 ## 目录结构
 
@@ -113,103 +143,91 @@ translate/
 ├── app.py
 ├── backend/
 │   ├── app/
-│   │   ├── factory.py
-│   │   ├── lifespan.py
-│   │   └── dependencies.py
-│   ├── platform/
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── models.py
-│   │   ├── schema_maintenance.py
-│   │   ├── task_runtime.py
-│   │   └── gateways/
+│   │   ├── dependencies.py
+│   │   └── factory.py
 │   ├── domain/
 │   │   ├── ccf_mapping.py
 │   │   ├── message_kinds.py
 │   │   ├── message_payloads.py
+│   │   ├── message_sections.py
 │   │   ├── paper_tags.py
 │   │   └── pdf_figures.py
-│   └── modules/
-│       ├── ingest/__init__.py
-│       ├── translation/__init__.py
-│       ├── conversations/__init__.py
-│       ├── metadata/__init__.py
-│       ├── assets/__init__.py
-│       ├── search/__init__.py
-│       ├── pipeline/__init__.py
-│       └── system/__init__.py
-├── static/
+│   ├── modules/
+│   │   ├── assets.py
+│   │   ├── conversations.py
+│   │   ├── ingest.py
+│   │   ├── metadata.py
+│   │   ├── pipeline.py
+│   │   ├── search.py
+│   │   ├── system.py
+│   │   └── translation.py
+│   └── platform/
+│       ├── config.py
+│       ├── gateways/
+│       ├── models.py
+│       ├── schema_maintenance.py
+│       └── task_runtime.py
+├── docs/
 ├── scripts/
-├── data/
-├── requirements.txt
-└── translations.db
+├── skills/
+├── static/
+└── tests/
 ```
 
-### 后端组织说明
+补充说明：
 
-- `backend/app/`：应用装配与 FastAPI 依赖。
-- `backend/platform/`：配置、数据库、模型、任务运行时、外部 gateway。
-- `backend/domain/`：纯领域规则与消息 payload 解析。
-- `backend/modules/<task>/__init__.py`：按任务成组的单文件模块，内部包含该任务的路由、service、repository 与 schema。
-- 旧 `core / integrations / persistence / services` 仅保留兼容转发入口，不再承载主实现。
+- `app.py` 只是兼容入口，真正的应用装配在 `backend/app/factory.py`
+- 路由按任务拆在 `backend/modules/*.py`
+- 领域解析逻辑放在 `backend/domain/`
+- 平台层负责配置、模型、schema 维护、任务运行时和外部网关
 
-更详细的后端分层约定可见：[docs/backend-structure.md](docs/backend-structure.md)。
+## 常用脚本
 
-## 常用维护脚本
-
-### 1) 回填标签
+常规维护：
 
 ```bash
-python scripts/backfill_tags.py --api-key <your-poe-api-key>
-```
-
-### 2) 回填图/表资产
-
-```bash
+python scripts/backfill_tags.py --api-key <poe_api_key>
 python scripts/backfill_assets.py --limit 50
-```
-
-### 3) 回填 Semantic Scholar + CCF
-
-```bash
-python scripts/backfill_semantic_scholar.py --api-key <your-s2-api-key>
-```
-
-### 4) 导出语义检索结果 CSV
-
-```bash
+python scripts/backfill_semantic_scholar.py --api-key <s2_api_key>
 python scripts/export_semantic_scholar_csv.py --output data/paper_semantic_scholar_results.csv
-```
-
-### 5) 更新 CCF 会议/期刊目录
-
-```bash
 python scripts/scrape_ccf_conferences.py
 ```
 
-## 典型流程
+历史数据维护：
 
-```text
-1. 上传 PDF
-2. 服务创建异步任务并立即返回 `task_id`
-3. worker 上传到 Poe CDN
-4. 提取标题并发起首轮翻译
-5. 入库 Conversation / Message / FileRecord
-6. 可选提取 tags / figures / tables
-7. 用户继续翻译或自定义追问（同样走异步任务）
-8. 前端轮询 `/tasks/{task_id}` 并渲染结果
+```bash
+python scripts/maintain_message_kind_schema.py --write
+python scripts/backfill_message_payload_cleanup.py --write
+python scripts/backfill_translation_payload_v2.py --write
 ```
+
+## 测试
+
+```bash
+python -m unittest discover -s tests
+```
+
+当前测试主要覆盖：
+
+- 新旧路由切换是否正确
+- ingest 去重与首轮翻译计划存储
+- continue 按 body / appendix 推进的状态迁移
+- `translation_plan` / `translation_status` payload 规范化
 
 ## 常见问题
 
-### API Key 从哪里来？
+### 为什么上传和续翻不是同步返回？
 
-在 [Poe](https://poe.com/) 账户中生成 API Key。前端上传/续翻/追问时会以表单字段提交。
+当前版本统一走 `AsyncJob`，这样可以在上传、调用 Poe、提图表、刷新元数据时保持接口稳定，前端只需要轮询 `/tasks/{task_id}`。
 
-### 如何改默认模型或提示词？
+### 只读模式会影响哪些接口？
 
-在 `.env` 中调整 `POE_MODEL`、`TITLE_PROMPT`、`INITIAL_PROMPT`、`CONTINUE_PROMPT`，重启服务即可。
+所有写接口都会被 `check_read_only` 拦截，包括上传、继续翻译、刷新元数据、手动改标签、重提图表和 Agent 批量入库。
 
-### 如何进入只读模式？
+### 为什么继续翻译可能返回 409？
 
-将 `.env` 的 `READ_ONLY=true`，重启后上传/续翻/追问/标签更新/资产重提会被禁用（403）。
+常见原因有三种：
+
+- 同一会话已有进行中的 `continue_translation` 任务
+- 当前 scope 没有剩余 unit
+- 最新消息里缺少可用的 `translation_plan` / `translation_status`
