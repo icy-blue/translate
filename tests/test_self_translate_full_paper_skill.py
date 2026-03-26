@@ -179,6 +179,72 @@ class SelfTranslateFullPaperSkillBridgeTest(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "invalid_output")
 
 
+class SelfTranslateFullPaperSkillBuilderTest(unittest.TestCase):
+    def test_build_artifact_materializes_messages_from_unit_results(self):
+        request = {
+            "mode": "build_artifact",
+            "translation_plan": {
+                "status": "ok",
+                "units": ["ABSTRACT", "1 Introduction"],
+                "appendix_units": [],
+                "reason": "",
+            },
+            "unit_results": [
+                {
+                    "unit_id": "ABSTRACT",
+                    "state": "OK",
+                    "content": "# 摘要\n这是摘要译文。",
+                },
+                {
+                    "unit_id": "1 Introduction",
+                    "state": "OK",
+                    "content": "# 1 引言\n这是引言译文。",
+                },
+            ],
+            "errors": [],
+        }
+
+        artifact = self_translate_skill._materialize_agent_artifact(request)
+
+        self.assertEqual(len(artifact["messages"]), 4)
+        self.assertEqual(artifact["messages"][0]["message_kind"], "system_prompt")
+        self.assertEqual(artifact["messages"][2]["message_kind"], "continue_command")
+        self.assertEqual(artifact["first_bot_message"], "# 摘要\n这是摘要译文。")
+        self.assertEqual(artifact["continue_count_used"], 1)
+        self.assertEqual(artifact["translation_status"]["state"], "ALL_DONE")
+
+    def test_build_artifact_stops_at_unsupported_unit(self):
+        request = {
+            "mode": "build_artifact",
+            "translation_plan": {
+                "status": "ok",
+                "units": ["ABSTRACT", "2 Method", "3 Results"],
+                "appendix_units": [],
+                "reason": "",
+            },
+            "unit_results": [
+                {
+                    "unit_id": "ABSTRACT",
+                    "state": "OK",
+                    "content": "# 摘要\n这是摘要译文。",
+                },
+                {
+                    "unit_id": "2 Method",
+                    "state": "UNSUPPORTED",
+                    "reason": "ambiguous_unit_boundary",
+                },
+            ],
+            "errors": [],
+        }
+
+        artifact = self_translate_skill._materialize_agent_artifact(request)
+
+        self.assertEqual(artifact["continue_count_used"], 1)
+        self.assertEqual(artifact["translation_status"]["state"], "UNSUPPORTED")
+        self.assertEqual(artifact["translation_status"]["current_unit_id"], "2 Method")
+        self.assertEqual(artifact["messages"][-1]["content"], "")
+
+
 class SelfTranslateFullPaperSkillExamplesTest(unittest.TestCase):
     def test_examples_cover_required_protocol_scenarios(self):
         examples_path = Path(__file__).resolve().parents[1] / "skills" / "self-translate-full-paper-skill" / "references" / "examples.md"
