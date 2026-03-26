@@ -19,6 +19,23 @@ def _result_error(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}, "bundle": None, "errors": []}
 
 
+def _normalize_file_record(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    normalized = dict(value)
+    filename = str(normalized.get("filename", "")).strip()
+    fingerprint = str(normalized.get("fingerprint", "")).strip()
+    poe_url = str(normalized.get("poe_url", "")).strip()
+    if not filename or not fingerprint or not poe_url:
+        return None
+    normalized["filename"] = filename
+    normalized["fingerprint"] = fingerprint
+    normalized["poe_url"] = poe_url
+    normalized["content_type"] = str(normalized.get("content_type", "")).strip() or "application/pdf"
+    normalized["poe_name"] = str(normalized.get("poe_name", "")).strip() or filename
+    return normalized
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="compose-pipeline-bundle-skill runner")
     parser.add_argument("--input-json", required=True)
@@ -32,14 +49,17 @@ def main() -> int:
         return 1
 
     title = str(payload.get("title", "")).strip()
-    file_record = payload.get("file_record") if isinstance(payload.get("file_record"), dict) else None
+    file_record = _normalize_file_record(payload.get("file_record"))
     messages = payload.get("messages") if isinstance(payload.get("messages"), list) else None
 
     if not title:
         _write_json(args.output_json, _result_error("invalid_bundle", "title is required."))
         return 1
     if not file_record:
-        _write_json(args.output_json, _result_error("invalid_bundle", "file_record is required."))
+        _write_json(
+            args.output_json,
+            _result_error("invalid_bundle", "file_record with filename, fingerprint, and poe_url is required."),
+        )
         return 1
     if messages is None:
         _write_json(args.output_json, _result_error("invalid_bundle", "messages must be a list."))

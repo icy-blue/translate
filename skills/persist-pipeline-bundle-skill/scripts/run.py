@@ -21,6 +21,10 @@ def _result_error(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}, "response": None, "errors": []}
 
 
+def _build_endpoint(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/agent/pipeline/commits"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="persist-pipeline-bundle-skill runner")
     parser.add_argument("--input-json", required=True)
@@ -47,7 +51,7 @@ def main() -> int:
         _write_json(args.output_json, _result_error("invalid_input", "bundle is required."))
         return 1
 
-    url = f"{base_url}/agent/pipeline/commit"
+    url = _build_endpoint(base_url)
     data = json.dumps(bundle, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         url,

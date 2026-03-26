@@ -1,3 +1,3 @@
 # Contracts
 
-The skill outputs `meta` compatible with `/agent/pipeline/commit` payload `meta`.
+The skill outputs `meta` compatible with `/agent/pipeline/commits` payload `meta`.
