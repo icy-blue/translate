@@ -131,7 +131,7 @@
     }
 
     function formatActionButtonLabel(action, options = {}) {
-      const { fallback = "继续正文", stopLabel = "无可继续内容" } = options;
+      const { fallback = "继续翻译正文", stopLabel = "无可继续内容" } = options;
       if (!action || typeof action !== "object") {
         return fallback;
       }
@@ -139,9 +139,9 @@
         return stopLabel;
       }
       if (action.target_scope === "appendix") {
-        return "继续附录";
+        return "继续翻译附录";
       }
-      return "继续正文";
+      return "继续翻译正文";
     }
 
     /**
@@ -484,7 +484,7 @@
         return { label: "全部完成", className: "translation-status-done" };
       }
       if (state === "UNSUPPORTED") {
-        return { label: "无法继续", className: "translation-status-body-done" };
+        return { label: "翻译失败", className: "translation-status-body-done" };
       }
       if (state === "BODY_DONE" && status?.active_scope === "appendix" && (status?.completed_unit_count || 0) > 0) {
         return { label: "附录进行中", className: "translation-status-progress" };
@@ -530,7 +530,7 @@
         return { action, enabled: false, label: "已完成" };
       }
       if (status?.state === "UNSUPPORTED") {
-        return { action, enabled: false, label: "无法继续" };
+        return { action, enabled: false, label: "翻译失败" };
       }
       if (!action || action.type === "stop") {
         return { action, enabled: false, label: "无可继续内容" };
@@ -544,7 +544,7 @@
         return { action, enabled: false, label: "已完成" };
       }
       if (status?.state === "UNSUPPORTED") {
-        return { action, enabled: false, label: "无法继续" };
+        return { action, enabled: false, label: "翻译失败" };
       }
       if (!action || action.type === "stop") {
         if (status?.state === "BODY_DONE") {
