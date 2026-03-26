@@ -1,0 +1,3 @@
+interface:
+  display_name: "PDF Ingest"
+  short_description: "Read PDF bytes, compute fingerprint, and check duplicate conversations"

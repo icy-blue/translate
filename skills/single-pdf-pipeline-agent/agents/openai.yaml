@@ -1,0 +1,3 @@
+interface:
+  display_name: "Single PDF Pipeline"
+  short_description: "Orchestrate all skills and persist once"

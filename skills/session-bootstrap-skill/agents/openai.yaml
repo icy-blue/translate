@@ -1,0 +1,3 @@
+interface:
+  display_name: "Session Bootstrap"
+  short_description: "Upload attachment to Poe and extract paper title without DB writes"

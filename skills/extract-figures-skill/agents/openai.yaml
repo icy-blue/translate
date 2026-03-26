@@ -1,0 +1,3 @@
+interface:
+  display_name: "Extract Figures"
+  short_description: "Extract paper figures to serializable payloads"

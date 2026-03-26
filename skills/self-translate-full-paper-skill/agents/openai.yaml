@@ -1,0 +1,3 @@
+interface:
+  display_name: "Self Full Paper Translate"
+  short_description: "Use agent-native reasoning to produce translate-skill-compatible paper translation output"

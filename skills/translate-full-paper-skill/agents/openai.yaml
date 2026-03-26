@@ -1,0 +1,3 @@
+interface:
+  display_name: "Full Paper Translate"
+  short_description: "Build backend-compatible whole-paper translation messages"

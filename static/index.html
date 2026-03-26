@@ -43,10 +43,14 @@
 
     const { useState, useEffect } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MessageOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
-    const { TextArea } = Input;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
 
     const BASE_URL = "";
+    const AUTO_TRANSLATE_BREAKER_DEFAULT = 8;
+    const AUTO_TRANSLATE_LOCAL_KEYS = {
+      appendix: "auto_translate_appendix",
+      breakerLimit: "auto_translate_breaker_limit",
+    };
     const TAG_CATEGORY_META = {
       L: { className: "tag-chip-learning" },
       M: { className: "tag-chip-modality" },
@@ -72,6 +76,72 @@
         hour: "2-digit",
         minute: "2-digit"
       });
+    }
+
+    function getStoredBoolean(key, defaultValue = false) {
+      const raw = localStorage.getItem(key);
+      if (raw === null) {
+        return defaultValue;
+      }
+      return raw === "true";
+    }
+
+    function getStoredInteger(key, defaultValue) {
+      const raw = Number(localStorage.getItem(key));
+      return Number.isFinite(raw) && raw > 0 ? raw : defaultValue;
+    }
+
+    function buildAutomationSettingsSnapshot({
+      autoTranslateAppendix,
+      autoTranslateBreakerLimit,
+    }) {
+      return {
+        autoTranslateAppendix: Boolean(autoTranslateAppendix),
+        autoTranslateBreakerLimit: Number.isFinite(Number(autoTranslateBreakerLimit))
+          ? Math.max(1, Number(autoTranslateBreakerLimit))
+          : AUTO_TRANSLATE_BREAKER_DEFAULT,
+      };
+    }
+
+    function getEnabledAutoScopeTargets(settings) {
+      const scopes = [];
+      if (settings.autoTranslateAppendix) scopes.push("appendix");
+      return scopes;
+    }
+
+    function getScopeLabel(scope) {
+      if (scope === "appendix") return "附录";
+      if (scope === "body") return "正文";
+      if (scope === "done") return "全部内容";
+      if (scope === "none") return "无";
+      return "当前范围";
+    }
+
+    function formatTranslationActionLabel(nextAction) {
+      if (!nextAction || typeof nextAction !== "object") {
+        return "";
+      }
+      if (nextAction.type === "stop") {
+        return "停止";
+      }
+      if (nextAction.type === "continue") {
+        return nextAction.target_scope === "appendix" ? "继续翻译附录" : "继续翻译正文";
+      }
+      return "";
+    }
+
+    function formatActionButtonLabel(action, options = {}) {
+      const { fallback = "继续翻译正文", stopLabel = "无可继续内容" } = options;
+      if (!action || typeof action !== "object") {
+        return fallback;
+      }
+      if (action.type === "stop") {
+        return stopLabel;
+      }
+      if (action.target_scope === "appendix") {
+        return "继续翻译附录";
+      }
+      return "继续翻译正文";
     }
 
     /**
@@ -191,6 +261,298 @@
           </span>
         )
       ));
+    }
+
+    function normalizeTranslationStatus(status) {
+      if (!status || typeof status !== "object") {
+        return null;
+      }
+      const protocol = String(status.protocol || "").trim();
+      if (protocol && protocol !== "unit_v1") {
+        return null;
+      }
+      const state = String(status.state || "").toUpperCase();
+      if (!state) {
+        return null;
+      }
+      const activeUnits = Array.isArray(status.active_units)
+        ? status.active_units.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const completedUnitIds = Array.isArray(status.completed_unit_ids)
+        ? status.completed_unit_ids.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const remainingUnitIds = Array.isArray(status.remaining_unit_ids)
+        ? status.remaining_unit_ids.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const currentUnitIndex = Number.isFinite(Number(status.current_unit_index))
+        ? Number(status.current_unit_index)
+        : -1;
+      const totalUnitCount = Number.isFinite(Number(status.total_unit_count))
+        ? Number(status.total_unit_count)
+        : completedUnitIds.length + remainingUnitIds.length;
+      const completedUnitCount = Number.isFinite(Number(status.completed_unit_count))
+        ? Number(status.completed_unit_count)
+        : completedUnitIds.length;
+      return {
+        protocol: protocol || "unit_v1",
+        planner_status: String(status.planner_status || "").trim().toLowerCase(),
+        active_scope: String(status.active_scope || "").trim().toLowerCase(),
+        active_units: activeUnits,
+        current_unit_id: String(status.current_unit_id || "").trim(),
+        current_unit_index: currentUnitIndex,
+        completed_unit_ids: completedUnitIds,
+        remaining_unit_ids: remainingUnitIds,
+        next_unit_id: String(status.next_unit_id || "").trim(),
+        state,
+        reason: String(status.reason || "").trim(),
+        total_unit_count: totalUnitCount,
+        completed_unit_count: completedUnitCount,
+        source: String(status.source || ""),
+        is_completed: Boolean(status.is_completed),
+        is_all_done: Boolean(status.is_all_done),
+      };
+    }
+
+    function normalizeTranslationPlan(plan) {
+      if (!plan || typeof plan !== "object") {
+        return null;
+      }
+      const protocol = String(plan.protocol || "").trim();
+      if (protocol && protocol !== "unit_v1") {
+        return null;
+      }
+      const status = String(plan.status || "").trim().toLowerCase();
+      if (status && status !== "ok" && status !== "unsupported") {
+        return null;
+      }
+      const units = Array.isArray(plan.units)
+        ? plan.units.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      const appendixUnits = Array.isArray(plan.appendix_units)
+        ? plan.appendix_units.map(item => String(item || "").trim()).filter(Boolean)
+        : [];
+      return {
+        protocol: protocol || "unit_v1",
+        status,
+        units,
+        appendix_units: appendixUnits,
+        reason: String(plan.reason || "").trim(),
+      };
+    }
+
+    function buildTranslationProgressBreakdown(status, plan) {
+      const fallbackOverallCompleted = Number.isFinite(Number(status?.completed_unit_count))
+        ? Number(status.completed_unit_count)
+        : 0;
+      const fallbackOverallTotal = Number.isFinite(Number(status?.total_unit_count))
+        ? Number(status.total_unit_count)
+        : 0;
+      const bodyUnits = Array.isArray(plan?.units) ? plan.units : [];
+      const appendixUnits = Array.isArray(plan?.appendix_units) ? plan.appendix_units : [];
+      const hasScopedPlan = bodyUnits.length > 0 || appendixUnits.length > 0 || String(plan?.status || "").trim().toLowerCase() === "unsupported";
+      const completedSet = new Set(
+        Array.isArray(status?.completed_unit_ids)
+          ? status.completed_unit_ids.map(item => String(item || "").trim()).filter(Boolean)
+          : []
+      );
+      const bodyCompleted = bodyUnits.filter(unitId => completedSet.has(unitId)).length;
+      const appendixCompleted = appendixUnits.filter(unitId => completedSet.has(unitId)).length;
+      const overallCompleted = hasScopedPlan ? bodyCompleted + appendixCompleted : fallbackOverallCompleted;
+      const overallTotal = hasScopedPlan ? bodyUnits.length + appendixUnits.length : fallbackOverallTotal;
+      return {
+        hasScopedPlan,
+        overallCompleted,
+        overallTotal,
+        bodyCompleted: hasScopedPlan ? bodyCompleted : null,
+        bodyTotal: hasScopedPlan ? bodyUnits.length : null,
+        appendixCompleted: hasScopedPlan ? appendixCompleted : null,
+        appendixTotal: hasScopedPlan ? appendixUnits.length : null,
+      };
+    }
+
+    function formatUnitProgress(completed, total, options = {}) {
+      const { emptyText = "0 / 0 块" } = options;
+      if (!Number.isFinite(Number(total))) {
+        return emptyText;
+      }
+      const safeTotal = Math.max(0, Number(total));
+      if (safeTotal === 0) {
+        return emptyText;
+      }
+      const safeCompleted = Math.min(safeTotal, Math.max(0, Number(completed) || 0));
+      return `${safeCompleted} / ${safeTotal} 块`;
+    }
+
+    function parseJsonObject(raw) {
+      if (!raw) {
+        return null;
+      }
+      if (typeof raw === "object" && !Array.isArray(raw)) {
+        return raw;
+      }
+      if (typeof raw !== "string") {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function getRoleFromMessageKind(messageKind) {
+      return String(messageKind || "").trim().toLowerCase() === "bot_reply" ? "bot" : "user";
+    }
+
+    function getMessageClientPayload(messageLike) {
+      if (!messageLike || typeof messageLike !== "object") {
+        return null;
+      }
+      return parseJsonObject(messageLike.client_payload) || parseJsonObject(messageLike.client_payload_json);
+    }
+
+    function normalizeChatBlock(messageLike, fallbackId) {
+      const clientPayload = getMessageClientPayload(messageLike);
+      const translationStatus = normalizeTranslationStatus(
+        messageLike?.translation_status || clientPayload?.translation_status
+      );
+      const cleanContent = String(messageLike?.content || "");
+      const messageKind = String(
+        messageLike?.message_kind
+          || messageLike?.message_type
+          || (messageLike?.role === "bot" ? "bot_reply" : "user_message")
+      ).trim().toLowerCase();
+      return {
+        id: messageLike?.id ?? fallbackId,
+        role: messageLike?.role || getRoleFromMessageKind(messageKind),
+        message_kind: messageKind,
+        visible_to_user: messageLike?.visible_to_user !== false,
+        content: cleanContent,
+        translation_status: translationStatus,
+      };
+    }
+
+    function getLatestTranslationContextFromMessages(messages) {
+      const items = Array.isArray(messages) ? messages : [];
+      let latestTranslationStatus = null;
+      let latestTranslationPlan = null;
+      for (let i = items.length - 1; i >= 0; i -= 1) {
+        const messageLike = items[i];
+        const messageKind = String(
+          messageLike?.message_kind
+            || messageLike?.message_type
+            || (messageLike?.role === "bot" ? "bot_reply" : "user_message")
+        ).trim().toLowerCase();
+        const role = messageLike?.role || getRoleFromMessageKind(messageKind);
+        if (role !== "bot") {
+          continue;
+        }
+        const clientPayload = getMessageClientPayload(messageLike);
+        const translationStatus = normalizeTranslationStatus(
+          messageLike?.translation_status || clientPayload?.translation_status
+        );
+        const translationPlan = normalizeTranslationPlan(
+          messageLike?.translation_plan || clientPayload?.translation_plan
+        );
+        if (!latestTranslationStatus && translationStatus) {
+          latestTranslationStatus = translationStatus;
+        }
+        if (!latestTranslationPlan && translationPlan) {
+          latestTranslationPlan = translationPlan;
+        }
+        if (latestTranslationStatus && latestTranslationPlan) {
+          break;
+        }
+      }
+      return {
+        translationStatus: latestTranslationStatus,
+        translationPlan: latestTranslationPlan,
+      };
+    }
+
+    function buildVisibleBlocks(messages) {
+      const baseId = Date.now();
+      return (Array.isArray(messages) ? messages : [])
+        .map((messageLike, index) => normalizeChatBlock(messageLike, `${baseId}-${index}`))
+        .filter(messageLike => messageLike?.visible_to_user !== false);
+    }
+
+    function getTranslationStateMeta(status) {
+      const state = status?.state;
+      if (state === "ALL_DONE") {
+        return { label: "全部完成", className: "translation-status-done" };
+      }
+      if (state === "UNSUPPORTED") {
+        return { label: "翻译失败", className: "translation-status-body-done" };
+      }
+      if (state === "BODY_DONE" && status?.active_scope === "appendix" && (status?.completed_unit_count || 0) > 0) {
+        return { label: "附录进行中", className: "translation-status-progress" };
+      }
+      if (state === "BODY_DONE") {
+        return { label: "正文完成", className: "translation-status-body-done" };
+      }
+      return { label: "进行中", className: "translation-status-progress" };
+    }
+
+    function getNextUnitAction(status) {
+      if (!status || typeof status !== "object") {
+        return { type: "stop", command: "", target_scope: "none" };
+      }
+      if (status.state === "UNSUPPORTED" || status.state === "ALL_DONE") {
+        return { type: "stop", command: "", target_scope: "none" };
+      }
+      if (!Array.isArray(status.remaining_unit_ids) || status.remaining_unit_ids.length === 0) {
+        return { type: "stop", command: "", target_scope: "none" };
+      }
+      const targetScope = status.active_scope === "appendix" ? "appendix" : "body";
+      return {
+        type: "continue",
+        command: formatTranslationActionLabel({ type: "continue", target_scope: targetScope }),
+        target_scope: targetScope,
+      };
+    }
+
+    function resolveAutomationAction(status, settings) {
+      const action = getNextUnitAction(status);
+      if (action.type !== "continue") {
+        return action;
+      }
+      if (action.target_scope === "appendix" && !settings.autoTranslateAppendix) {
+        return { type: "stop", command: "", target_scope: "none" };
+      }
+      return action;
+    }
+
+    function getContinueButtonMeta(status) {
+      const action = getNextUnitAction(status);
+      if (status?.state === "ALL_DONE") {
+        return { action, enabled: false, label: "已完成" };
+      }
+      if (status?.state === "UNSUPPORTED") {
+        return { action, enabled: false, label: "翻译失败" };
+      }
+      if (!action || action.type === "stop") {
+        return { action, enabled: false, label: "无可继续内容" };
+      }
+      return { action, enabled: true, label: formatActionButtonLabel(action) };
+    }
+
+    function getAutoTranslateButtonMeta(status, automationSettings) {
+      const action = resolveAutomationAction(status, automationSettings);
+      if (status?.state === "ALL_DONE") {
+        return { action, enabled: false, label: "已完成" };
+      }
+      if (status?.state === "UNSUPPORTED") {
+        return { action, enabled: false, label: "翻译失败" };
+      }
+      if (!action || action.type === "stop") {
+        if (status?.state === "BODY_DONE") {
+          return { action, enabled: false, label: "正文已完成" };
+        }
+        return { action, enabled: false, label: "无可继续内容" };
+      }
+      return { action, enabled: true, label: "自动翻完" };
     }
 
     function getPaperTagChipClassName(tag, options = {}) {
@@ -420,9 +782,12 @@
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [mobileSearchDirty, setMobileSearchDirty] = useState(false);
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
-      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
-      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [defaultPoeModel, setDefaultPoeModel] = useState("GPT-5.2-Instant");
+      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "");
+      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
+      const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
+      const [autoTranslateBreakerLimit, setAutoTranslateBreakerLimit] = useState(getStoredInteger(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, AUTO_TRANSLATE_BREAKER_DEFAULT));
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
       const modelOptions = [
@@ -437,6 +802,13 @@
         { label: "GPT-5-Chat", value: "GPT-5-Chat"},
         { label: "GPT-5", value: "GPT-5"},
       ];
+
+      const automationSettings = buildAutomationSettingsSnapshot({
+        autoTranslateAppendix,
+        autoTranslateBreakerLimit,
+      });
+      const activePoeModel = poeModel || defaultPoeModel;
+      const activeTitleModel = titleModel || defaultPoeModel;
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -602,6 +974,9 @@
           if (res.ok) {
             const data = await res.json();
             setReadOnly(data.read_only || false);
+            if (data.default_poe_model) {
+              setDefaultPoeModel(data.default_poe_model);
+            }
           }
         } catch (err) {
           console.error("Failed to load config:", err);
@@ -627,9 +1002,11 @@
 
       const saveConfig = () => {
         localStorage.setItem("poe_api_key", poeApiKey);
-        localStorage.setItem("poe_model", poeModel);
-        localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("poe_model", activePoeModel);
+        localStorage.setItem("title_model", activeTitleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
@@ -898,6 +1275,7 @@
       const selectedFilterCount = getSelectedFilterCount();
       const browseSubtitle = `已翻译 ${libraryTotalCount || totalCount} 篇论文`;
       const hasKeywordSearch = !!searchQuery.trim();
+      const shouldShowRelevance = showSearchResults && hasKeywordSearch;
       const exactResultCount = searchResults.exact_matches.length;
       const fuzzyResultCount = searchResults.fuzzy_matches.length;
       const totalSearchResultCount = exactResultCount + fuzzyResultCount;
@@ -1165,7 +1543,7 @@
                 )}
               </div>
             )}
-            {paper.relevance !== undefined && (
+            {shouldShowRelevance && paper.relevance !== undefined && (
               <div style={{ marginTop: 10, fontSize: 12, color: '#999' }}>
                 相关度: {paper.relevance}
               </div>
@@ -1201,7 +1579,7 @@
                           icon={<PlusOutlined />}
                           onClick={() => { window.location.href = "/chat"; }}
                         >
-                          新建论文
+                          新建翻译
                         </Button>
                       </Tooltip>
                     </>
@@ -1308,7 +1686,7 @@
                             icon={<PlusOutlined />}
                             onClick={() => { window.location.href = "/chat"; }}
                           >
-                            新建论文
+                            新建翻译
                           </Button>
                         </Tooltip>
                       )}
@@ -1451,7 +1829,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={titleModel}
+                value={activeTitleModel}
                 onChange={setTitleModel}
                 options={modelOptions}
               />
@@ -1460,7 +1838,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={poeModel}
+                value={activePoeModel}
                 onChange={setPoeModel}
                 options={modelOptions}
               />
@@ -1474,6 +1852,27 @@
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
                 开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完范围：</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Checkbox checked={autoTranslateAppendix} onChange={e => setAutoTranslateAppendix(e.target.checked)}>
+                  自动翻译附录
+                </Checkbox>
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完熔断次数：</label>
+              <InputNumber
+                min={1}
+                max={50}
+                value={autoTranslateBreakerLimit}
+                onChange={value => setAutoTranslateBreakerLimit(value || AUTO_TRANSLATE_BREAKER_DEFAULT)}
+                style={{ width: 120 }}
+              />
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                自动翻完时最多连续请求的轮数，默认 {AUTO_TRANSLATE_BREAKER_DEFAULT} 次，用于避免 bot 异常循环。
               </div>
             </div>
             <div>
@@ -1600,6 +1999,8 @@
       const [tags, setTags] = useState([]);
       const [paperMeta, setPaperMeta] = useState(normalizePaperMeta());
       const [tagLibrary, setTagLibrary] = useState([]);
+      const [translationStatus, setTranslationStatus] = useState(null);
+      const [translationPlan, setTranslationPlan] = useState(null);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -1611,17 +2012,16 @@
 
       // ===== 配置状态 =====
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
-      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "GPT-5.2-Instant");
-      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "GPT-5.2-Instant");
+      const [defaultPoeModel, setDefaultPoeModel] = useState("GPT-5.2-Instant");
+      const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "");
+      const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
+      const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
+      const [autoTranslateBreakerLimit, setAutoTranslateBreakerLimit] = useState(getStoredInteger(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, AUTO_TRANSLATE_BREAKER_DEFAULT));
       const [readOnly, setReadOnly] = useState(false);
       const [urlBase, setUrlBase] = useState(localStorage.getItem("urlbase") || "");
 
       // ===== 其他状态 =====
-      const [continueCount, setContinueCount] = useState(4);
-      const [customModalVisible, setCustomModalVisible] = useState(false);
-      const [customMessage, setCustomMessage] = useState("");
-      const [saveToRecord, setSaveToRecord] = useState(true);
       const [assetDirectionModalVisible, setAssetDirectionModalVisible] = useState(false);
       const [figureDirectionValue, setFigureDirectionValue] = useState("above");
       const [tableDirectionValue, setTableDirectionValue] = useState("above");
@@ -1634,6 +2034,13 @@
       const [tagRefreshing, setTagRefreshing] = useState(false);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
+      const [autoTranslating, setAutoTranslating] = useState(false);
+      const automationSettings = buildAutomationSettingsSnapshot({
+        autoTranslateAppendix,
+        autoTranslateBreakerLimit,
+      });
+      const activePoeModel = poeModel || defaultPoeModel;
+      const activeTitleModel = titleModel || defaultPoeModel;
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -1655,9 +2062,11 @@
        */
       const saveConfig = () => {
         localStorage.setItem("poe_api_key", poeApiKey);
-        localStorage.setItem("poe_model", poeModel);
-        localStorage.setItem("title_model", titleModel);
+        localStorage.setItem("poe_model", activePoeModel);
+        localStorage.setItem("title_model", activeTitleModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
+        localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
         localStorage.setItem("urlbase", urlBase);
         message.success("配置已保存");
         setConfigModalVisible(false);
@@ -1769,45 +2178,69 @@
       }, []);
 
       // ===== 数据加载函数 =====
-      async function loadConversation(id) {
-        setPaperInfoLoaded(false);
-        setPaperTitle("");
-        setPdfUrl("");
-        setFigures([]);
-        setTables([]);
-        setTags([]);
-        setPaperMeta(normalizePaperMeta());
-        setFiguresExpanded(false);
-        setTablesExpanded(false);
-        setLoading(true);
-        const res = await fetch(`${BASE_URL}/conversation/${id}`);
-        if (!res.ok) {
-          message.error("会话不存在");
-          setLoading(false);
-          return;
-        }
-        const data = await res.json();
-        if (data.title) {
-          setPaperTitle(data.title);
-        }
-        if (data.pdf_url) {
-          setPdfUrl(data.pdf_url);
-        }
-        setFigures(Array.isArray(data.figures) ? data.figures : []);
-        setTables(Array.isArray(data.tables) ? data.tables : []);
-        setTags(Array.isArray(data.tags) ? data.tags : []);
+      function applyConversationPayload(data) {
+        const conversationMessages = Array.isArray(data?.messages) ? data.messages : [];
+        const latestTranslationContext = getLatestTranslationContextFromMessages(conversationMessages);
+        const resolvedTranslationStatus =
+          latestTranslationContext.translationStatus
+          || normalizeTranslationStatus(data?.translation_status);
+        const resolvedTranslationPlan =
+          latestTranslationContext.translationPlan
+          || normalizeTranslationPlan(data?.translation_plan);
+        setPaperTitle(data?.title || "");
+        setPdfUrl(data?.pdf_url || "");
+        setFigures(Array.isArray(data?.figures) ? data.figures : []);
+        setTables(Array.isArray(data?.tables) ? data.tables : []);
+        setTags(Array.isArray(data?.tags) ? data.tags : []);
         setPaperMeta(normalizePaperMeta(data));
-        // filter out continuation markers and rely on backend to remove the initial prompt
-        const filtered = data.messages.filter(m => !(m.role === "user" && m.content === "继续"));
-        setBlocks(
-          filtered.map((m, i) => ({
-            id: Date.now() + i,
-            role: m.role,
-            content: m.content
-          }))
-        );
+        setTranslationStatus(resolvedTranslationStatus);
+        setTranslationPlan(resolvedTranslationPlan);
+        setBlocks(buildVisibleBlocks(conversationMessages));
         setPaperInfoLoaded(true);
-        setLoading(false);
+        return { ...data, resolvedTranslationStatus, resolvedTranslationPlan };
+      }
+
+      async function loadConversation(id, options = {}) {
+        const { showLoading = true, silentError = false } = options;
+        if (!id) {
+          return null;
+        }
+
+        if (showLoading) {
+          setPaperInfoLoaded(false);
+          setPaperTitle("");
+          setPdfUrl("");
+          setFigures([]);
+          setTables([]);
+          setTags([]);
+          setPaperMeta(normalizePaperMeta());
+          setTranslationStatus(null);
+          setTranslationPlan(null);
+          setFiguresExpanded(false);
+          setTablesExpanded(false);
+          setLoading(true);
+        }
+
+        try {
+          const res = await fetch(`${BASE_URL}/conversations/${id}`);
+          if (!res.ok) {
+            if (!silentError) {
+              message.error("会话不存在");
+            }
+            return null;
+          }
+          const data = await res.json();
+          return applyConversationPayload(data);
+        } catch (err) {
+          if (!silentError) {
+            message.error("会话加载失败");
+          }
+          return null;
+        } finally {
+          if (showLoading) {
+            setLoading(false);
+          }
+        }
       }
 
       async function loadConfig() {
@@ -1816,6 +2249,9 @@
           if (res.ok) {
             const data = await res.json();
             setReadOnly(data.read_only || false);
+            if (data.default_poe_model) {
+              setDefaultPoeModel(data.default_poe_model);
+            }
           }
         } catch (err) {
           console.error("Failed to load config:", err);
@@ -1887,8 +2323,8 @@
           const formData = new FormData();
           draftTagCodes.forEach(tagCode => formData.append("tag_code", tagCode));
 
-          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/tags`, {
-            method: "POST",
+          const res = await fetch(`${BASE_URL}/metadata/${conversationId}/tags`, {
+            method: "PUT",
             body: formData,
           });
           const data = await res.json();
@@ -1896,7 +2332,7 @@
             message.error(data.detail || "保存标签失败");
             return;
           }
-          setTags(Array.isArray(data.tags) ? data.tags : []);
+          await loadConversation(conversationId, { showLoading: false });
           setTagPickerVisible(false);
           message.success("标签已更新");
         } finally {
@@ -1919,9 +2355,9 @@
         try {
           const formData = new FormData();
           formData.append("api_key", poeApiKey);
-          formData.append("tag_model", poeModel);
+          formData.append("tag_model", activePoeModel);
 
-          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/refresh_metadata`, {
+          const res = await fetch(`${BASE_URL}/metadata/${conversationId}/refresh`, {
             method: "POST",
             body: formData,
           });
@@ -1930,9 +2366,7 @@
             message.error(data.detail || "刷新失败");
             return;
           }
-          setTags(Array.isArray(data.tags) ? data.tags : []);
-          setPaperMeta(normalizePaperMeta(data));
-          setPaperInfoLoaded(true);
+          await loadConversation(conversationId, { showLoading: false });
           message.success("标签与论文信息已刷新");
         } finally {
           setTagRefreshing(false);
@@ -1947,7 +2381,7 @@
         let lastProgress = null;
 
         while (true) {
-          const res = await fetch(`${BASE_URL}/jobs/${jobId}`);
+          const res = await fetch(`${BASE_URL}/tasks/${jobId}`);
           const data = await res.json();
           if (!res.ok) {
             throw new Error(data.detail || "任务状态获取失败");
@@ -1992,7 +2426,6 @@
 
           const progressKey = `upload-progress-${Date.now()}`;
           let linkedConversationId = null;
-          let hasRefreshedAfterTitle = false;
           message.open({ key: progressKey, type: "loading", content: "正在上传：准备提交任务", duration: 0 });
           setLoading(true);
           setPaperInfoLoaded(false);
@@ -2002,6 +2435,8 @@
           setTables([]);
           setTags([]);
           setPaperMeta(normalizePaperMeta());
+          setTranslationStatus(null);
+          setTranslationPlan(null);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           const tempTitle = file.name.replace(/\.pdf$/i, "");
@@ -2011,11 +2446,11 @@
             const formData = new FormData();
             formData.append("file", file);
             formData.append("api_key", poeApiKey);
-            formData.append("poe_model", poeModel);
-            formData.append("title_model", titleModel);
+            formData.append("poe_model", activePoeModel);
+            formData.append("title_model", activeTitleModel);
             formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
-            const enqueueRes = await fetch(`${BASE_URL}/upload`, {
+            const enqueueRes = await fetch(`${BASE_URL}/tasks/ingest-pdf`, {
               method: "POST",
               body: formData
             });
@@ -2026,24 +2461,19 @@
             }
 
             message.open({ key: progressKey, type: "loading", content: "正在上传：任务已入队，等待 worker 处理", duration: 0 });
-            const data = await waitForJobResult(enqueueData.job_id, {
+            const data = await waitForJobResult(enqueueData.task_id, {
               onTick: async (jobData) => {
                 if (jobData?.conversation_id && !linkedConversationId) {
                   linkedConversationId = jobData.conversation_id;
                   setConversationId(linkedConversationId);
                   pushConversationToUrl(linkedConversationId);
-                  await loadConversation(linkedConversationId);
                 }
                 const conversationTitle = (jobData?.conversation_title || "").trim();
                 if (conversationTitle) {
                   setPaperTitle(conversationTitle);
-                  if (linkedConversationId && !hasRefreshedAfterTitle && !conversationTitle.toLowerCase().endsWith(".pdf")) {
-                    hasRefreshedAfterTitle = true;
-                    await loadConversation(linkedConversationId);
-                  }
                 }
               },
-              onProgress: async (progressText, jobData) => {
+              onProgress: async (progressText) => {
                 message.open({ key: progressKey, type: "loading", content: `上传处理中：${progressText}`, duration: 0 });
                 const titlePrefix = "标题已提取：";
                 if (typeof progressText === "string" && progressText.startsWith(titlePrefix)) {
@@ -2054,31 +2484,19 @@
                 }
               },
             });
-            if (data.pdf_url) {
-              setPdfUrl(data.pdf_url);
+            const finalConversationId = data.conversation_id || linkedConversationId;
+            if (!finalConversationId) {
+              throw new Error("上传任务未返回会话 ID");
             }
-            setFigures(Array.isArray(data.figures) ? data.figures : []);
-            setTables(Array.isArray(data.tables) ? data.tables : []);
-            setTags(Array.isArray(data.tags) ? data.tags : []);
-            setPaperMeta(normalizePaperMeta(data));
-            setPaperInfoLoaded(true);
+            setConversationId(finalConversationId);
+            pushConversationToUrl(finalConversationId);
+            await loadConversation(finalConversationId, { showLoading: false });
 
             if (data.exists) {
-              setConversationId(data.conversation_id);
-              if (data.title) { setPaperTitle(data.title); }
-              pushConversationToUrl(data.conversation_id);
-
-              const msgs = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
-              setBlocks(msgs);
               message.info("文件已存在，跳转到对应会话");
               return;
             }
 
-            setConversationId(data.conversation_id);
-            if (data.title) { setPaperTitle(data.title); }
-            pushConversationToUrl(data.conversation_id);
-            const msgsNew = (data.messages || []).filter(m => !(m.role === "user" && m.content === "继续")).map((m, i) => ({ id: Date.now() + i, role: m.role, content: m.content }));
-            setBlocks(msgsNew.length ? msgsNew : [{ id: Date.now(), role: "bot", content: "无回复" }]);
             message.success("上传任务完成");
           } catch (err) {
             message.error(err?.message || "上传失败");
@@ -2092,47 +2510,46 @@
 
       // ===== 翻译功能 =====
       /**
-       * 单次翻译请求
+       * 单次翻译动作
        */
-      const doContinue = async () => {
+      const performTranslationAction = async (action) => {
         try {
+          const progressKey = action.progressKey || "continue-progress";
           const formData = new FormData();
           formData.append("api_key", poeApiKey);
-          formData.append("poe_model", poeModel);
+          formData.append("poe_model", activePoeModel);
+          formData.append("action", action.type || "continue");
+          formData.append("target_scope", action.target_scope || "body");
 
           const enqueueRes = await fetch(
-            `${BASE_URL}/continue/${conversationId}`,
+            `${BASE_URL}/translations/${conversationId}/continue`,
             { method: "POST", body: formData }
           );
           const enqueueData = await enqueueRes.json();
           if (!enqueueRes.ok) {
             message.error(enqueueData.detail || "请求失败");
-            return false;
+            return { ok: false, reason: "request_failed" };
           }
-          const data = await waitForJobResult(enqueueData.job_id, {
+          const data = await waitForJobResult(enqueueData.task_id, {
             onProgress: (progressText) => {
               message.open({
-                key: "continue-progress",
+                key: progressKey,
                 type: "loading",
                 content: `翻译处理中：${progressText}`,
                 duration: 0
               });
             },
           });
-
-          setBlocks(prev => [
-            ...prev,
-            { id: Date.now(), role: "bot", content: data.reply }
-          ]);
-          return true;
+          const refreshedConversation = await loadConversation(conversationId, { showLoading: false });
+          return { ok: true, data, status: refreshedConversation?.resolvedTranslationStatus || null };
         } catch (err) {
           message.error(err?.message || "请求失败");
-          return false;
+          return { ok: false, reason: "request_failed" };
         }
       };
 
       /**
-       * 继续翻译（会根据 continueCount 调用多次）
+       * 单步继续
        */
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
@@ -2145,68 +2562,114 @@
           duration: 0
         });
         setLoading(true);
-        for (let i = 0; i < continueCount; i++) {
-          message.open({
-            key: "continue-progress",
-            type: "loading",
-            content: `翻译处理中：第 ${i + 1}/${continueCount} 次请求已提交`,
-            duration: 0
-          });
-          const ok = await doContinue();
-          if (!ok) break;
+        const action = resolveAutomationAction(translationStatus, {
+          autoTranslateAppendix: false,
+          autoTranslateBreakerLimit: AUTO_TRANSLATE_BREAKER_DEFAULT,
+        });
+        if (!action || action.type === "stop") {
+          setLoading(false);
+          message.destroy("continue-progress");
+          message.info("当前状态没有可继续的默认翻译动作");
+          return;
         }
+        await performTranslationAction({ ...action, progressKey: "continue-progress" });
         setLoading(false);
         message.destroy("continue-progress");
       };
 
-      /**
-       * 自定义对话提交
-       */
-      const handleCustomSubmit = async () => {
+      const handleAutoTranslate = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
-        if (!customMessage.trim()) { message.warning("请输入消息"); return; }
 
-        const progressKey = "custom-progress";
-        message.open({ key: progressKey, type: "loading", content: "追问处理中：准备提交任务", duration: 0 });
+        const breakerLimit = automationSettings.autoTranslateBreakerLimit;
+        let currentStatus = translationStatus;
+        let previousReplySignature = "";
+        let previousStateSignature = currentStatus
+          ? `${currentStatus.state}|${currentStatus.active_scope}|${currentStatus.current_unit_id}|${currentStatus.next_unit_id}|${currentStatus.completed_unit_count}|${(currentStatus.remaining_unit_ids || []).join("|")}`
+          : "";
+        let stoppedByBreaker = true;
+
         setLoading(true);
-        const formData = new FormData();
-        formData.append("api_key", poeApiKey);
-        formData.append("message", customMessage);
-        formData.append("save_to_record", saveToRecord);
-        formData.append("poe_model", poeModel);
-
+        setAutoTranslating(true);
         try {
-          const enqueueRes = await fetch(`${BASE_URL}/custom_message/${conversationId}`, {
-            method: "POST",
-            body: formData
-          });
-          const enqueueData = await enqueueRes.json();
-          if (!enqueueRes.ok) {
-            message.error(enqueueData.detail || "请求失败");
-            return;
+          for (let i = 0; i < breakerLimit; i++) {
+            const action = resolveAutomationAction(currentStatus, automationSettings);
+            if (!action || action.type === "stop") {
+              stoppedByBreaker = false;
+              if (currentStatus?.state === "ALL_DONE") {
+                message.success("自动翻译已完成");
+              } else if (currentStatus?.state === "BODY_DONE") {
+                message.info("自动翻译已在正文完成后停止");
+              } else if (currentStatus?.state === "UNSUPPORTED") {
+                message.warning(`自动翻译已停止：${currentStatus?.reason || "当前 unit 无法可靠定位"}`);
+              } else {
+                message.info("自动翻译已停止");
+              }
+              break;
+            }
+
+            message.open({
+              key: "continue-progress",
+              type: "loading",
+              content: `自动翻完：第 ${i + 1}/${breakerLimit} 次，当前 ${getScopeLabel(currentStatus?.active_scope || "body")}，目标 ${getScopeLabel(action.target_scope)}，动作「${formatTranslationActionLabel(action) || getScopeLabel(action.target_scope)}」`,
+              duration: 0
+            });
+
+            const result = await performTranslationAction({ ...action, progressKey: "continue-progress" });
+            if (!result.ok) {
+              stoppedByBreaker = false;
+              break;
+            }
+
+            const nextStatus = result.status;
+            if (!nextStatus) {
+              stoppedByBreaker = false;
+              message.warning("自动翻译已停止：本轮未返回 translation_status");
+              break;
+            }
+
+            const replySignature = String(result.data?.content || result.data?.display_reply || result.data?.reply || "").trim();
+            const nextStateSignature = `${nextStatus.state}|${nextStatus.active_scope}|${nextStatus.current_unit_id}|${nextStatus.next_unit_id}|${nextStatus.completed_unit_count}|${(nextStatus.remaining_unit_ids || []).join("|")}`;
+            if (
+              replySignature === previousReplySignature &&
+              nextStateSignature === previousStateSignature
+            ) {
+              stoppedByBreaker = false;
+              message.warning("自动翻译已停止：检测到回复与状态未推进");
+              break;
+            }
+
+            previousReplySignature = replySignature;
+            previousStateSignature = nextStateSignature;
+            currentStatus = nextStatus;
+
+            if (currentStatus.state === "ALL_DONE") {
+              stoppedByBreaker = false;
+              message.success("自动翻译已完成");
+              break;
+            }
+
+            const nextAction = resolveAutomationAction(currentStatus, automationSettings);
+            if (!nextAction || nextAction.type === "stop") {
+              stoppedByBreaker = false;
+              if (currentStatus.state === "BODY_DONE") {
+                message.info("自动翻译已在正文完成后停止");
+              } else if (currentStatus.state === "UNSUPPORTED") {
+                message.warning(`自动翻译已停止：${currentStatus.reason || "当前 unit 无法可靠定位"}`);
+              } else {
+                message.info("自动翻译已停止");
+              }
+              break;
+            }
           }
 
-          const data = await waitForJobResult(enqueueData.job_id, {
-            onProgress: (progressText) => {
-              message.open({ key: progressKey, type: "loading", content: `追问处理中：${progressText}`, duration: 0 });
-            },
-          });
-          setBlocks(prev => [
-            ...prev,
-            { id: Date.now(), role: "user", content: customMessage },
-            { id: Date.now() + 1, role: "bot", content: data.reply }
-          ]);
-          if (!saveToRecord) {
-            message.info("对话完成（未保存到记录）");
+          if (stoppedByBreaker) {
+            message.warning(`自动翻译已触发熔断，达到 ${breakerLimit} 次上限`);
           }
-          setCustomModalVisible(false);
-          setCustomMessage("");
-        } catch (err) {
-          message.error(err?.message || "请求失败");
         } finally {
           setLoading(false);
-          message.destroy(progressKey);
+          setAutoTranslating(false);
+          message.destroy("continue-progress");
         }
       };
 
@@ -2228,7 +2691,7 @@
           formData.append("figure_caption_direction", figureDirectionValue);
           formData.append("table_caption_direction", tableDirectionValue);
 
-          const res = await fetch(`${BASE_URL}/conversation/${conversationId}/reprocess_assets`, {
+          const res = await fetch(`${BASE_URL}/assets/${conversationId}/reprocess`, {
             method: "POST",
             body: formData
           });
@@ -2387,6 +2850,13 @@
             .filter(category => category.tags.length > 0)
         : tagLibrary.filter(category => category.category_code === activeTagCategory);
 
+      const translationStateMeta = translationStatus ? getTranslationStateMeta(translationStatus) : null;
+      const translationProgress = translationStatus
+        ? buildTranslationProgressBreakdown(translationStatus, translationPlan)
+        : null;
+      const continueButtonMeta = getContinueButtonMeta(translationStatus);
+      const autoTranslateButtonMeta = getAutoTranslateButtonMeta(translationStatus, automationSettings);
+
       // ===== JSX 渲染 =====
       return (
         <>
@@ -2447,31 +2917,25 @@
 
                 {!readOnly && !isMobile && (
                   <>
-                    <span>自动继续次数：</span>
-                    <InputNumber
-                      min={0}
-                      value={continueCount}
-                      disabled={loading}
-                      onChange={v => setContinueCount(v)}
-                      style={{ width: 80 }}
-                    />
-
                     <Button
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading || !conversationId}
+                      disabled={loading || autoTranslating || !conversationId || !continueButtonMeta.enabled}
                     >
-                      {loading ? "翻译中..." : "继续"}
+                      {loading ? "翻译中..." : continueButtonMeta.label}
                     </Button>
 
                     <Button
-                      icon={<MessageOutlined />}
-                      onClick={() => setCustomModalVisible(true)}
-                      disabled={loading || !conversationId}
+                      type="primary"
+                      icon={<CaretRightOutlined />}
+                      onClick={handleAutoTranslate}
+                      loading={autoTranslating}
+                      disabled={loading || autoTranslating || !conversationId || !autoTranslateButtonMeta.enabled}
                     >
-                      自定义对话
+                      {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                     </Button>
+
                   </>
                 )}
 
@@ -2479,36 +2943,19 @@
                 {!readOnly && isMobile && conversationId && (
                   <>
                     <Button
-                      type="primary"
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading}
+                      disabled={loading || autoTranslating || !continueButtonMeta.enabled}
                     >
-                      {loading ? "翻译中..." : "继续"}
+                      {loading ? "翻译中..." : continueButtonMeta.label}
                     </Button>
 
                     <Dropdown
                       overlay={(
                         <Menu>
-                          <Menu.Item icon={<SettingOutlined />} onClick={() => setConfigModalVisible(true)}>
-                            配置
-                          </Menu.Item>
-                          <Menu.Item>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span>自动继续次数:</span>
-                              <InputNumber
-                                min={0}
-                                value={continueCount}
-                                disabled={loading}
-                                onChange={v => setContinueCount(v)}
-                                style={{ width: 60 }}
-                                size="small"
-                              />
-                            </div>
-                          </Menu.Item>
-                          <Menu.Item icon={<MessageOutlined />} onClick={() => setCustomModalVisible(true)} disabled={!conversationId}>
-                            自定义对话
+                          <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating || !autoTranslateButtonMeta.enabled}>
+                            {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                           </Menu.Item>
                         </Menu>
                       )}
@@ -2608,6 +3055,61 @@
                     </div>
                   </div>
                 )}
+                {translationStatus && translationStateMeta && (
+	                <div className={`translation-status-card ${translationStateMeta.className}`}>
+	                    <div className="translation-status-header">
+	                      <div className="translation-status-title">翻译状态</div>
+	                      <span className="translation-status-badge">{translationStateMeta.label}</span>
+	                    </div>
+	                    <div className="translation-status-grid">
+	                      <div className="translation-status-item">
+	                        <span className="translation-status-label">当前范围</span>
+	                        <span className="translation-status-value">{getScopeLabel(translationStatus.active_scope || "body")}</span>
+	                      </div>
+	                      <div className="translation-status-item translation-status-item-progress">
+	                        <span className="translation-status-label">总进度</span>
+	                        <span className="translation-status-value">{formatUnitProgress(translationProgress?.overallCompleted, translationProgress?.overallTotal)}</span>
+	                      </div>
+	                      <div className="translation-status-item translation-status-item-progress">
+	                        <span className="translation-status-label">正文进度</span>
+	                        <span className="translation-status-value">
+	                          {translationProgress?.hasScopedPlan
+	                            ? formatUnitProgress(translationProgress.bodyCompleted, translationProgress.bodyTotal, { emptyText: "无正文" })
+	                            : "待解析"}
+	                        </span>
+	                      </div>
+	                      <div className="translation-status-item translation-status-item-progress">
+	                        <span className="translation-status-label">附录进度</span>
+	                        <span className="translation-status-value">
+	                          {translationProgress?.hasScopedPlan
+	                            ? formatUnitProgress(translationProgress.appendixCompleted, translationProgress.appendixTotal, { emptyText: "无附录" })
+	                            : "待解析"}
+	                        </span>
+	                      </div>
+	                      <div className="translation-status-item">
+	                        <span className="translation-status-label">当前 Unit</span>
+	                        <span className="translation-status-value">{translationStatus.current_unit_id || "暂无"}</span>
+	                      </div>
+	                      <div className="translation-status-item">
+	                        <span className="translation-status-label">下一 Unit</span>
+	                        <span className="translation-status-value">{translationStatus.next_unit_id || "暂无"}</span>
+	                      </div>
+	                    </div>
+	                    {Array.isArray(translationStatus.remaining_unit_ids) && translationStatus.remaining_unit_ids.length > 0 && (
+	                      <div className="translation-status-footer">
+	                        <span className="translation-status-label">剩余 Units</span>
+	                        <span className="translation-status-value">{translationStatus.remaining_unit_ids.join(" / ")}</span>
+	                      </div>
+	                    )}
+	                    {!!translationStatus.reason && (
+	                      <div className="translation-status-footer">
+	                        <span className="translation-status-value">
+	                          原因：{translationStatus.reason}
+	                        </span>
+	                      </div>
+	                    )}
+	                  </div>
+                )}
                 {renderAssetSection({
                   id: "figures-section",
                   title: "论文插图",
@@ -2625,6 +3127,7 @@
                   type: "table"
                 })}
                 {blocks.map(block => (
+                  block.content ? (
                   <div
                     key={block.id}
                     className={block.role === "user" ? "user-message-block" : "message-block"}
@@ -2632,6 +3135,7 @@
                       __html: MathUtils.renderMarkdownWithMath(block.content)
                     }}
                   />
+                  ) : null
                 ))}
               </div>
 
@@ -2684,28 +3188,6 @@
           </Drawer>
 
           <Modal
-            title="自定义对话"
-            open={customModalVisible}
-            onOk={handleCustomSubmit}
-            onCancel={() => setCustomModalVisible(false)}
-            confirmLoading={loading}
-          >
-            <TextArea
-              rows={4}
-              placeholder="请输入追问内容"
-              value={customMessage}
-              onChange={e => setCustomMessage(e.target.value)}
-            />
-            <Checkbox
-              checked={saveToRecord}
-              onChange={e => setSaveToRecord(e.target.checked)}
-              style={{ marginTop: 10 }}
-            >
-              保存到翻译记录里
-            </Checkbox>
-          </Modal>
-
-          <Modal
             title="Poe API 配置"
             open={configModalVisible}
             onOk={saveConfig}
@@ -2724,7 +3206,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={titleModel}
+                value={activeTitleModel}
                 onChange={setTitleModel}
                 options={modelOptions}
               />
@@ -2733,7 +3215,7 @@
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={poeModel}
+                value={activePoeModel}
                 onChange={setPoeModel}
                 options={modelOptions}
               />
@@ -2747,6 +3229,27 @@
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
                 开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完范围：</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <Checkbox checked={autoTranslateAppendix} onChange={e => setAutoTranslateAppendix(e.target.checked)}>
+                  自动翻译附录
+                </Checkbox>
+              </div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>自动翻完熔断次数：</label>
+              <InputNumber
+                min={1}
+                max={50}
+                value={autoTranslateBreakerLimit}
+                onChange={value => setAutoTranslateBreakerLimit(value || AUTO_TRANSLATE_BREAKER_DEFAULT)}
+                style={{ width: 120 }}
+              />
+              <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
+                自动翻完时最多连续请求的轮数，默认 {AUTO_TRANSLATE_BREAKER_DEFAULT} 次，用于避免 bot 异常循环。
               </div>
             </div>
             <div>

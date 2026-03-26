@@ -14,10 +14,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import backend.crud as crud
-from backend.database import engine
-from backend.models import FileRecord, PaperSemanticScholarResult
-from backend.semantic_scholar import refresh_semantic_scholar_result
+from backend.platform.config import engine
+from backend.platform.gateways.semantic_scholar import refresh_semantic_scholar_result
+from backend.modules.conversations import get_conversation
+from backend.platform.models import FileRecord, PaperSemanticScholarResult
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,7 +123,7 @@ def main() -> int:
         failure_count = 0
 
         for index, record in enumerate(records, start=1):
-            conversation = crud.get_conversation(session, record.conversation_id)
+            conversation = get_conversation(session, record.conversation_id)
             title = (conversation.title or "").strip() if conversation else ""
             label = record.conversation_id
             if title:

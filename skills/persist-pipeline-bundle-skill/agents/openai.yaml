@@ -1,0 +1,3 @@
+interface:
+  display_name: "Persist Bundle"
+  short_description: "Submit final bundle to backend commit endpoint"
