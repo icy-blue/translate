@@ -14,6 +14,8 @@ Use this skill when the user wants full-paper modular translation without Poe an
 This is an agent-native skill. The executing agent reads the local PDF, plans translation units, translates one unit at a time, and emits the same structured result shape as `translate-full-paper-skill`.
 
 The bundled `scripts/run.py` is only a compatibility bridge. It does not translate. It validates an agent-produced JSON artifact and re-emits the old skill contract for later pipeline integration.
+It also provides a fixed artifact-builder mode so the agent can output compact JSON inputs instead of generating temporary Python assembly scripts.
+The bundled `scripts/render_markdown.py` renders a finished `.self_translate.json` artifact into a human-readable Markdown file for direct user reading.
 
 ## Workflow
 
@@ -92,9 +94,12 @@ Use `scripts/run.py` only when you already have an agent-produced JSON artifact 
 
 The bridge input expects `agent_output_json`, which points to that artifact on disk.
 
+When you need to assemble a fresh `.self_translate.json` artifact, prefer the builder mode in `scripts/run.py` with `mode="build_artifact"` plus `translation_plan` and ordered `unit_results`.
+
 ## Built-in Resources
 
 - [references/contracts.md](references/contracts.md): v1 input and output schema
 - [references/protocol.md](references/protocol.md): planner and translator protocol
 - [references/examples.md](references/examples.md): canonical example artifacts
 - [scripts/run.py](scripts/run.py): compatibility bridge for agent-produced artifacts
+- [scripts/render_markdown.py](scripts/render_markdown.py): Markdown renderer for `.self_translate.json`

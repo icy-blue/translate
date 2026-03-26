@@ -105,3 +105,24 @@ If a later unit becomes ambiguous:
 - return the partial message list and latest canonical status
 
 Do not continue past an ambiguous unit in v1.
+
+## 7. Prefer fixed builder input over ad hoc Python
+
+When you need to materialize a `.self_translate.json` artifact, prefer writing a compact JSON input for `scripts/run.py` with:
+
+- `mode="build_artifact"`
+- canonical `translation_plan`
+- ordered `unit_results`
+- optional `errors`
+
+Do not generate a one-off Python script just to assemble the final artifact when the fixed builder can do it.
+
+## 8. Prefer fixed Markdown rendering over ad hoc formatting
+
+When you need a human-readable reading artifact for the user, prefer:
+
+```bash
+python skills/self-translate-full-paper-skill/scripts/render_markdown.py --input <artifact.json> --output <artifact.md>
+```
+
+Do not manually reformat the entire translation into a separate Markdown file when the standard renderer is sufficient.

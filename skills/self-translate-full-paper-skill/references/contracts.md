@@ -47,6 +47,37 @@ The compatibility bridge in `scripts/run.py` accepts:
 
 `agent_output_json` must point to a JSON artifact produced by an executing agent that followed this skill.
 
+## Artifact Builder Input
+
+To avoid generating ad hoc Python wrappers, `scripts/run.py` also supports a fixed builder mode:
+
+```json
+{
+  "mode": "build_artifact",
+  "translation_plan": {
+    "status": "ok",
+    "units": ["ABSTRACT", "1 Introduction"],
+    "appendix_units": [],
+    "reason": ""
+  },
+  "unit_results": [
+    {
+      "unit_id": "ABSTRACT",
+      "state": "OK",
+      "content": "# 摘要\n..."
+    },
+    {
+      "unit_id": "1 Introduction",
+      "state": "OK",
+      "content": "# 1 引言\n..."
+    }
+  ],
+  "errors": []
+}
+```
+
+`unit_results` must follow the planner order exactly and stop at the first `UNSUPPORTED` unit.
+
 ## Bridge Runner Output
 
 The bridge returns the same JSON shape as the existing `translate-full-paper-skill` runner:
@@ -62,3 +93,23 @@ The bridge returns the same JSON shape as the existing `translate-full-paper-ski
   "errors": []
 }
 ```
+
+## Markdown Renderer Input
+
+The human-readable Markdown renderer accepts:
+
+```bash
+python skills/self-translate-full-paper-skill/scripts/render_markdown.py \
+  --input /absolute/path/to/paper.self_translate.json \
+  --output /absolute/path/to/paper.self_translate.md \
+  --title "Paper Translation" \
+  --source-pdf "/absolute/path/to/paper.pdf"
+```
+
+It reads a standard self-translate artifact and renders:
+
+- document title and source label
+- translation summary
+- translation plan summary
+- translated sections in order
+- warnings if present
