@@ -85,6 +85,38 @@
 - 只负责入队，客户端继续轮询 `/tasks/{task_id}`
 - 同一会话若已有进行中的续翻任务，会返回 `409`
 - 当前 scope 没有剩余 unit，也会返回 `409`
+- 若会话存在尚未确认的 `translation_glossary`，会返回 `409`
+
+### `PUT /translations/{conversation_id}/glossary`
+
+确认术语词表选择结果。
+
+请求体示例：
+
+```json
+{
+  "entries": [
+    {
+      "term": "mesh face",
+      "candidates": ["三角面片", "网格面"],
+      "selected": "三角面片"
+    }
+  ]
+}
+```
+
+返回字段：
+
+- `conversation_id`
+- `translation_plan`
+- `translation_status`
+- `translation_glossary`
+
+关键行为：
+
+- 只允许在尚未产生任何成功翻译 unit 时确认或调整术语
+- 提交内容必须与后端当前 draft glossary 的 term/candidate 集合一致，否则返回 `409`
+- 成功后会把 glossary 状态更新为 `confirmed`
 
 ### `GET /tasks/{task_id}`
 
@@ -124,6 +156,12 @@
 - 图表：`figures`、`tables`
 - 标签：`tags`
 - 语义元数据：`venue_abbr`、`ccf_category`、`ccf_type`、`citation_count`、`venue`、`year`、`semantic_updated_at`
+
+消息中的规范化 payload 可能包含：
+
+- `translation_plan`
+- `translation_status`
+- `translation_glossary`
 
 ### `GET /conversations`
 

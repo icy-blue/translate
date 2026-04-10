@@ -1,6 +1,6 @@
 # PDF 论文翻译助手
 
-一个基于 FastAPI + Poe 的 PDF 论文翻译服务。当前版本已经从“整篇长对话续翻”切到“先规划 unit，再按 unit 逐段翻译”的任务流，支持异步上传、按正文/附录继续翻译、标签与元数据维护、图表资产提取，以及 Agent 批量入库。
+一个基于 FastAPI + Poe 的 PDF 论文翻译服务。当前版本已经从“整篇长对话续翻”切到“先规划 unit 与术语词表，再按 unit 逐段翻译”的任务流，支持异步上传、术语确认后再开翻、按正文/附录继续翻译、标签与元数据维护、图表资产提取，以及 Agent 批量入库。
 
 ## Demo
 
@@ -15,7 +15,8 @@
 ## 当前能力
 
 - 上传 PDF 后创建异步 ingest 任务，返回 `task_id`，客户端轮询 `/tasks/{task_id}` 获取结果。
-- 首轮翻译先让模型输出 `translation_plan`，把正文放进 `units`、附录放进 `appendix_units`。
+- ingest 首轮先让模型输出 `translation_plan` 和 `translation_glossary`，把正文放进 `units`、附录放进 `appendix_units`。
+- 用户先确认术语词表，再开始首个 unit 翻译；后续续翻会把确认后的术语库注入 prompt。
 - 后续续翻按 unit 推进，翻译状态以 `translation_status` 持久化到消息 payload 中。
 - 同一 PDF 会按 SHA-256 指纹去重，重复上传会直接返回已有会话。
 - 自动提取论文标题、图、表；标签提取可在上传时开启，也可后续单独刷新。
@@ -110,11 +111,11 @@ python scripts/maintain_message_kind_schema.py --write
 2. 服务写入 AsyncJob，后台 worker 开始处理
 3. 计算 PDF 指纹；若已存在有效会话则直接返回旧结果
 4. 上传原始 PDF 到 Poe，并尝试只用首页提取标题
-5. 调用 planner，生成 translation_plan（units / appendix_units）
-6. 若 planner 可用，则立刻翻译首个 unit
-7. 保存 Conversation / FileRecord / Message / 图 / 表 / 标签 / Semantic Scholar 结果
-8. 前端轮询 /tasks/{task_id}，得到会话详情与当前 translation_status
-9. 用户调用 /translations/{conversation_id}/continue，继续 body 或 appendix
+5. 调用 planner，生成 `translation_plan` 与 `translation_glossary`
+6. 保存 Conversation / FileRecord / Message / 图 / 表 / 标签 / Semantic Scholar 结果
+7. 前端轮询 `/tasks/{task_id}`，得到会话详情、当前 `translation_status` 与待确认术语词表
+8. 用户调用 `/translations/{conversation_id}/glossary` 确认术语
+9. 用户调用 `/translations/{conversation_id}/continue`，继续 body 或 appendix
 ```
 
 ## 数据模型
@@ -132,7 +133,7 @@ python scripts/maintain_message_kind_schema.py --write
 
 其中：
 
-- `Message.client_payload_json` 用来持久化 `translation_plan` 和 `translation_status`
+- `Message.client_payload_json` 用来持久化 `translation_plan`、`translation_status` 和 `translation_glossary`
 - `AsyncJob` 用来承载 ingest / continue 这类后台任务
 - 图表二进制直接保存在数据库中
 
@@ -211,8 +212,9 @@ python -m unittest discover -s tests
 
 - 新旧路由切换是否正确
 - ingest 去重与首轮翻译计划存储
+- glossary payload 规范化与术语确认
 - continue 按 body / appendix 推进的状态迁移
-- `translation_plan` / `translation_status` payload 规范化
+- `translation_plan` / `translation_status` / `translation_glossary` payload 规范化
 
 ## 常见问题
 

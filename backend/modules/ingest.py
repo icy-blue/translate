@@ -17,10 +17,9 @@ from ..app.dependencies import check_read_only, get_api_key
 from ..domain.message_payloads import (
     build_initial_translation_prompt,
     build_translation_status_payload,
-    build_unit_translation_prompt,
-    normalize_raw_translation_result_payload,
+    normalize_translation_glossary_payload,
     normalize_translation_plan_payload,
-    parse_raw_translation_status_block,
+    parse_translation_glossary_response,
     parse_translation_plan_response,
     preprocess_bot_reply_for_storage,
 )
@@ -192,7 +191,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             if update_conversation_title(session, conversation_id, final_title) is None:
                 raise RuntimeError(f"Failed to update conversation title for {conversation_id}.")
 
-        mark_task_progress(task_id, "生成首轮翻译")
+        mark_task_progress(task_id, "生成全文规划与关键术语译法")
         planner_prompt = build_initial_translation_prompt(settings.initial_prompt)
         planner_response_text = await get_bot_response(
             [fp.ProtocolMessage(role="user", content=planner_prompt, attachments=[pdf_attachment])],
@@ -200,55 +199,38 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             payload.api_key,
         )
         translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_response_text))
+        translation_glossary = normalize_translation_glossary_payload(parse_translation_glossary_response(planner_response_text))
         if translation_plan is None:
             translation_plan = normalize_translation_plan_payload(
                 {"status": "unsupported", "units": [], "appendix_units": [], "reason": "planner_parse_failed"}
             )
-        response_text = ""
-        current_unit_id = ""
-        raw_translation_result = None
-        if translation_plan and translation_plan["status"] == "ok" and translation_plan["units"]:
-            current_unit_id = translation_plan["units"][0]
-            unit_prompt = build_unit_translation_prompt(
-                settings.continue_prompt,
-                active_units=translation_plan["units"],
-                current_unit_id=current_unit_id,
-            )
-            response_text = await get_bot_response(
-                [fp.ProtocolMessage(role="user", content=unit_prompt, attachments=[pdf_attachment])],
-                payload.poe_model,
-                payload.api_key,
-            )
-            raw_translation_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(response_text))
-            if raw_translation_result is None:
-                raw_translation_result = {
-                    "current_unit_id": current_unit_id,
-                    "state": "UNSUPPORTED",
-                    "reason": "translator_status_missing",
-                }
-        completed_unit_ids = [current_unit_id] if raw_translation_result and raw_translation_result["state"] == "OK" and current_unit_id else []
+        if translation_glossary is None:
+            translation_glossary = normalize_translation_glossary_payload({"status": "confirmed", "entries": []})
+        if translation_plan and translation_plan["status"] != "ok":
+            translation_glossary = normalize_translation_glossary_payload({"status": "confirmed", "entries": []})
+        completed_unit_ids: list[str] = []
         translation_status = build_translation_status_payload(
             translation_plan,
             completed_unit_ids=completed_unit_ids,
-            current_unit_id=current_unit_id,
+            current_unit_id="",
             attempted_scope="body",
-            raw_translation_result=raw_translation_result,
+            raw_translation_result=None,
         )
         prepared_response = preprocess_bot_reply_for_storage(
-            response_text,
-            {"translation_plan": translation_plan, "translation_status": translation_status},
+            "",
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+                "translation_glossary": translation_glossary,
+            },
         )
         response_content = str(prepared_response["content"])
         with Session(engine) as session:
             create_message_pair(
                 session,
                 conversation_id,
-                build_unit_translation_prompt(
-                    settings.continue_prompt,
-                    active_units=translation_plan["units"] if translation_plan else [],
-                    current_unit_id=current_unit_id,
-                ) if current_unit_id else planner_prompt,
-                response_text,
+                planner_prompt,
+                "",
                 user_message_kind="system_prompt",
                 user_visible_to_user=False,
                 bot_section_category=None,
@@ -259,7 +241,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             mark_task_progress(task_id, "提取论文表格")
             extract_and_store_tables(session, conversation_id, file_bytes)
             mark_task_progress(task_id, "提取论文标签")
-            if payload.extract_tags:
+            if payload.extract_tags and response_content.strip():
                 await extract_and_store_tags(session, conversation_id, final_title, response_content, payload.tag_model, payload.api_key)
             mark_task_progress(task_id, "刷新 Semantic Scholar 元数据")
             semantic_result = refresh_conversation_semantic_result(session, conversation_id, final_title)
@@ -270,6 +252,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                 "messages": [message.model_dump() for message in detail.messages],
                 "translation_plan": prepared_response["translation_plan"],
                 "translation_status": prepared_response["translation_status"],
+                "translation_glossary": prepared_response["translation_glossary"],
                 "content": response_content,
                 "display_reply": response_content,
                 "pdf_url": pdf_attachment.url,

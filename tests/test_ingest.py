@@ -110,8 +110,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
                 "get_bot_response",
                 AsyncMock(
                     side_effect=[
-                        '{"status":"ok","units":["ABSTRACT","1 INTRODUCTION"],"appendix_units":["APPENDIX A"],"reason":""}',
-                        '[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 摘要\n译文内容',
+                        '{"status":"ok","units":["ABSTRACT","1 INTRODUCTION"],"appendix_units":["APPENDIX A"],"reason":"","glossary":[{"term":"mesh face","candidates":["三角面片","网格面"]}]}',
                     ]
                 ),
             ),
@@ -124,9 +123,11 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
         self.assertEqual(result["title"], "Recovered Title")
         self.assertNotEqual(result["conversation_id"], "missing-conversation")
         self.assertEqual(result["translation_plan"]["units"], ["ABSTRACT", "1 INTRODUCTION"])
-        self.assertEqual(result["translation_status"]["current_unit_id"], "ABSTRACT")
-        self.assertEqual(result["translation_status"]["next_unit_id"], "1 INTRODUCTION")
+        self.assertEqual(result["translation_status"]["current_unit_id"], "")
+        self.assertEqual(result["translation_status"]["next_unit_id"], "ABSTRACT")
         self.assertEqual(result["translation_status"]["state"], "IN_PROGRESS")
+        self.assertEqual(result["translation_glossary"]["status"], "draft")
+        self.assertEqual(result["translation_glossary"]["entries"][0]["selected"], "三角面片")
 
         with Session(self.engine) as session:
             conversation = session.get(Conversation, result["conversation_id"])
@@ -142,7 +143,9 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             self.assertIsNotNone(first_bot_message)
             payload = json.loads(first_bot_message.client_payload_json or "{}")
             self.assertEqual(payload["translation_plan"]["appendix_units"], ["APPENDIX A"])
-            self.assertEqual(payload["translation_status"]["current_unit_id"], "ABSTRACT")
+            self.assertEqual(payload["translation_status"]["current_unit_id"], "")
+            self.assertEqual(payload["translation_glossary"]["status"], "draft")
+            self.assertEqual(payload["translation_glossary"]["entries"][0]["term"], "mesh face")
 
 
 if __name__ == "__main__":

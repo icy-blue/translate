@@ -612,11 +612,11 @@ body {
 
 .translation-status-card {
   margin-bottom: 24px;
-  padding: 18px 22px;
-  background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
-  border-radius: 14px;
-  border: 1px solid #d9e5f2;
-  box-shadow: 0 10px 26px rgba(28, 52, 84, 0.06);
+  padding: 16px 18px;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+  border-radius: 18px;
+  border: 1px solid #dbe7f5;
+  box-shadow: 0 10px 26px rgba(28, 52, 84, 0.05);
 }
 
 .translation-status-progress {
@@ -638,25 +638,40 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .translation-status-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #24415f;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #1f3247;
 }
 
 .translation-status-badge {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   min-height: 28px;
-  padding: 4px 12px;
+  padding: 4px 11px;
   border-radius: 999px;
   background: #e9f2ff;
   color: #1f5ea8;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.translation-status-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
 }
 
 .translation-status-body-done .translation-status-badge {
@@ -669,49 +684,362 @@ body {
   color: #23704b;
 }
 
-.translation-status-grid {
+.translation-status-topline {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: auto auto minmax(140px, 1fr) auto;
   gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
-.translation-status-item,
-.translation-status-footer {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(210, 223, 238, 0.9);
+.translation-status-main-value {
+  color: #1f3247;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
 }
 
-.translation-status-item-progress {
-  background: linear-gradient(180deg, rgba(245, 250, 255, 0.98) 0%, rgba(255, 255, 255, 0.92) 100%);
-  border-color: rgba(196, 216, 240, 0.95);
+.translation-status-main-units {
+  margin-left: 6px;
+  color: #6a7688;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
-.translation-status-item-progress .translation-status-value {
+.translation-status-percent {
+  color: #3f7ded;
   font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.translation-status-progressbar-track {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9eef5;
+  height: 8px;
+  min-width: 120px;
+}
+
+.translation-status-progressbar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+}
+
+.translation-status-progressbar-fill-overall {
+  background: linear-gradient(90deg, #63a2f0 0%, #2e62da 100%);
+}
+
+.translation-status-progressbar-fill-body {
+  background: linear-gradient(90deg, #7ddf9f 0%, #27be5d 100%);
+}
+
+.translation-status-progressbar-fill-appendix {
+  background: linear-gradient(90deg, #d5dde8 0%, #c4cfdd 100%);
+}
+
+.translation-status-mini-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f5f8fc;
+  border: 1px solid #dce6f3;
+  color: #5f6c80;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.translation-status-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #e9f0fb;
+}
+
+.translation-status-meta-item {
+  min-width: 0;
+}
+
+.translation-status-meta-key {
+  margin-bottom: 4px;
+  color: #6a7688;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.translation-status-meta-value {
+  color: #1f3247;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.translation-status-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #dbe7f7;
+}
+
+.translation-status-desc {
+  flex: 1 1 360px;
+  min-width: 240px;
+  color: #66758a;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.translation-status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.translation-status-action-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #f6f8fc;
+  color: #5f6c80;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.translation-status-action-pill.confirmed {
+  background: #eaf8ee;
+  color: #15803d;
+  border-color: #caebd4;
+}
+
+.translation-status-action-pill.pending {
+  background: #fff5df;
+  color: #9a6700;
+  border-color: #f0deaf;
+}
+
+.translation-status-action-pill.toggle {
+  appearance: none;
+  cursor: pointer;
+  background: #eef5ff;
+  color: #2563eb;
+  border-color: #cfe0ff;
+}
+
+.translation-status-action-pill.toggle:hover {
+  background: #e5f0ff;
+}
+
+.translation-status-glossary-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9f0fb;
+}
+
+.translation-status-glossary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.translation-status-glossary-heading {
+  flex: 1 1 280px;
+  min-width: 220px;
+}
+
+.translation-status-glossary-title {
+  color: #1f3247;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.translation-status-glossary-caption {
+  margin-top: 4px;
+  color: #6b7d93;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.translation-status-glossary-toolbar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.translation-status-glossary-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.translation-status-note {
+  margin-top: 8px;
+  color: #6b7d93;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.translation-status-section {
+  margin-top: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+}
+
+.translation-status-section-inline-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.translation-status-section-toggle {
+  appearance: none;
+  border: 1px solid #d4e1ef;
+  border-radius: 999px;
+  background: #fff;
+  color: #4f6784;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.translation-status-section-toggle:hover {
+  border-color: #1677ff;
+  color: #1677ff;
+  background: #eef5ff;
+}
+
+.translation-status-section-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #e6f3ff;
+  color: #1f5ea8;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.translation-status-footer {
-  margin-top: 12px;
+.translation-status-section-badge.pending {
+  background: #fff3d9;
+  color: #996500;
 }
 
-.translation-status-label {
-  display: block;
-  margin-bottom: 6px;
+.translation-status-section-badge.confirmed {
+  background: #e8f7ea;
+  color: #2f7a46;
+}
+
+.translation-status-section-subtitle,
+.translation-status-section-footer,
+.translation-status-section-summary {
+  margin-top: 6px;
   font-size: 12px;
-  font-weight: 600;
-  color: #6e8096;
-  letter-spacing: 0.02em;
+  line-height: 1.6;
+  color: #6b7d93;
 }
 
-.translation-status-value {
-  display: block;
+.translation-status-glossary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.translation-status-glossary-row {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: #f8fbff;
+  border: 1px solid #dde8f4;
+}
+
+.glossary-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  line-height: 1.7;
+}
+
+.glossary-term-inline {
+  font-size: 13px;
+  font-weight: 700;
   color: #1f3247;
-  font-size: 14px;
-  line-height: 1.6;
   word-break: break-word;
+}
+
+.glossary-candidates {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.glossary-candidate {
+  appearance: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #5e6f85;
+  font-size: 13px;
+  line-height: 1.7;
+  cursor: pointer;
+  transition: color 0.2s ease, text-decoration-color 0.2s ease;
+}
+
+.glossary-candidate:hover:not(:disabled) {
+  color: #1677ff;
+}
+
+.glossary-candidate.selected {
+  color: #1677ff;
+  font-weight: 700;
+}
+
+.glossary-candidate:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.glossary-separator {
+  color: #9aa8b8;
 }
 
 .tag-block-header {
@@ -1069,6 +1397,33 @@ body {
   .asset-grid {
     grid-template-columns: 1fr;
   }
+
+  .translation-status-card {
+    padding: 14px 16px;
+    border-radius: 16px;
+  }
+
+  .translation-status-topline {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .translation-status-progressbar-track {
+    grid-column: 1 / -1;
+  }
+
+  .translation-status-mini-tag {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
+  }
+
+  .translation-status-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .translation-status-bottom {
+    align-items: flex-start;
+  }
 }
 
 /* ==========================================
@@ -1077,7 +1432,7 @@ body {
 @media (max-width: 576px) {
   /* 容器调整 */
   .container {
-    padding: 8px;
+    padding: 6px;
   }
 
   /* 头部盒调整 */
@@ -1117,27 +1472,171 @@ body {
   /* 消息块调整 */
   .message-block,
   .user-message-block {
-    padding: 16px;
-    margin-bottom: 16px;
+    padding: 12px;
+    margin-bottom: 12px;
   }
 
   .title-block {
-    padding: 16px;
-    font-size: 18px;
+    padding: 12px;
+    margin-bottom: 12px;
+    font-size: 17px;
   }
 
   .tag-block {
-    margin-bottom: 16px;
-    padding: 16px;
+    margin-bottom: 12px;
+    padding: 12px;
   }
 
   .translation-status-card {
-    margin-bottom: 16px;
-    padding: 16px;
+    margin-bottom: 12px;
+    padding: 12px 13px;
+    border-radius: 16px;
   }
 
-  .translation-status-grid {
+  .translation-status-header {
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .translation-status-title {
+    font-size: 14px;
+  }
+
+  .translation-status-badge {
+    min-height: 24px;
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+
+  .translation-status-topline {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .translation-status-main-value {
+    font-size: 26px;
+  }
+
+  .translation-status-main-units,
+  .translation-status-percent,
+  .translation-status-mini-tag,
+  .translation-status-meta-value,
+  .translation-status-action-pill {
+    font-size: 12px;
+  }
+
+  .translation-status-progressbar-track {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .translation-status-mini-tag {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
+  }
+
+  .translation-status-meta {
     grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .translation-status-meta-key {
+    margin-bottom: 2px;
+  }
+
+  .translation-status-bottom {
+    margin-top: 10px;
+    padding-top: 10px;
+    gap: 10px;
+  }
+
+  .translation-status-desc {
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .translation-status-actions {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .translation-status-glossary-panel {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .translation-status-glossary-header {
+    gap: 10px;
+  }
+
+  .translation-status-glossary-heading {
+    min-width: 0;
+  }
+
+  .translation-status-glossary-title {
+    font-size: 13px;
+  }
+
+  .translation-status-glossary-caption {
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .translation-status-glossary-toolbar,
+  .translation-status-glossary-footer {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .translation-status-section-toggle {
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+
+  .translation-status-section-subtitle,
+  .translation-status-section-footer,
+  .translation-status-section-summary {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .translation-status-glossary-list {
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .translation-status-glossary-row {
+    padding: 6px 8px;
+  }
+
+  .glossary-line {
+    gap: 3px;
+    line-height: 1.45;
+  }
+
+  .glossary-term-inline,
+  .glossary-candidate {
+    font-size: 12px;
+  }
+
+  .tag-block-header {
+    margin-bottom: 8px;
+  }
+
+  .tag-block-actions {
+    gap: 6px;
+  }
+
+  .tag-chip {
+    min-height: 24px;
+    padding: 2px 8px;
+    font-size: 12px;
   }
 
   .tag-picker-toolbar {

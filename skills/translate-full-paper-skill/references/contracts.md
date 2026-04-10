@@ -9,6 +9,7 @@
 
 ## Output
 - `messages`: ordered message objects that can be committed through the pipeline API.
+- `translation_glossary`: canonical glossary payload. This skill auto-confirms each glossary entry with its first candidate because there is no interactive UI in the offline runner.
 - User messages always include:
   - `role="user"`
   - `message_kind="system_prompt"` for the first hidden translation trigger
@@ -21,6 +22,7 @@
   - `content`: cleaned visible text with `[TRANSLATION_STATUS_JSON]` removed
   - `client_payload.translation_plan`
   - `client_payload.translation_status`
+  - `client_payload.translation_glossary`
 
 ## Notes
 - `first_bot_message` is the cleaned first bot reply used by tag extraction.

@@ -12,6 +12,7 @@ from ..domain.message_payloads import (
     build_unit_translation_prompt,
     infer_message_metadata,
     normalize_raw_translation_result_payload,
+    normalize_translation_glossary_payload,
     normalize_translation_plan_payload,
     normalize_translation_status_payload,
     parse_raw_translation_status_block,
@@ -21,7 +22,7 @@ from ..domain.message_payloads import (
 from ..platform.config import engine, settings
 from ..platform.gateways.poe import get_bot_response
 from ..platform.task_runtime import enqueue_task, get_active_task, get_session_enqueue_lock, mark_task_progress, register_task_definition
-from .conversations import create_message_pair, get_conversation, get_file_record, get_messages
+from .conversations import add_message, create_message_pair, get_conversation, get_file_record, get_messages
 
 router = APIRouter(tags=["translation"])
 
@@ -34,10 +35,30 @@ class ContinueTranslationTaskPayload(BaseModel):
     api_key: str
 
 
-def _prepare_bot_response(response_text: str, *, translation_plan: dict[str, object], translation_status: dict[str, object]) -> dict:
+class TranslationGlossaryEntryPayload(BaseModel):
+    term: str
+    candidates: list[str] = []
+    selected: str = ""
+
+
+class ConfirmTranslationGlossaryPayload(BaseModel):
+    entries: list[TranslationGlossaryEntryPayload] = []
+
+
+def _prepare_bot_response(
+    response_text: str,
+    *,
+    translation_plan: dict[str, object],
+    translation_status: dict[str, object],
+    translation_glossary: dict[str, object] | None,
+) -> dict:
     prepared_response = preprocess_bot_reply_for_storage(
         response_text,
-        {"translation_plan": translation_plan, "translation_status": translation_status},
+        {
+            "translation_plan": translation_plan,
+            "translation_status": translation_status,
+            "translation_glossary": translation_glossary,
+        },
     )
     response_content = str(prepared_response["content"])
     return {
@@ -47,27 +68,63 @@ def _prepare_bot_response(response_text: str, *, translation_plan: dict[str, obj
         "section_category": None,
         "translation_plan": prepared_response["translation_plan"],
         "translation_status": prepared_response["translation_status"],
+        "translation_glossary": prepared_response["translation_glossary"],
         "client_payload": prepared_response["client_payload"],
     }
 
 
 def _get_latest_translation_context(session: Session, conversation_id: str) -> dict[str, object]:
     messages = get_messages(session, conversation_id)
+    latest_translation_plan = None
+    latest_translation_status = None
+    latest_translation_glossary = None
     for message in reversed(messages):
         if infer_message_metadata(message)["role"] != "bot":
             continue
         payload = safe_json_loads(message.client_payload_json, {})
         if not isinstance(payload, dict):
             continue
-        translation_plan = normalize_translation_plan_payload(payload.get("translation_plan"))
-        translation_status = normalize_translation_status_payload(payload.get("translation_status"))
-        if translation_plan is None or translation_status is None:
-            continue
-        return {"translation_plan": translation_plan, "translation_status": translation_status}
+        if latest_translation_plan is None:
+            latest_translation_plan = normalize_translation_plan_payload(payload.get("translation_plan"))
+        if latest_translation_status is None:
+            latest_translation_status = normalize_translation_status_payload(payload.get("translation_status"))
+        if latest_translation_glossary is None:
+            latest_translation_glossary = normalize_translation_glossary_payload(payload.get("translation_glossary"))
+        if latest_translation_plan is not None and latest_translation_status is not None and latest_translation_glossary is not None:
+            break
+    if latest_translation_plan is not None and latest_translation_status is not None:
+        return {
+            "translation_plan": latest_translation_plan,
+            "translation_status": latest_translation_status,
+            "translation_glossary": latest_translation_glossary,
+        }
     raise HTTPException(
         status_code=409,
         detail="会话缺少可用的 translation_plan / translation_status，无法继续按 unit 协议续翻。",
     )
+
+
+def _default_confirmed_glossary() -> dict[str, object]:
+    return normalize_translation_glossary_payload({"status": "confirmed", "entries": []}) or {
+        "protocol": "glossary_v1",
+        "status": "confirmed",
+        "entries": [],
+    }
+
+
+def _ensure_confirmed_glossary_for_translation(translation_glossary: dict[str, object] | None) -> dict[str, object]:
+    normalized_glossary = normalize_translation_glossary_payload(translation_glossary) or _default_confirmed_glossary()
+    if normalized_glossary["status"] != "confirmed" and normalized_glossary["entries"]:
+        raise HTTPException(status_code=409, detail="术语词表尚未确认，请先确认术语后再继续翻译。")
+    return normalized_glossary
+
+
+def _glossary_signature_entries(translation_glossary: dict[str, object] | None) -> list[dict[str, object]]:
+    normalized_glossary = normalize_translation_glossary_payload(translation_glossary) or _default_confirmed_glossary()
+    return [
+        {"term": entry["term"], "candidates": list(entry["candidates"])}
+        for entry in normalized_glossary["entries"]
+    ]
 
 
 def _get_next_unit_id(translation_plan: dict[str, object], translation_status: dict[str, object], target_scope: str) -> str:
@@ -140,6 +197,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
         latest_context = _get_latest_translation_context(session, payload.conversation_id)
         latest_status = normalize_translation_status_payload(latest_context["translation_status"])
         latest_plan = normalize_translation_plan_payload(latest_context["translation_plan"])
+        latest_glossary = _ensure_confirmed_glossary_for_translation(latest_context.get("translation_glossary"))
         if latest_status is None or latest_plan is None:
             raise HTTPException(status_code=409, detail="最新翻译状态不可用。")
         if latest_status["state"] in {"UNSUPPORTED", "ALL_DONE"}:
@@ -152,6 +210,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             settings.continue_prompt,
             active_units=active_units,
             current_unit_id=next_unit_id,
+            translation_glossary=latest_glossary,
         )
         pdf_attachment = fp.Attachment(url=file_record.poe_url, content_type=file_record.content_type, name=file_record.poe_name)
         mark_task_progress(task_id, "等待 Poe 返回翻译结果")
@@ -181,6 +240,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             response_text,
             translation_plan=latest_plan,
             translation_status=canonical_status,
+            translation_glossary=latest_glossary,
         )
         mark_task_progress(task_id, "写入会话消息")
         create_message_pair(
@@ -218,3 +278,63 @@ async def continue_translation_route(
         api_key=api_key,
         session=session,
     )
+
+
+@router.put("/translations/{conversation_id}/glossary")
+async def confirm_translation_glossary_route(
+    conversation_id: str,
+    payload: ConfirmTranslationGlossaryPayload,
+    session: Session = Depends(get_db_session),
+    _read_only: None = Depends(check_read_only),
+):
+    conversation = get_conversation(session, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    latest_context = _get_latest_translation_context(session, conversation_id)
+    latest_status = normalize_translation_status_payload(latest_context["translation_status"])
+    latest_plan = normalize_translation_plan_payload(latest_context["translation_plan"])
+    latest_glossary = normalize_translation_glossary_payload(latest_context.get("translation_glossary")) or _default_confirmed_glossary()
+    if latest_status is None or latest_plan is None:
+        raise HTTPException(status_code=409, detail="最新翻译状态不可用。")
+    if latest_status["completed_unit_count"] > 0:
+        raise HTTPException(status_code=409, detail="已有翻译内容生成，当前版本不支持中途修改术语词表。")
+
+    submitted_glossary = normalize_translation_glossary_payload(
+        {
+            "status": "confirmed",
+            "entries": [entry.model_dump() for entry in payload.entries],
+        }
+    )
+    if submitted_glossary is None:
+        raise HTTPException(status_code=400, detail="提交的术语词表无效。")
+
+    if _glossary_signature_entries(latest_glossary) != _glossary_signature_entries(submitted_glossary):
+        raise HTTPException(status_code=409, detail="术语词表已变化，请刷新页面后重新确认。")
+
+    add_message(
+        session,
+        conversation_id=conversation_id,
+        content="Confirm translation glossary selections.",
+        message_kind="user_message",
+        visible_to_user=False,
+    )
+    add_message(
+        session,
+        conversation_id=conversation_id,
+        content="",
+        message_kind="bot_reply",
+        visible_to_user=False,
+        client_payload={
+            "translation_plan": latest_plan,
+            "translation_status": latest_status,
+            "translation_glossary": submitted_glossary,
+        },
+    )
+    session.commit()
+    return {
+        "conversation_id": conversation_id,
+        "translation_plan": latest_plan,
+        "translation_status": latest_status,
+        "translation_glossary": submitted_glossary,
+    }

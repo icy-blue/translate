@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, patch
 
 from sqlmodel import SQLModel, Session, create_engine
 
-from backend.domain.message_payloads import build_translation_status_payload, normalize_translation_plan_payload
+from backend.domain.message_payloads import (
+    build_translation_status_payload,
+    normalize_translation_glossary_payload,
+    normalize_translation_plan_payload,
+)
 from backend.modules import translation
 from backend.modules.conversations import add_message
 from backend.platform.models import Conversation, FileRecord
@@ -22,7 +26,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         self.engine = create_engine(f"sqlite:///{self.db_file.name}")
         SQLModel.metadata.create_all(self.engine)
 
-    def _seed_conversation(self, translation_plan: dict, translation_status: dict) -> None:
+    def _seed_conversation(self, translation_plan: dict, translation_status: dict, translation_glossary: dict | None = None) -> None:
         with Session(self.engine) as session:
             session.add(Conversation(id="conv-1", title="Paper", original_filename="paper.pdf"))
             session.add(
@@ -42,7 +46,11 @@ class ContinueTranslationFlowTest(unittest.TestCase):
                 content="# 摘要\n译文内容",
                 message_kind="bot_reply",
                 visible_to_user=True,
-                client_payload={"translation_plan": translation_plan, "translation_status": translation_status},
+                client_payload={
+                    "translation_plan": translation_plan,
+                    "translation_status": translation_status,
+                    "translation_glossary": translation_glossary,
+                },
             )
             session.commit()
 
@@ -131,6 +139,92 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         self.assertEqual(result["translation_status"]["state"], "ALL_DONE")
         self.assertEqual(result["translation_status"]["active_scope"], "done")
         self.assertEqual(result["translation_status"]["next_unit_id"], "")
+
+    def test_continue_translation_rejects_unconfirmed_glossary(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["ABSTRACT", "1 INTRODUCTION"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[],
+            current_unit_id="",
+            attempted_scope="body",
+            raw_translation_result=None,
+        )
+        translation_glossary = normalize_translation_glossary_payload(
+            {
+                "status": "draft",
+                "entries": [{"term": "mesh face", "candidates": ["三角面片", "网格面"]}],
+            }
+        )
+        self._seed_conversation(translation_plan, translation_status, translation_glossary)
+
+        payload = translation.ContinueTranslationTaskPayload(
+            conversation_id="conv-1",
+            action="continue",
+            target_scope="body",
+            poe_model="poe-model",
+            api_key="test-key",
+        )
+        with (
+            patch.object(translation, "engine", self.engine),
+            patch.object(translation, "mark_task_progress"),
+        ):
+            with self.assertRaisesRegex(Exception, "术语词表尚未确认"):
+                asyncio.run(translation.handle_continue_translation("task-3", payload))
+
+    def test_confirm_translation_glossary_persists_confirmed_payload(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["ABSTRACT", "1 INTRODUCTION"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[],
+            current_unit_id="",
+            attempted_scope="body",
+            raw_translation_result=None,
+        )
+        translation_glossary = normalize_translation_glossary_payload(
+            {
+                "status": "draft",
+                "entries": [{"term": "mesh face", "candidates": ["三角面片", "网格面"]}],
+            }
+        )
+        self._seed_conversation(translation_plan, translation_status, translation_glossary)
+
+        request_payload = translation.ConfirmTranslationGlossaryPayload(
+            entries=[
+                translation.TranslationGlossaryEntryPayload(
+                    term="mesh face",
+                    candidates=["三角面片", "网格面"],
+                    selected="网格面",
+                )
+            ]
+        )
+
+        with patch.object(translation, "engine", self.engine):
+            with Session(self.engine) as session:
+                result = asyncio.run(
+                    translation.confirm_translation_glossary_route(
+                        "conv-1",
+                        request_payload,
+                        session=session,
+                        _read_only=None,
+                    )
+                )
+
+        self.assertEqual(result["translation_glossary"]["status"], "confirmed")
+        self.assertEqual(result["translation_glossary"]["entries"][0]["selected"], "网格面")
 
 
 if __name__ == "__main__":

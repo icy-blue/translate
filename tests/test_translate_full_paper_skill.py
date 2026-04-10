@@ -37,7 +37,10 @@ class TranslateFullPaperSkillTest(unittest.TestCase):
   "status": "ok",
   "units": ["ABSTRACT", "1 INTRODUCTION"],
   "appendix_units": [],
-  "reason": ""
+  "reason": "",
+  "glossary": [
+    {"term": "mesh face", "candidates": ["三角面片", "网格面"]}
+  ]
 }
         """.strip()
         first_reply = """
@@ -85,6 +88,8 @@ class TranslateFullPaperSkillTest(unittest.TestCase):
         self.assertEqual(result["first_bot_message"], first_bot["content"])
 
         self.assertEqual(first_bot["client_payload"]["translation_status"]["current_unit_id"], "ABSTRACT")
+        self.assertEqual(first_bot["client_payload"]["translation_glossary"]["status"], "confirmed")
+        self.assertEqual(first_bot["client_payload"]["translation_glossary"]["entries"][0]["selected"], "三角面片")
         self.assertEqual(second_bot["client_payload"]["translation_status"]["current_unit_id"], "1 INTRODUCTION")
         self.assertEqual(result["translation_status"]["state"], "ALL_DONE")
 

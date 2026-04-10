@@ -12,6 +12,7 @@ from sqlmodel import Session, func, select
 from ..app.dependencies import get_db_session
 from ..domain.message_kinds import infer_message_kind, is_bot_message_kind
 from ..domain.message_payloads import (
+    normalize_translation_glossary_payload,
     normalize_translation_plan_payload,
     normalize_translation_status_payload,
     preprocess_bot_reply_for_storage,
@@ -41,6 +42,7 @@ class MessageResponse(BaseModel):
     content: str
     translation_plan: Optional[dict[str, Any]] = None
     translation_status: Optional[dict[str, Any]] = None
+    translation_glossary: Optional[dict[str, Any]] = None
     client_payload_json: Optional[str] = None
     created_at: datetime
 
@@ -217,10 +219,35 @@ def get_messages(session: Session, conversation_id: str) -> list[Message]:
 def get_first_bot_message(session: Session, conversation_id: str) -> Optional[Message]:
     statement = (
         select(Message)
-        .where(Message.conversation_id == conversation_id, Message.message_kind == "bot_reply")
+        .where(Message.conversation_id == conversation_id, Message.message_kind == "bot_reply", Message.visible_to_user == True)
         .order_by(Message.id)
     )
-    return session.exec(statement).first()
+    visible_messages = session.exec(statement).all()
+    for message in visible_messages:
+        if str(message.content or "").strip():
+            return message
+    return visible_messages[0] if visible_messages else None
+
+
+def get_first_translated_bot_message(session: Session, conversation_id: str) -> Optional[Message]:
+    statement = (
+        select(Message)
+        .where(Message.conversation_id == conversation_id, Message.message_kind == "bot_reply", Message.visible_to_user == True)
+        .order_by(Message.id)
+    )
+    visible_messages = session.exec(statement).all()
+    fallback_message: Optional[Message] = None
+    for message in visible_messages:
+        content = str(message.content or "").strip()
+        if not content:
+            continue
+        if fallback_message is None:
+            fallback_message = message
+        payload = safe_json_loads(message.client_payload_json, {})
+        translation_status = normalize_translation_status_payload(payload.get("translation_status")) if isinstance(payload, dict) else None
+        if translation_status and int(translation_status.get("completed_unit_count", 0) or 0) > 0:
+            return message
+    return fallback_message
 
 
 def get_figures(session: Session, conversation_id: str) -> list[PaperFigure]:
@@ -261,6 +288,7 @@ def serialize_message(message: Message) -> MessageResponse:
     payload = safe_json_loads(message.client_payload_json, {})
     translation_plan = normalize_translation_plan_payload(payload.get("translation_plan")) if isinstance(payload, dict) else None
     translation_status = normalize_translation_status_payload(payload.get("translation_status")) if isinstance(payload, dict) else None
+    translation_glossary = normalize_translation_glossary_payload(payload.get("translation_glossary")) if isinstance(payload, dict) else None
     return MessageResponse(
         id=message.id,
         conversation_id=message.conversation_id,
@@ -270,6 +298,7 @@ def serialize_message(message: Message) -> MessageResponse:
         content=message.content,
         translation_plan=translation_plan,
         translation_status=translation_status,
+        translation_glossary=translation_glossary,
         client_payload_json=message.client_payload_json,
         created_at=ensure_local_timezone(message.created_at),
     )
@@ -374,9 +403,11 @@ def build_conversation_list_item(
     include_relevance: bool = False,
     relevance_score: int = 0,
 ) -> ConversationListItemResponse:
-    first_bot_msg = get_first_bot_message(session, conversation.id)
+    first_bot_msg = get_first_translated_bot_message(session, conversation.id) or get_first_bot_message(session, conversation.id)
     first_bot_content = first_bot_msg.content if first_bot_msg else ""
     summary = (first_bot_content[:200] + "...") if len(first_bot_content) > 200 else first_bot_content
+    if not summary.strip():
+        summary = "已生成全文规划，等待确认关键术语与译法。"
     file_record = get_file_record(session, conversation.id)
     semantic = serialize_semantic_result(semantic_result)
     payload = {

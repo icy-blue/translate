@@ -23,14 +23,15 @@ Use after bootstrap when you have a Poe PDF attachment and need side-effect-free
 - `continue_count_used`
 - `translation_plan`
 - `translation_status`
+- `translation_glossary`
 
 ## Steps
-1. Send the planner prompt and build canonical `translation_plan`.
+1. Send the planner prompt and build canonical `translation_plan` plus `translation_glossary`.
 2. Mirror backend ingest behavior:
    - unsupported plan: emit one hidden `system_prompt` user message plus one bot reply carrying canonical payloads
-   - supported plan: translate the first body unit and mark that hidden user message as `system_prompt`
+   - supported plan: auto-confirm glossary candidates using the first candidate for each term, then translate the first body unit and mark that hidden user message as `system_prompt`
 3. Loop `continue_count` times using canonical `translation_status`, switching to appendix units automatically when body units are done.
-4. For every bot reply, strip `[TRANSLATION_STATUS_JSON]` from visible content and keep canonical `translation_plan` / `translation_status` in `client_payload`.
+4. For every bot reply, strip `[TRANSLATION_STATUS_JSON]` from visible content and keep canonical `translation_plan` / `translation_status` / `translation_glossary` in `client_payload`.
 5. Return the ordered message list plus the latest canonical status.
 
 ## Failure Handling

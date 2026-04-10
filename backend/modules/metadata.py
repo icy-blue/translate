@@ -69,7 +69,14 @@ async def refresh_conversation_metadata(session: Session, conversation_id: str, 
     if not conversation:
         raise ValueError("Conversation not found.")
     messages = get_messages(session, conversation_id)
-    first_bot_message = next((message.content for message in messages if infer_message_metadata(message)["role"] == "bot"), "")
+    first_bot_message = next(
+        (
+            message.content
+            for message in messages
+            if infer_message_metadata(message)["role"] == "bot" and str(message.content or "").strip()
+        ),
+        "",
+    )
     tags = await extract_and_store_tags(
         session=session,
         conversation_id=conversation_id,

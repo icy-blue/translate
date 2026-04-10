@@ -19,8 +19,10 @@ from backend.domain.message_payloads import (
     build_translation_status_payload,
     build_unit_translation_prompt,
     normalize_raw_translation_result_payload,
+    normalize_translation_glossary_payload,
     normalize_translation_plan_payload,
     normalize_translation_status_payload,
+    parse_translation_glossary_response,
     parse_raw_translation_status_block,
     parse_translation_plan_response,
     preprocess_bot_reply_for_storage,
@@ -60,10 +62,15 @@ def _build_bot_message(
     *,
     translation_plan: dict[str, Any],
     translation_status: dict[str, Any],
+    translation_glossary: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
     prepared = preprocess_bot_reply_for_storage(
         response_text,
-        {"translation_plan": translation_plan, "translation_status": translation_status},
+        {
+            "translation_plan": translation_plan,
+            "translation_status": translation_status,
+            "translation_glossary": translation_glossary,
+        },
     )
     content = str(prepared["content"])
     return (
@@ -111,6 +118,16 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         return _result_error("planner_failed", f"Planner failed: {exc}", result_messages)
 
     translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_reply))
+    translation_glossary = normalize_translation_glossary_payload(parse_translation_glossary_response(planner_reply))
+    if translation_glossary is None:
+        translation_glossary = normalize_translation_glossary_payload({"status": "confirmed", "entries": []})
+    elif translation_glossary["entries"]:
+        translation_glossary = normalize_translation_glossary_payload(
+            {
+                "status": "confirmed",
+                "entries": translation_glossary["entries"],
+            }
+        )
     if translation_plan is None:
         translation_plan = normalize_translation_plan_payload(
             {"status": "unsupported", "units": [], "appendix_units": [], "reason": "planner_parse_failed"}
@@ -124,6 +141,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
             "",
             translation_plan=translation_plan,
             translation_status=latest_status,
+            translation_glossary=translation_glossary,
         )
         result_messages.append(bot_message)
         return {
@@ -133,6 +151,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
             "continue_count_used": 0,
             "translation_plan": translation_plan,
             "translation_status": latest_status,
+            "translation_glossary": translation_glossary,
             "errors": errors,
         }
 
@@ -141,6 +160,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         settings.continue_prompt,
         active_units=translation_plan["units"],
         current_unit_id=current_unit_id,
+        translation_glossary=translation_glossary,
     )
     result_messages.append(_build_user_message(unit_prompt, message_kind="system_prompt"))
     try:
@@ -172,6 +192,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         first_reply,
         translation_plan=translation_plan,
         translation_status=latest_status,
+        translation_glossary=translation_glossary,
     )
     result_messages.append(first_bot_message)
     continue_count_used = 0
@@ -200,6 +221,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
             settings.continue_prompt,
             active_units=active_units,
             current_unit_id=next_unit_id,
+            translation_glossary=translation_glossary,
         )
         result_messages.append(_build_user_message(continue_prompt, message_kind="continue_command"))
         try:
@@ -229,6 +251,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
                 reply,
                 translation_plan=translation_plan,
                 translation_status=latest_status,
+                translation_glossary=translation_glossary,
             )
             result_messages.append(bot_message)
             continue_count_used += 1
@@ -250,6 +273,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         "continue_count_used": continue_count_used,
         "translation_plan": translation_plan,
         "translation_status": latest_status,
+        "translation_glossary": translation_glossary,
         "errors": errors,
     }
 

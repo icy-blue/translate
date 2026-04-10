@@ -340,6 +340,45 @@
       };
     }
 
+    function normalizeTranslationGlossary(glossary) {
+      if (!glossary || typeof glossary !== "object") {
+        return null;
+      }
+      const protocol = String(glossary.protocol || "").trim();
+      if (protocol && protocol !== "glossary_v1") {
+        return null;
+      }
+      const rawStatus = String(glossary.status || "").trim().toLowerCase();
+      const entries = Array.isArray(glossary.entries)
+        ? glossary.entries
+            .map(entry => {
+              if (!entry || typeof entry !== "object") {
+                return null;
+              }
+              const term = String(entry.term || "").trim();
+              const candidates = Array.isArray(entry.candidates)
+                ? Array.from(new Set(entry.candidates.map(item => String(item || "").trim()).filter(Boolean))).slice(0, 3)
+                : [];
+              if (!term || candidates.length === 0) {
+                return null;
+              }
+              const selected = candidates.includes(String(entry.selected || "").trim())
+                ? String(entry.selected || "").trim()
+                : candidates[0];
+              return { term, candidates, selected };
+            })
+            .filter(Boolean)
+        : [];
+      const status = rawStatus === "draft" || rawStatus === "confirmed"
+        ? rawStatus
+        : (entries.length > 0 ? "draft" : "confirmed");
+      return {
+        protocol: protocol || "glossary_v1",
+        status: entries.length === 0 ? "confirmed" : status,
+        entries,
+      };
+    }
+
     function buildTranslationProgressBreakdown(status, plan) {
       const fallbackOverallCompleted = Number.isFinite(Number(status?.completed_unit_count))
         ? Number(status.completed_unit_count)
@@ -381,6 +420,28 @@
       }
       const safeCompleted = Math.min(safeTotal, Math.max(0, Number(completed) || 0));
       return `${safeCompleted} / ${safeTotal} 块`;
+    }
+
+    function formatProgressRatio(completed, total, options = {}) {
+      const { emptyText = "0 / 0" } = options;
+      if (!Number.isFinite(Number(total))) {
+        return emptyText;
+      }
+      const safeTotal = Math.max(0, Number(total));
+      const safeCompleted = Math.min(safeTotal, Math.max(0, Number(completed) || 0));
+      if (safeTotal === 0) {
+        return emptyText;
+      }
+      return `${safeCompleted} / ${safeTotal}`;
+    }
+
+    function formatProgressPercent(completed, total) {
+      if (!Number.isFinite(Number(total)) || Number(total) <= 0) {
+        return "0%";
+      }
+      const safeTotal = Math.max(1, Number(total));
+      const safeCompleted = Math.min(safeTotal, Math.max(0, Number(completed) || 0));
+      return `${Math.round((safeCompleted / safeTotal) * 100)}%`;
     }
 
     function parseJsonObject(raw) {
@@ -437,6 +498,7 @@
       const items = Array.isArray(messages) ? messages : [];
       let latestTranslationStatus = null;
       let latestTranslationPlan = null;
+      let latestTranslationGlossary = null;
       for (let i = items.length - 1; i >= 0; i -= 1) {
         const messageLike = items[i];
         const messageKind = String(
@@ -455,19 +517,26 @@
         const translationPlan = normalizeTranslationPlan(
           messageLike?.translation_plan || clientPayload?.translation_plan
         );
+        const translationGlossary = normalizeTranslationGlossary(
+          messageLike?.translation_glossary || clientPayload?.translation_glossary
+        );
         if (!latestTranslationStatus && translationStatus) {
           latestTranslationStatus = translationStatus;
         }
         if (!latestTranslationPlan && translationPlan) {
           latestTranslationPlan = translationPlan;
         }
-        if (latestTranslationStatus && latestTranslationPlan) {
+        if (!latestTranslationGlossary && translationGlossary) {
+          latestTranslationGlossary = translationGlossary;
+        }
+        if (latestTranslationStatus && latestTranslationPlan && latestTranslationGlossary) {
           break;
         }
       }
       return {
         translationStatus: latestTranslationStatus,
         translationPlan: latestTranslationPlan,
+        translationGlossary: latestTranslationGlossary,
       };
     }
 
@@ -2001,6 +2070,7 @@
       const [tagLibrary, setTagLibrary] = useState([]);
       const [translationStatus, setTranslationStatus] = useState(null);
       const [translationPlan, setTranslationPlan] = useState(null);
+      const [translationGlossary, setTranslationGlossary] = useState(null);
 
       // ===== UI 状态 =====
       const [loading, setLoading] = useState(false);
@@ -2032,6 +2102,9 @@
       const [tagKeyword, setTagKeyword] = useState("");
       const [tagSaving, setTagSaving] = useState(false);
       const [tagRefreshing, setTagRefreshing] = useState(false);
+      const [glossarySaving, setGlossarySaving] = useState(false);
+      const [glossaryDraftSelections, setGlossaryDraftSelections] = useState({});
+      const [glossaryCollapsed, setGlossaryCollapsed] = useState(true);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
       const [autoTranslating, setAutoTranslating] = useState(false);
@@ -2113,6 +2186,16 @@
         }
       }, [paperTitle]);
 
+      useEffect(() => {
+        const entries = Array.isArray(translationGlossary?.entries) ? translationGlossary.entries : [];
+        const nextSelections = {};
+        entries.forEach(entry => {
+          nextSelections[entry.term] = entry.selected;
+        });
+        setGlossaryDraftSelections(nextSelections);
+        setGlossaryCollapsed(true);
+      }, [translationGlossary]);
+
       /**
        * 页面加载时如果 URL 有 id 自动加载历史
        */
@@ -2187,6 +2270,9 @@
         const resolvedTranslationPlan =
           latestTranslationContext.translationPlan
           || normalizeTranslationPlan(data?.translation_plan);
+        const resolvedTranslationGlossary =
+          latestTranslationContext.translationGlossary
+          || normalizeTranslationGlossary(data?.translation_glossary);
         setPaperTitle(data?.title || "");
         setPdfUrl(data?.pdf_url || "");
         setFigures(Array.isArray(data?.figures) ? data.figures : []);
@@ -2195,9 +2281,10 @@
         setPaperMeta(normalizePaperMeta(data));
         setTranslationStatus(resolvedTranslationStatus);
         setTranslationPlan(resolvedTranslationPlan);
+        setTranslationGlossary(resolvedTranslationGlossary);
         setBlocks(buildVisibleBlocks(conversationMessages));
         setPaperInfoLoaded(true);
-        return { ...data, resolvedTranslationStatus, resolvedTranslationPlan };
+        return { ...data, resolvedTranslationStatus, resolvedTranslationPlan, resolvedTranslationGlossary };
       }
 
       async function loadConversation(id, options = {}) {
@@ -2216,6 +2303,7 @@
           setPaperMeta(normalizePaperMeta());
           setTranslationStatus(null);
           setTranslationPlan(null);
+          setTranslationGlossary(null);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           setLoading(true);
@@ -2374,6 +2462,47 @@
         }
       }
 
+      function updateGlossarySelection(term, selected) {
+        setGlossaryDraftSelections(prev => ({ ...prev, [term]: selected }));
+      }
+
+      async function handleConfirmGlossary() {
+        if (!conversationId || !translationGlossary) {
+          return;
+        }
+
+        const entries = Array.isArray(translationGlossary.entries)
+          ? translationGlossary.entries.map(entry => ({
+              term: entry.term,
+              candidates: entry.candidates,
+              selected: glossaryDraftSelections[entry.term] || entry.selected || entry.candidates[0],
+            }))
+          : [];
+
+        const hide = message.loading("正在确认关键术语与译法...", 0);
+        setGlossarySaving(true);
+        try {
+          const res = await fetch(`${BASE_URL}/translations/${conversationId}/glossary`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ entries }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            message.error(data.detail || "术语确认失败");
+            await loadConversation(conversationId, { showLoading: false, silentError: true });
+            return;
+          }
+          await loadConversation(conversationId, { showLoading: false });
+          message.success("关键术语与译法已确认");
+        } finally {
+          setGlossarySaving(false);
+          hide();
+        }
+      }
+
       async function waitForJobResult(jobId, options = {}) {
         const intervalMs = options.intervalMs || 1500;
         const timeoutMs = options.timeoutMs || 20 * 60 * 1000;
@@ -2437,6 +2566,7 @@
           setPaperMeta(normalizePaperMeta());
           setTranslationStatus(null);
           setTranslationPlan(null);
+          setTranslationGlossary(null);
           setFiguresExpanded(false);
           setTablesExpanded(false);
           const tempTitle = file.name.replace(/\.pdf$/i, "");
@@ -2553,6 +2683,7 @@
        */
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
+        if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
 
         message.open({
@@ -2579,6 +2710,7 @@
 
       const handleAutoTranslate = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
+        if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
         if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
 
         const breakerLimit = automationSettings.autoTranslateBreakerLimit;
@@ -2854,8 +2986,53 @@
       const translationProgress = translationStatus
         ? buildTranslationProgressBreakdown(translationStatus, translationPlan)
         : null;
+      const glossaryEntries = Array.isArray(translationGlossary?.entries) ? translationGlossary.entries : [];
+      const hasGlossaryEntries = glossaryEntries.length > 0;
+      const translationStarted = Number(translationStatus?.completed_unit_count || 0) > 0;
+      const glossaryNeedsConfirmation = hasGlossaryEntries && translationGlossary?.status !== "confirmed";
+      const showGlossarySection = hasGlossaryEntries;
       const continueButtonMeta = getContinueButtonMeta(translationStatus);
       const autoTranslateButtonMeta = getAutoTranslateButtonMeta(translationStatus, automationSettings);
+      const overallRatioText = formatProgressRatio(translationProgress?.overallCompleted, translationProgress?.overallTotal, { emptyText: "0 / 0" });
+      const overallPercentText = formatProgressPercent(translationProgress?.overallCompleted, translationProgress?.overallTotal);
+      const bodyRatioText = translationProgress?.hasScopedPlan
+        ? formatProgressRatio(translationProgress.bodyCompleted, translationProgress.bodyTotal, { emptyText: "无正文" })
+        : "待解析";
+      const appendixRatioText = translationProgress?.hasScopedPlan
+        ? formatProgressRatio(translationProgress.appendixCompleted, translationProgress.appendixTotal, { emptyText: "无附录" })
+        : "待解析";
+      const overallPercentValue = Number.parseInt(overallPercentText, 10) || 0;
+      const bodyPercentValue = translationProgress?.hasScopedPlan && Number(translationProgress?.bodyTotal) > 0
+        ? Math.round((Number(translationProgress.bodyCompleted || 0) / Number(translationProgress.bodyTotal || 1)) * 100)
+        : 0;
+      const appendixPercentValue = translationProgress?.hasScopedPlan && Number(translationProgress?.appendixTotal) > 0
+        ? Math.round((Number(translationProgress.appendixCompleted || 0) / Number(translationProgress.appendixTotal || 1)) * 100)
+        : 0;
+      const glossaryStatusText = hasGlossaryEntries ? (glossaryNeedsConfirmation ? "待确认" : "已确认") : "无译法表";
+      const glossaryMetaText = hasGlossaryEntries ? `${glossaryStatusText} · ${glossaryEntries.length} 项` : "无译法表";
+      const compactProgressText = translationProgress?.hasScopedPlan
+        ? `正文 ${bodyRatioText} · ${Number(translationProgress?.appendixTotal || 0) > 0 ? `附录 ${appendixRatioText}` : "附录无"}`
+        : "进度待解析";
+      const translationStatusSummary = (() => {
+        if (!translationProgress?.hasScopedPlan) {
+          return "当前会话已生成翻译状态，但尚未解析出完整进度明细。";
+        }
+        const overall = `${translationProgress.overallCompleted || 0} / ${translationProgress.overallTotal || 0}`;
+        const body = `${translationProgress.bodyCompleted || 0} / ${translationProgress.bodyTotal || 0}`;
+        const appendix = Number(translationProgress.appendixTotal || 0) > 0
+          ? `${translationProgress.appendixCompleted || 0} / ${translationProgress.appendixTotal || 0}`
+          : "未检测到附录内容";
+        if (translationStatus?.state === "ALL_DONE") {
+          return `当前翻译任务已全部完成，总进度 ${overall}，正文进度 ${body}，附录进度 ${appendix}。`;
+        }
+        if (translationStatus?.state === "BODY_DONE") {
+          return `正文翻译已完成，正文进度 ${body}；当前处于附录阶段，附录进度 ${appendix}。`;
+        }
+        if (translationStatus?.state === "UNSUPPORTED") {
+          return `翻译在当前 Unit 停止，已完成总进度 ${overall}。${translationStatus?.reason ? `原因：${translationStatus.reason}。` : ""}`;
+        }
+        return `当前正在翻译中，总进度 ${overall}，正文进度 ${body}，附录进度 ${appendix}。`;
+      })();
 
       // ===== JSX 渲染 =====
       return (
@@ -2921,7 +3098,7 @@
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading || autoTranslating || !conversationId || !continueButtonMeta.enabled}
+                      disabled={loading || autoTranslating || !conversationId || !continueButtonMeta.enabled || glossaryNeedsConfirmation}
                     >
                       {loading ? "翻译中..." : continueButtonMeta.label}
                     </Button>
@@ -2931,7 +3108,7 @@
                       icon={<CaretRightOutlined />}
                       onClick={handleAutoTranslate}
                       loading={autoTranslating}
-                      disabled={loading || autoTranslating || !conversationId || !autoTranslateButtonMeta.enabled}
+                      disabled={loading || autoTranslating || !conversationId || !autoTranslateButtonMeta.enabled || glossaryNeedsConfirmation}
                     >
                       {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                     </Button>
@@ -2946,7 +3123,7 @@
                       icon={<CaretRightOutlined />}
                       onClick={handleContinue}
                       loading={loading}
-                      disabled={loading || autoTranslating || !continueButtonMeta.enabled}
+                      disabled={loading || autoTranslating || !continueButtonMeta.enabled || glossaryNeedsConfirmation}
                     >
                       {loading ? "翻译中..." : continueButtonMeta.label}
                     </Button>
@@ -2954,7 +3131,7 @@
                     <Dropdown
                       overlay={(
                         <Menu>
-                          <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating || !autoTranslateButtonMeta.enabled}>
+                          <Menu.Item icon={<CaretRightOutlined />} onClick={handleAutoTranslate} disabled={loading || autoTranslating || !autoTranslateButtonMeta.enabled || glossaryNeedsConfirmation}>
                             {autoTranslating ? "自动翻译中..." : autoTranslateButtonMeta.label}
                           </Menu.Item>
                         </Menu>
@@ -3058,56 +3235,147 @@
                 {translationStatus && translationStateMeta && (
 	                <div className={`translation-status-card ${translationStateMeta.className}`}>
 	                    <div className="translation-status-header">
-	                      <div className="translation-status-title">翻译状态</div>
-	                      <span className="translation-status-badge">{translationStateMeta.label}</span>
+	                      <div className="translation-status-title">
+                          <span>翻译状态</span>
+                        </div>
+	                      <span className="translation-status-badge">
+                          <span className="translation-status-badge-dot" />
+                          {translationStateMeta.label}
+                        </span>
 	                    </div>
-	                    <div className="translation-status-grid">
-	                      <div className="translation-status-item">
-	                        <span className="translation-status-label">当前范围</span>
-	                        <span className="translation-status-value">{getScopeLabel(translationStatus.active_scope || "body")}</span>
-	                      </div>
-	                      <div className="translation-status-item translation-status-item-progress">
-	                        <span className="translation-status-label">总进度</span>
-	                        <span className="translation-status-value">{formatUnitProgress(translationProgress?.overallCompleted, translationProgress?.overallTotal)}</span>
-	                      </div>
-	                      <div className="translation-status-item translation-status-item-progress">
-	                        <span className="translation-status-label">正文进度</span>
-	                        <span className="translation-status-value">
-	                          {translationProgress?.hasScopedPlan
-	                            ? formatUnitProgress(translationProgress.bodyCompleted, translationProgress.bodyTotal, { emptyText: "无正文" })
-	                            : "待解析"}
-	                        </span>
-	                      </div>
-	                      <div className="translation-status-item translation-status-item-progress">
-	                        <span className="translation-status-label">附录进度</span>
-	                        <span className="translation-status-value">
-	                          {translationProgress?.hasScopedPlan
-	                            ? formatUnitProgress(translationProgress.appendixCompleted, translationProgress.appendixTotal, { emptyText: "无附录" })
-	                            : "待解析"}
-	                        </span>
-	                      </div>
-	                      <div className="translation-status-item">
-	                        <span className="translation-status-label">当前 Unit</span>
-	                        <span className="translation-status-value">{translationStatus.current_unit_id || "暂无"}</span>
-	                      </div>
-	                      <div className="translation-status-item">
-	                        <span className="translation-status-label">下一 Unit</span>
-	                        <span className="translation-status-value">{translationStatus.next_unit_id || "暂无"}</span>
-	                      </div>
-	                    </div>
+                      <div className="translation-status-topline">
+                        <div className="translation-status-main-value">
+                          {overallRatioText}
+                          <span className="translation-status-main-units">Units</span>
+                        </div>
+                        <div className="translation-status-percent">{overallPercentText}</div>
+                        <div className="translation-status-progressbar-track">
+                          <div
+                            className="translation-status-progressbar-fill translation-status-progressbar-fill-overall"
+                            style={{ width: `${overallPercentValue}%` }}
+                          />
+                        </div>
+                        <div className="translation-status-mini-tag">{compactProgressText}</div>
+                      </div>
+                      <div className="translation-status-meta">
+                        <div className="translation-status-meta-item">
+                          <div className="translation-status-meta-key">当前范围</div>
+                          <div className="translation-status-meta-value">{getScopeLabel(translationStatus.active_scope || "body")}</div>
+                        </div>
+                        <div className="translation-status-meta-item">
+                          <div className="translation-status-meta-key">当前 Unit</div>
+                          <div className="translation-status-meta-value">{translationStatus.current_unit_id || "暂无"}</div>
+                        </div>
+                        <div className="translation-status-meta-item">
+                          <div className="translation-status-meta-key">下一 Unit</div>
+                          <div className="translation-status-meta-value">{translationStatus.next_unit_id || "暂无"}</div>
+                        </div>
+                        <div className="translation-status-meta-item">
+                          <div className="translation-status-meta-key">译法状态</div>
+                          <div className="translation-status-meta-value">{glossaryMetaText}</div>
+                        </div>
+                      </div>
+                      <div className="translation-status-bottom">
+                        <div className="translation-status-desc">{translationStatusSummary}</div>
+                        {showGlossarySection && (
+                          <div className="translation-status-actions">
+                            <span className={`translation-status-action-pill ${glossaryNeedsConfirmation ? "pending" : "confirmed"}`}>
+                              {glossaryNeedsConfirmation ? "译法待确认" : "译法已确认"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {showGlossarySection && (
+                        <div className="translation-status-glossary-panel">
+                          <div className="translation-status-glossary-header">
+                            <div className="translation-status-glossary-heading">
+                              <div className="translation-status-glossary-title">关键术语与译法</div>
+                              <div className="translation-status-glossary-caption">
+                                这里会列出全文翻译中需要统一的关键术语及候选译法。
+                              </div>
+                            </div>
+                            <div className="translation-status-glossary-toolbar">
+                              <span className={`translation-status-action-pill ${glossaryNeedsConfirmation ? "pending" : "confirmed"}`}>
+                                {glossaryNeedsConfirmation ? "待确认" : "已确认"}
+                              </span>
+                              <button
+                                type="button"
+                                className="translation-status-action-pill toggle"
+                                onClick={() => setGlossaryCollapsed(prev => !prev)}
+                              >
+                                {glossaryCollapsed ? "展开译法列表" : "收起译法列表"}
+                              </button>
+                            </div>
+                          </div>
+                          {glossaryCollapsed ? (
+                            <div className="translation-status-section-summary">
+                              展开后可查看或确认本次采用的译法，后续各 Unit 会尽量统一沿用这里的选择。
+                            </div>
+                          ) : (
+                            <>
+                              <div className="translation-status-section-subtitle">
+                                {translationStarted
+                                  ? "这里展示全文翻译当前统一采用的关键术语译法，翻译开始后仅支持只读查看。"
+                                  : "默认选中第一候选。确认后，后续各 Unit 会统一使用这里选定的译法。"}
+                              </div>
+                              <div className="translation-status-glossary-list">
+                                {glossaryEntries.map(entry => (
+                                  <div key={entry.term} className="translation-status-glossary-row">
+                                    <div className="glossary-line">
+                                      <span className="glossary-term-inline">{entry.term}:</span>
+                                      <div className="glossary-candidates">
+                                        {entry.candidates.map((candidate, index) => {
+                                          const selected = (glossaryDraftSelections[entry.term] || entry.selected) === candidate;
+                                          return (
+                                            <React.Fragment key={`${entry.term}-${candidate}`}>
+                                              {index > 0 && <span className="glossary-separator">/</span>}
+                                              <button
+                                                type="button"
+                                                className={`glossary-candidate ${selected ? "selected" : ""}`}
+                                                onClick={() => updateGlossarySelection(entry.term, candidate)}
+                                                disabled={translationStarted || readOnly || glossarySaving}
+                                              >
+                                                {candidate}
+                                              </button>
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="translation-status-glossary-footer">
+                                <div className="translation-status-section-footer">
+                                  {glossaryNeedsConfirmation
+                                    ? "确认译法前，继续翻译和自动翻完会保持禁用。"
+                                    : "后续翻译会统一沿用这里确认过的译法。"}
+                                </div>
+                                {!translationStarted && (
+                                  <Button
+                                    type="primary"
+                                    size="small"
+                                    onClick={handleConfirmGlossary}
+                                    loading={glossarySaving}
+                                    disabled={readOnly || glossarySaving || !conversationId}
+                                  >
+                                    {translationGlossary?.status === "confirmed" ? "更新译法确认" : "确认译法"}
+                                  </Button>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
 	                    {Array.isArray(translationStatus.remaining_unit_ids) && translationStatus.remaining_unit_ids.length > 0 && (
-	                      <div className="translation-status-footer">
-	                        <span className="translation-status-label">剩余 Units</span>
-	                        <span className="translation-status-value">{translationStatus.remaining_unit_ids.join(" / ")}</span>
-	                      </div>
+                        <div className="translation-status-note">剩余 Units：{translationStatus.remaining_unit_ids.join(" / ")}</div>
 	                    )}
 	                    {!!translationStatus.reason && (
-	                      <div className="translation-status-footer">
-	                        <span className="translation-status-value">
-	                          原因：{translationStatus.reason}
-	                        </span>
-	                      </div>
-	                    )}
+                        <div className="translation-status-note">原因：{translationStatus.reason}</div>
+                      )}
+                      {glossaryNeedsConfirmation && (
+                        <div className="translation-status-note">请先确认关键术语与译法，再继续翻译。</div>
+                      )}
 	                  </div>
                 )}
                 {renderAssetSection({

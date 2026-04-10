@@ -11,6 +11,7 @@ class AppRoutesTest(unittest.TestCase):
         self.assertIn("/tasks/ingest-pdf", paths)
         self.assertIn("/tasks/{task_id}", paths)
         self.assertIn("/translations/{conversation_id}/continue", paths)
+        self.assertIn("/translations/{conversation_id}/glossary", paths)
         self.assertIn("/conversations/{conversation_id}", paths)
         self.assertIn("/metadata/{conversation_id}/refresh", paths)
         self.assertIn("/metadata/{conversation_id}/tags", paths)

@@ -13,6 +13,10 @@ TRANSLATION_PLAN_STATUSES = {"ok", "unsupported"}
 TRANSLATION_RESULT_STATES = {"OK", "UNSUPPORTED"}
 TRANSLATION_STATES = {"IN_PROGRESS", "BODY_DONE", "ALL_DONE", "UNSUPPORTED"}
 TRANSLATION_SCOPES = {"body", "appendix", "done"}
+TRANSLATION_GLOSSARY_PROTOCOL = "glossary_v1"
+TRANSLATION_GLOSSARY_STATUSES = {"draft", "confirmed"}
+TRANSLATION_GLOSSARY_MAX_ENTRIES = 30
+TRANSLATION_GLOSSARY_MAX_CANDIDATES = 3
 TRANSLATION_STATUS_JSON_PATTERN = re.compile(
     r"\[TRANSLATION_STATUS_JSON\]\s*(\{.*?\})\s*\[/TRANSLATION_STATUS_JSON\]",
     re.DOTALL,
@@ -76,10 +80,73 @@ def build_initial_translation_prompt(template: str) -> str:
     return str(template or "").strip()
 
 
-def build_unit_translation_prompt(template: str, *, active_units: list[str], current_unit_id: str) -> str:
+def _normalize_translation_glossary_entries(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    ordered: list[dict[str, Any]] = []
+    seen_terms: set[str] = set()
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        term = str(value.get("term", "")).strip()
+        if not term or term in seen_terms:
+            continue
+        raw_candidates = value.get("candidates") if isinstance(value.get("candidates"), list) else []
+        candidates: list[str] = []
+        seen_candidates: set[str] = set()
+        for candidate in raw_candidates:
+            normalized_candidate = str(candidate or "").strip()
+            if not normalized_candidate or normalized_candidate in seen_candidates:
+                continue
+            seen_candidates.add(normalized_candidate)
+            candidates.append(normalized_candidate)
+            if len(candidates) >= TRANSLATION_GLOSSARY_MAX_CANDIDATES:
+                break
+        if not candidates:
+            continue
+        selected = str(value.get("selected", "")).strip()
+        if selected not in candidates:
+            selected = candidates[0]
+        seen_terms.add(term)
+        ordered.append({"term": term, "candidates": candidates, "selected": selected})
+        if len(ordered) >= TRANSLATION_GLOSSARY_MAX_ENTRIES:
+            break
+    return ordered
+
+
+def _extract_planning_payload(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    translation_plan_payload = payload.get("translation_plan") if isinstance(payload.get("translation_plan"), dict) else payload
+    glossary_payload = payload.get("translation_glossary", payload.get("glossary"))
+    if isinstance(glossary_payload, list):
+        glossary_payload = {"status": "draft", "entries": glossary_payload}
+    elif not isinstance(glossary_payload, dict):
+        glossary_payload = None
+    return {
+        "translation_plan": translation_plan_payload,
+        "translation_glossary": glossary_payload,
+    }
+
+
+def build_unit_translation_prompt(
+    template: str,
+    *,
+    active_units: list[str],
+    current_unit_id: str,
+    translation_glossary: dict[str, Any] | None = None,
+) -> str:
     prompt = str(template or "").strip()
     prompt = prompt.replace("<<ACTIVE_UNITS_JSON>>", json.dumps(active_units, ensure_ascii=False))
     prompt = prompt.replace("<<CURRENT_UNIT_ID>>", str(current_unit_id or "").strip())
+    normalized_glossary = normalize_translation_glossary_payload(translation_glossary)
+    glossary_for_prompt = []
+    if normalized_glossary is not None and normalized_glossary["status"] == "confirmed":
+        glossary_for_prompt = [
+            {"term": entry["term"], "translation": entry["selected"]}
+            for entry in normalized_glossary["entries"]
+        ]
+    prompt = prompt.replace("<<CONFIRMED_GLOSSARY_JSON>>", json.dumps(glossary_for_prompt, ensure_ascii=False))
     return prompt.strip()
 
 
@@ -109,7 +176,37 @@ def parse_translation_plan_response(content: str | None) -> dict[str, Any] | Non
     text = _strip_code_fences(content or "")
     if not text:
         return None
-    return normalize_translation_plan_payload(safe_json_loads(text, None))
+    parsed = _extract_planning_payload(safe_json_loads(text, None))
+    return normalize_translation_plan_payload(parsed.get("translation_plan"))
+
+
+def normalize_translation_glossary_payload(payload: Any) -> dict[str, Any] | None:
+    if isinstance(payload, list):
+        payload = {"entries": payload}
+    if not isinstance(payload, dict):
+        return None
+    entries = _normalize_translation_glossary_entries(payload.get("entries"))
+    status = str(payload.get("status", "")).strip().lower() or ("confirmed" if not entries else "draft")
+    if status not in TRANSLATION_GLOSSARY_STATUSES:
+        status = "confirmed" if not entries else "draft"
+    if not entries:
+        status = "confirmed"
+    return {
+        "protocol": TRANSLATION_GLOSSARY_PROTOCOL,
+        "status": status,
+        "entries": entries,
+    }
+
+
+def parse_translation_glossary_response(content: str | None) -> dict[str, Any] | None:
+    text = _strip_code_fences(content or "")
+    if not text:
+        return None
+    parsed = _extract_planning_payload(safe_json_loads(text, None))
+    normalized = normalize_translation_glossary_payload(parsed.get("translation_glossary"))
+    if normalized is not None:
+        return normalized
+    return normalize_translation_glossary_payload({"status": "confirmed", "entries": []})
 
 
 def normalize_raw_translation_result_payload(payload: Any) -> dict[str, str] | None:
@@ -292,10 +389,11 @@ def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = 
     payload = {
         key: value
         for key, value in existing_payload.items()
-        if key not in {"translation_status", "translation_plan", *LEGACY_TRANSLATION_PAYLOAD_KEYS}
+        if key not in {"translation_status", "translation_plan", "translation_glossary", *LEGACY_TRANSLATION_PAYLOAD_KEYS}
     }
     translation_plan = normalize_translation_plan_payload(existing_payload.get("translation_plan"))
     translation_status = normalize_translation_status_payload(existing_payload.get("translation_status"))
+    translation_glossary = normalize_translation_glossary_payload(existing_payload.get("translation_glossary"))
     raw_translation_result = parse_raw_translation_status_block(original_content)
     clean_content = strip_translation_status_block(original_content) if raw_translation_result is not None else original_content.strip()
     if translation_plan is not None:
@@ -306,11 +404,16 @@ def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = 
         payload["translation_status"] = translation_status
     else:
         payload.pop("translation_status", None)
+    if translation_glossary is not None:
+        payload["translation_glossary"] = translation_glossary
+    else:
+        payload.pop("translation_glossary", None)
     return {
         "content": clean_content,
         "client_payload": payload or None,
         "translation_plan": translation_plan,
         "translation_status": translation_status,
+        "translation_glossary": translation_glossary,
         "raw_translation_result": raw_translation_result,
     }
 
