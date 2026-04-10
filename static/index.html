@@ -3057,13 +3057,24 @@
             <div className="container">
               <div className={isMobile ? "chat-mobile-title-row" : ""} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: isMobile ? "nowrap" : "wrap", gap: "5px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "20px", flex: 1, minWidth: 0 }}>
-                  <h2 className={`header-title ${isMobile ? "chat-mobile-header-title" : ""}`}>
-                    {paperTitle
-                      ? isMobile
-                        ? <span className="chat-mobile-title-text">{paperTitle}</span>
-                        : <><FileTextOutlined /> {paperTitle}</>
-                      : <><FileTextOutlined /> 论文翻译</>}
-                  </h2>
+                  {paperTitle ? (
+                    <Tooltip
+                      title={paperTitle}
+                      trigger={isMobile ? ["click"] : ["hover"]}
+                      placement={isMobile ? "bottom" : "bottomLeft"}
+                      overlayStyle={{ maxWidth: isMobile ? "85vw" : "560px" }}
+                    >
+                      <h2 className={`header-title header-title-tooltip ${isMobile ? "chat-mobile-header-title" : ""}`}>
+                        {isMobile
+                          ? <span className="chat-mobile-title-text">{paperTitle}</span>
+                          : <><FileTextOutlined /> {paperTitle}</>}
+                      </h2>
+                    </Tooltip>
+                  ) : (
+                    <h2 className={`header-title ${isMobile ? "chat-mobile-header-title" : ""}`}>
+                      <><FileTextOutlined /> 论文翻译</>
+                    </h2>
+                  )}
                 </div>
                 <div className={isMobile ? "chat-mobile-title-actions" : ""} style={{ display: "flex", alignItems: "center", gap: "20px", flexShrink: 0 }}>
                   {readOnly && <ReadModeBadge />}
@@ -3209,7 +3220,6 @@
               )}
 
               <div className="content">
-                {paperTitle && <div className="title-block">{paperTitle}</div>}
                 {paperInfoLoaded && (paperTitle || conversationId) && (
                   <div className="tag-block">
                     <div className="tag-block-header">

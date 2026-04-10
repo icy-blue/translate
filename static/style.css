@@ -37,6 +37,12 @@ body {
   flex: 1;
 }
 
+@media (max-width: 576px) {
+  .header-title-tooltip {
+    cursor: pointer;
+  }
+}
+
 .header-subtitle {
   margin-left: 12px;
   font-size: 0.95rem;
