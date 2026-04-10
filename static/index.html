@@ -2105,6 +2105,7 @@
       const [glossarySaving, setGlossarySaving] = useState(false);
       const [glossaryDraftSelections, setGlossaryDraftSelections] = useState({});
       const [glossaryCollapsed, setGlossaryCollapsed] = useState(true);
+      const [remainingUnitsExpanded, setRemainingUnitsExpanded] = useState(false);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
       const [autoTranslating, setAutoTranslating] = useState(false);
@@ -2195,6 +2196,16 @@
         setGlossaryDraftSelections(nextSelections);
         setGlossaryCollapsed(true);
       }, [translationGlossary]);
+
+      useEffect(() => {
+        setRemainingUnitsExpanded(false);
+      }, [
+        translationStatus?.state,
+        translationStatus?.current_unit_id,
+        translationStatus?.next_unit_id,
+        translationStatus?.completed_unit_count,
+        Array.isArray(translationStatus?.remaining_unit_ids) ? translationStatus.remaining_unit_ids.join("|") : "",
+      ]);
 
       /**
        * 页面加载时如果 URL 有 id 自动加载历史
@@ -3013,6 +3024,11 @@
       const compactProgressText = translationProgress?.hasScopedPlan
         ? `正文 ${bodyRatioText} · ${Number(translationProgress?.appendixTotal || 0) > 0 ? `附录 ${appendixRatioText}` : "附录无"}`
         : "进度待解析";
+      const remainingUnitIds = Array.isArray(translationStatus?.remaining_unit_ids)
+        ? translationStatus.remaining_unit_ids.filter(Boolean)
+        : [];
+      const remainingUnitsCount = remainingUnitIds.length;
+      const remainingUnitsSummary = remainingUnitsCount > 0 ? `剩余 ${remainingUnitsCount} 个 Units。` : "";
       const translationStatusSummary = (() => {
         if (!translationProgress?.hasScopedPlan) {
           return "当前会话已生成翻译状态，但尚未解析出完整进度明细。";
@@ -3276,23 +3292,37 @@
                         </div>
                       </div>
                       <div className="translation-status-bottom">
-                        <div className="translation-status-desc">{translationStatusSummary}</div>
-                        {showGlossarySection && (
+                        <div className="translation-status-desc">
+                          <span>{translationStatusSummary}</span>
+                          {!!remainingUnitsSummary && (
+                            <>
+                              <span className="translation-status-desc-inline-note">{remainingUnitsSummary}</span>
+                              <button
+                                type="button"
+                                className="translation-status-inline-link"
+                                onClick={() => setRemainingUnitsExpanded(prev => !prev)}
+                              >
+                                {remainingUnitsExpanded ? "收起剩余章节" : "查看剩余章节"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {showGlossarySection && glossaryNeedsConfirmation && (
                           <div className="translation-status-actions">
-                            <span className={`translation-status-action-pill ${glossaryNeedsConfirmation ? "pending" : "confirmed"}`}>
-                              {glossaryNeedsConfirmation ? "译法待确认" : "译法已确认"}
-                            </span>
+                            <span className="translation-status-action-pill pending">译法待确认</span>
                           </div>
                         )}
                       </div>
+                      {remainingUnitsExpanded && remainingUnitIds.length > 0 && (
+                        <div className="translation-status-inline-panel">
+                          剩余章节：{remainingUnitIds.join(" / ")}
+                        </div>
+                      )}
                       {showGlossarySection && (
                         <div className="translation-status-glossary-panel">
                           <div className="translation-status-glossary-header">
                             <div className="translation-status-glossary-heading">
                               <div className="translation-status-glossary-title">关键术语与译法</div>
-                              <div className="translation-status-glossary-caption">
-                                这里会列出全文翻译中需要统一的关键术语及候选译法。
-                              </div>
                             </div>
                             <div className="translation-status-glossary-toolbar">
                               <span className={`translation-status-action-pill ${glossaryNeedsConfirmation ? "pending" : "confirmed"}`}>
@@ -3309,15 +3339,15 @@
                           </div>
                           {glossaryCollapsed ? (
                             <div className="translation-status-section-summary">
-                              展开后可查看或确认本次采用的译法，后续各 Unit 会尽量统一沿用这里的选择。
+                              这里会列出全文翻译中需要统一的关键术语及候选译法。展开后可查看或确认本次采用的译法。
                             </div>
                           ) : (
                             <>
-                              <div className="translation-status-section-subtitle">
-                                {translationStarted
-                                  ? "这里展示全文翻译当前统一采用的关键术语译法，翻译开始后仅支持只读查看。"
-                                  : "默认选中第一候选。确认后，后续各 Unit 会统一使用这里选定的译法。"}
-                              </div>
+                              {!translationStarted && (
+                                <div className="translation-status-section-subtitle">
+                                  默认选中第一候选。确认后，后续各 Unit 会统一使用这里选定的译法。
+                                </div>
+                              )}
                               <div className="translation-status-glossary-list">
                                 {glossaryEntries.map(entry => (
                                   <div key={entry.term} className="translation-status-glossary-row">
@@ -3367,9 +3397,6 @@
                           )}
                         </div>
                       )}
-	                    {Array.isArray(translationStatus.remaining_unit_ids) && translationStatus.remaining_unit_ids.length > 0 && (
-                        <div className="translation-status-note">剩余 Units：{translationStatus.remaining_unit_ids.join(" / ")}</div>
-	                    )}
 	                    {!!translationStatus.reason && (
                         <div className="translation-status-note">原因：{translationStatus.reason}</div>
                       )}

@@ -807,6 +807,38 @@ body {
   line-height: 1.65;
 }
 
+.translation-status-desc-inline-note {
+  margin-left: 10px;
+  color: #7d8ca0;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.translation-status-inline-link {
+  appearance: none;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.translation-status-inline-link:hover {
+  color: #1d4ed8;
+}
+
+.translation-status-inline-panel {
+  margin-top: 8px;
+  color: #6b7d93;
+  font-size: 12px;
+  line-height: 1.6;
+  padding-top: 8px;
+  border-top: 1px dashed #e2eaf5;
+}
+
 .translation-status-actions {
   display: inline-flex;
   align-items: center;
@@ -1559,6 +1591,23 @@ body {
     line-height: 1.6;
   }
 
+  .translation-status-desc-inline-note {
+    display: inline;
+    margin-left: 6px;
+    font-size: 11px;
+  }
+
+  .translation-status-inline-link {
+    margin-left: 6px;
+    font-size: 11px;
+  }
+
+  .translation-status-inline-panel {
+    margin-top: 6px;
+    padding-top: 6px;
+    font-size: 11px;
+  }
+
   .translation-status-actions {
     width: 100%;
     gap: 6px;
@@ -1570,10 +1619,13 @@ body {
   }
 
   .translation-status-glossary-header {
+    flex-direction: column;
+    align-items: stretch;
     gap: 10px;
   }
 
   .translation-status-glossary-heading {
+    flex: none;
     min-width: 0;
   }
 
@@ -1586,7 +1638,12 @@ body {
     line-height: 1.55;
   }
 
-  .translation-status-glossary-toolbar,
+  .translation-status-glossary-toolbar {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
   .translation-status-glossary-footer {
     width: 100%;
     justify-content: flex-start;
