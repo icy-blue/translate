@@ -3415,6 +3415,17 @@
                       )}
 	                  </div>
                 )}
+                {blocks.map(block => (
+                  block.content ? (
+                  <div
+                    key={block.id}
+                    className={block.role === "user" ? "user-message-block" : "message-block"}
+                    dangerouslySetInnerHTML={{
+                      __html: MathUtils.renderMarkdownWithMath(block.content)
+                    }}
+                  />
+                  ) : null
+                ))}
                 {renderAssetSection({
                   id: "figures-section",
                   title: "论文插图",
@@ -3431,17 +3442,6 @@
                   setExpanded: setTablesExpanded,
                   type: "table"
                 })}
-                {blocks.map(block => (
-                  block.content ? (
-                  <div
-                    key={block.id}
-                    className={block.role === "user" ? "user-message-block" : "message-block"}
-                    dangerouslySetInnerHTML={{
-                      __html: MathUtils.renderMarkdownWithMath(block.content)
-                    }}
-                  />
-                  ) : null
-                ))}
               </div>
 
             </div>
