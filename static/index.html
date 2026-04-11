@@ -2119,12 +2119,14 @@
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
       const [autoTranslating, setAutoTranslating] = useState(false);
+      const [chatScrollOffset, setChatScrollOffset] = useState(180);
       const automationSettings = buildAutomationSettingsSnapshot({
         autoTranslateAppendix,
         autoTranslateBreakerLimit,
       });
       const activePoeModel = poeModel || defaultPoeModel;
       const activeTitleModel = titleModel || defaultPoeModel;
+      const CHAT_SCROLL_EXTRA_GAP = 20;
 
       // ===== 模型选项 =====
       const modelOptions = [
@@ -2185,6 +2187,23 @@
         return () => window.removeEventListener('resize', handleResize);
       }, []);
 
+      function getChatHeaderScrollOffset() {
+        const headerBox = document.querySelector(".chat-page .header-box");
+        if (!(headerBox instanceof HTMLElement)) {
+          return 180;
+        }
+        return headerBox.offsetHeight + CHAT_SCROLL_EXTRA_GAP;
+      }
+
+      function scrollToHeading(id) {
+        const target = document.getElementById(id);
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const targetTop = target.getBoundingClientRect().top + window.scrollY - getChatHeaderScrollOffset();
+        window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      }
+
       // ===== 初始化与副作用 =====
       /**
        * 更新文档标题
@@ -2216,6 +2235,29 @@
         translationStatus?.completed_unit_count,
         Array.isArray(translationStatus?.remaining_unit_ids) ? translationStatus.remaining_unit_ids.join("|") : "",
       ]);
+
+      useEffect(() => {
+        const updateChatScrollOffset = () => {
+          setChatScrollOffset(getChatHeaderScrollOffset());
+        };
+
+        updateChatScrollOffset();
+        const frameId = window.requestAnimationFrame(updateChatScrollOffset);
+        window.addEventListener("resize", updateChatScrollOffset);
+
+        const headerBox = document.querySelector(".chat-page .header-box");
+        let resizeObserver = null;
+        if (headerBox instanceof HTMLElement && typeof ResizeObserver !== "undefined") {
+          resizeObserver = new ResizeObserver(updateChatScrollOffset);
+          resizeObserver.observe(headerBox);
+        }
+
+        return () => {
+          window.cancelAnimationFrame(frameId);
+          window.removeEventListener("resize", updateChatScrollOffset);
+          resizeObserver?.disconnect();
+        };
+      }, [isMobile, paperTitle, readOnly, conversationId]);
 
       /**
        * 页面加载时如果 URL 有 id 自动加载历史
@@ -2268,10 +2310,11 @@
        */
       useEffect(() => {
         const handleScroll = () => {
-          const headings = document.querySelectorAll(".content .toc-anchor, .content h1, .content h2");
+          const headings = document.querySelectorAll(".content .toc-anchor, .content h1, .content h2, .content h3");
+          const scrollThreshold = getChatHeaderScrollOffset();
           let current = null;
           headings.forEach(heading => {
-            if (heading.getBoundingClientRect().top <= 120) {
+            if (heading.getBoundingClientRect().top <= scrollThreshold) {
               current = heading.id;
             }
           });
@@ -2879,10 +2922,7 @@
         if (!summaryAnchor) {
           return;
         }
-        const headerBox = document.querySelector(".header-box");
-        const stickyOffset = headerBox instanceof HTMLElement ? headerBox.offsetHeight : 0;
-        const extraGap = 12;
-        const targetTop = summaryAnchor.getBoundingClientRect().top + window.scrollY - stickyOffset - extraGap;
+        const targetTop = summaryAnchor.getBoundingClientRect().top + window.scrollY - getChatHeaderScrollOffset();
         window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
       }
 
@@ -3062,7 +3102,7 @@
 
       // ===== JSX 渲染 =====
       return (
-        <>
+        <div className="chat-page" style={{ "--chat-scroll-offset": `${chatScrollOffset}px` }}>
           <div className="header-box">
             <div className="container">
               <div className={isMobile ? "chat-mobile-title-row" : ""} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: isMobile ? "nowrap" : "wrap", gap: "5px" }}>
@@ -3218,10 +3258,7 @@
                     <div
                       key={item.id}
                       className={`toc-item level-${item.level} ${activeHeading === item.id ? "active" : ""}`}
-                      onClick={() =>
-                        document.getElementById(item.id)
-                          ?.scrollIntoView({ behavior: "smooth" })
-                      }
+                      onClick={() => scrollToHeading(item.id)}
                     >
                       {item.text}
                     </div>
@@ -3493,7 +3530,7 @@
                   borderBottom: '1px solid #f0f0f0'
                 }}
                 onClick={() => {
-                  document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth" });
+                  scrollToHeading(item.id);
                   setDrawerVisible(false);
                 }}
               >
@@ -3693,7 +3730,7 @@
               ))}
             </div>
           </Modal>
-        </>
+        </div>
       );
     }
 

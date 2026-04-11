@@ -224,6 +224,17 @@ body {
   padding-left: 32px;
 }
 
+.chat-page .content .toc-anchor,
+.chat-page .content h1,
+.chat-page .content h2,
+.chat-page .content h3 {
+  scroll-margin-top: var(--chat-scroll-offset, 180px);
+}
+
+.chat-page .sidebar {
+  top: var(--chat-scroll-offset, 120px);
+}
+
 /* ==========================================
    消息块样式
    ========================================== */
