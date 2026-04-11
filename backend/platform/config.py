@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from typing import Optional
 
 from pydantic import Field
@@ -126,7 +127,52 @@ class Settings(BaseSettings):
     s2_api_key: Optional[str] = Field(default=None, validation_alias="S2_API_KEY")
     async_job_workers: int = Field(default=2, validation_alias="ASYNC_JOB_WORKERS")
     agent_ingest_token: Optional[str] = Field(default=None, validation_alias="AGENT_INGEST_TOKEN")
+    db_pool_pre_ping: bool = Field(default=True, validation_alias="DB_POOL_PRE_PING")
+    db_pool_recycle_seconds: int = Field(default=1800, validation_alias="DB_POOL_RECYCLE_SECONDS")
+    db_pool_size: int = Field(default=5, validation_alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=10, validation_alias="DB_MAX_OVERFLOW")
+    db_connect_timeout_seconds: int = Field(default=10, validation_alias="DB_CONNECT_TIMEOUT_SECONDS")
+    db_tcp_keepalives: bool = Field(default=True, validation_alias="DB_TCP_KEEPALIVES")
+    db_keepalives_idle_seconds: int = Field(default=30, validation_alias="DB_KEEPALIVES_IDLE_SECONDS")
+    db_keepalives_interval_seconds: int = Field(default=10, validation_alias="DB_KEEPALIVES_INTERVAL_SECONDS")
+    db_keepalives_count: int = Field(default=5, validation_alias="DB_KEEPALIVES_COUNT")
+
+
+def _is_postgres_database_url(database_url: str) -> bool:
+    normalized = (database_url or "").strip().lower()
+    return normalized.startswith(("postgresql://", "postgresql+psycopg2://", "postgres://"))
+
+
+def build_engine_kwargs(app_settings: Settings) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"echo": False}
+    if not _is_postgres_database_url(app_settings.database_url):
+        return kwargs
+
+    connect_args: dict[str, Any] = {
+        "connect_timeout": max(1, int(app_settings.db_connect_timeout_seconds)),
+    }
+    if app_settings.db_tcp_keepalives:
+        connect_args.update(
+            {
+                "keepalives": 1,
+                "keepalives_idle": max(1, int(app_settings.db_keepalives_idle_seconds)),
+                "keepalives_interval": max(1, int(app_settings.db_keepalives_interval_seconds)),
+                "keepalives_count": max(1, int(app_settings.db_keepalives_count)),
+            }
+        )
+
+    kwargs.update(
+        {
+            "pool_pre_ping": bool(app_settings.db_pool_pre_ping),
+            "pool_recycle": max(30, int(app_settings.db_pool_recycle_seconds)),
+            "pool_size": max(1, int(app_settings.db_pool_size)),
+            "max_overflow": max(0, int(app_settings.db_max_overflow)),
+            "pool_use_lifo": True,
+            "connect_args": connect_args,
+        }
+    )
+    return kwargs
 
 
 settings = Settings()
-engine = create_engine(settings.database_url, echo=False)
+engine = create_engine(settings.database_url, **build_engine_kwargs(settings))
