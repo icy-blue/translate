@@ -70,6 +70,31 @@ class MessagePayloadsTest(unittest.TestCase):
         self.assertEqual(normalized["appendix_units"], [])
         self.assertEqual(normalized["reason"], "ambiguous_structure")
 
+    def test_normalize_translation_plan_removes_wrapper_and_descendant_duplicates(self):
+        normalized = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["ABSTRACT", "1 METHOD", "1.1 Setup", "1.2 Training"],
+                "appendix_units": [
+                    "Supplementary Material",
+                    "A. Additional Implementation Details",
+                    "A.1. SpaceDrive Framework",
+                    "A.2. Training Details",
+                    "B. Additional Experiments and Analyses",
+                    "B.1. More Ablation Studies",
+                ],
+                "reason": "",
+            }
+        )
+        self.assertEqual(normalized["units"], ["ABSTRACT", "1 METHOD"])
+        self.assertEqual(
+            normalized["appendix_units"],
+            [
+                "A. Additional Implementation Details",
+                "B. Additional Experiments and Analyses",
+            ],
+        )
+
     def test_preprocess_bot_reply_strips_status_json_and_preserves_canonical_payload(self):
         translation_plan = normalize_translation_plan_payload(
             {
@@ -159,6 +184,9 @@ class MessagePayloadsTest(unittest.TestCase):
         self.assertIn("translation-plan extractor", settings.initial_prompt)
         self.assertIn('"appendix_units"', settings.initial_prompt)
         self.assertIn('"glossary"', settings.initial_prompt)
+        self.assertIn("Prefer coarser units", settings.initial_prompt)
+        self.assertIn("Never output both a parent heading", settings.initial_prompt)
+        self.assertIn("Do not keep a generic wrapper heading like `Supplementary Material`", settings.initial_prompt)
         self.assertIn("first subsection", settings.continue_prompt)
         self.assertIn("# 摘要", settings.continue_prompt)
         self.assertIn("Second-level section headings must use `##`", settings.continue_prompt)

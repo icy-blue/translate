@@ -21,6 +21,16 @@ TRANSLATION_STATUS_JSON_PATTERN = re.compile(
     r"\[TRANSLATION_STATUS_JSON\]\s*(\{.*?\})\s*\[/TRANSLATION_STATUS_JSON\]",
     re.DOTALL,
 )
+GENERIC_WRAPPER_TITLES = {
+    "appendix",
+    "appendices",
+    "supplementary material",
+    "supplementary materials",
+    "supplementary",
+    "supplemental material",
+    "supplemental materials",
+    "supplemental",
+}
 LEGACY_TRANSLATION_PAYLOAD_KEYS = {
     "document_outline",
     "raw_translation_status_text",
@@ -74,6 +84,71 @@ def _unique_unit_ids(values: Any) -> list[str]:
 def _normalize_scope(value: Any) -> str:
     scope = str(value or "").strip().lower()
     return scope if scope in TRANSLATION_SCOPES else ""
+
+
+def _normalize_wrapper_title(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
+
+
+def _is_generic_wrapper_heading(unit_id: str) -> bool:
+    return _normalize_wrapper_title(unit_id) in GENERIC_WRAPPER_TITLES
+
+
+def _extract_hierarchy_prefix(unit_id: str) -> str:
+    unit = str(unit_id or "").strip()
+    if not unit or "::" in unit:
+        return ""
+    appendix_match = re.match(r"^(appendix\s+[a-z0-9]+(?:\.\d+)*)\b", unit, flags=re.IGNORECASE)
+    if appendix_match:
+        return appendix_match.group(1).lower()
+    letter_child_match = re.match(r"^([a-z](?:\.\d+)+)\b", unit, flags=re.IGNORECASE)
+    if letter_child_match:
+        return letter_child_match.group(1).lower()
+    letter_parent_match = re.match(r"^([a-z])\.\s+", unit, flags=re.IGNORECASE)
+    if letter_parent_match:
+        return letter_parent_match.group(1).lower()
+    numeric_match = re.match(r"^(\d+(?:\.\d+)*)\b", unit)
+    if numeric_match:
+        return numeric_match.group(1).lower()
+    roman_match = re.match(r"^([ivxlcdm]+)\.\s+", unit, flags=re.IGNORECASE)
+    if roman_match:
+        return roman_match.group(1).lower()
+    return ""
+
+
+def _sanitize_unit_hierarchy(unit_ids: list[str]) -> list[str]:
+    units = list(unit_ids)
+    if len(units) <= 1:
+        return units
+
+    split_parent_drop = {
+        unit_id
+        for unit_id in units
+        if any(other.startswith(f"{unit_id} :: ") for other in units if other != unit_id)
+    }
+    if split_parent_drop:
+        units = [unit_id for unit_id in units if unit_id not in split_parent_drop]
+
+    if len(units) > 1:
+        non_wrapper_units = [unit_id for unit_id in units if not _is_generic_wrapper_heading(unit_id)]
+        if non_wrapper_units:
+            units = non_wrapper_units
+
+    prefixes = {unit_id: _extract_hierarchy_prefix(unit_id) for unit_id in units}
+    descendant_drop: set[str] = set()
+    for parent in units:
+        parent_prefix = prefixes[parent]
+        if not parent_prefix:
+            continue
+        for child in units:
+            if child == parent:
+                continue
+            child_prefix = prefixes[child]
+            if child_prefix and child_prefix.startswith(f"{parent_prefix}."):
+                descendant_drop.add(child)
+    if descendant_drop:
+        units = [unit_id for unit_id in units if unit_id not in descendant_drop]
+    return units
 
 
 def build_initial_translation_prompt(template: str) -> str:
@@ -156,8 +231,12 @@ def normalize_translation_plan_payload(payload: Any) -> dict[str, Any] | None:
     status = str(payload.get("status", "")).strip().lower()
     if status not in TRANSLATION_PLAN_STATUSES:
         return None
-    units = _unique_unit_ids(payload.get("units"))
-    appendix_units = [unit_id for unit_id in _unique_unit_ids(payload.get("appendix_units")) if unit_id not in units]
+    units = _sanitize_unit_hierarchy(_unique_unit_ids(payload.get("units")))
+    appendix_units = [
+        unit_id
+        for unit_id in _sanitize_unit_hierarchy(_unique_unit_ids(payload.get("appendix_units")))
+        if unit_id not in units
+    ]
     reason = str(payload.get("reason", "")).strip()
     normalized = {
         "protocol": TRANSLATION_PLAN_PROTOCOL,
