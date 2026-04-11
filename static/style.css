@@ -517,15 +517,37 @@ body {
   border-radius: 10px;
   border: 1px solid #eee;
   padding: 20px;
-  cursor: pointer;
   transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
 }
 
 .paper-card:hover {
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  transform: translateY(-4px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.paper-title-link {
+  display: block;
+  width: 100%;
+  appearance: none;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.paper-title-link:focus,
+.paper-title-link:focus-visible,
+.paper-title-link:active {
+  outline: none;
+  box-shadow: none;
+  border: none;
+  background: transparent;
 }
 
 .paper-title {
@@ -535,6 +557,11 @@ body {
   margin-bottom: 10px;
   word-break: break-word;
   flex-grow: 0;
+}
+
+.paper-title-link:hover .paper-title {
+  color: #0f5fd1;
+  text-decoration: underline;
 }
 
 .paper-time {

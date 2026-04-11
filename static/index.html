@@ -1552,11 +1552,21 @@
         const meta = normalizePaperMeta(paper);
         const metaTagItems = buildMetaTagItems(meta, { compact: true });
         return (
-          <div
-            className="paper-card"
-            onClick={() => goToPaper(paper.id)}
-          >
-            <div className="paper-title">{paper.title || "未命名论文"}</div>
+          <div className="paper-card">
+            <div
+              className="paper-title-link"
+              role="link"
+              tabIndex={0}
+              onClick={() => goToPaper(paper.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  goToPaper(paper.id);
+                }
+              }}
+            >
+              <div className="paper-title">{paper.title || "未命名论文"}</div>
+            </div>
             <div className="paper-meta-row">
               <div className="paper-time">{formatDate(paper.created_at)}</div>
               {meta.citation_count !== null && meta.citation_count !== undefined && (
@@ -1605,7 +1615,7 @@
                   {renderTagChips(paper.tags, { compact: true })}
                 </div>
                 {paper.pdf_url && (
-                  <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" className="paper-download-link" onClick={(e) => e.stopPropagation()}>
+                  <a href={paper.pdf_url} download target="_blank" rel="noopener noreferrer" className="paper-download-link">
                     <DownloadOutlined />
                     <span>下载 PDF</span>
                   </a>
