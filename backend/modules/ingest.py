@@ -240,11 +240,19 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             extract_and_store_figures(session, conversation_id, file_bytes)
             mark_task_progress(task_id, "提取论文表格")
             extract_and_store_tables(session, conversation_id, file_bytes)
-            mark_task_progress(task_id, "提取论文标签")
-            if payload.extract_tags and response_content.strip():
-                await extract_and_store_tags(session, conversation_id, final_title, response_content, payload.tag_model, payload.api_key)
             mark_task_progress(task_id, "刷新 Semantic Scholar 元数据")
             semantic_result = refresh_conversation_semantic_result(session, conversation_id, final_title)
+            mark_task_progress(task_id, "提取论文标签")
+            if payload.extract_tags:
+                await extract_and_store_tags(
+                    session,
+                    conversation_id,
+                    final_title,
+                    response_content,
+                    payload.tag_model,
+                    payload.api_key,
+                    fallback_abstract=getattr(semantic_result, "abstract", "") if semantic_result else "",
+                )
             detail = build_conversation_detail(session, conversation_id)
             return {
                 "conversation_id": conversation_id,

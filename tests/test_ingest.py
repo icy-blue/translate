@@ -4,7 +4,9 @@ import asyncio
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import fastapi_poe as fp
@@ -146,6 +148,71 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             self.assertEqual(payload["translation_status"]["current_unit_id"], "")
             self.assertEqual(payload["translation_glossary"]["status"], "draft")
             self.assertEqual(payload["translation_glossary"]["entries"][0]["term"], "mesh face")
+
+    def test_handle_ingest_task_extracts_tags_with_semantic_abstract_fallback(self):
+        pdf_bytes = build_test_pdf_bytes()
+        staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        staged_pdf.write(pdf_bytes)
+        staged_pdf.flush()
+        staged_pdf.close()
+        self.addCleanup(Path(staged_pdf.name).unlink, missing_ok=True)
+
+        payload = ingest.IngestPdfTaskPayload(
+            upload_path=staged_pdf.name,
+            filename="paper.pdf",
+            poe_model="poe-model",
+            title_model="title-model",
+            tag_model="tag-model",
+            extract_tags=True,
+            api_key="test-key",
+        )
+        uploaded_attachment = fp.Attachment(
+            url="https://example.invalid/new-paper.pdf",
+            content_type="application/pdf",
+            name="paper.pdf",
+        )
+        first_page_attachment = fp.Attachment(
+            url="https://example.invalid/first-page.pdf",
+            content_type="application/pdf",
+            name="first_page_paper.pdf",
+        )
+        semantic_result = SimpleNamespace(
+            abstract="This paper proposes a point cloud registration method.",
+            venue_abbr="",
+            ccf_category="None",
+            ccf_type="None",
+            citation_count=None,
+            venue=None,
+            year=None,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch.object(ingest, "engine", self.engine),
+            patch.object(ingest, "mark_task_progress"),
+            patch.object(ingest, "update_task_record"),
+            patch.object(ingest, "upload_file", AsyncMock(side_effect=[uploaded_attachment, first_page_attachment])),
+            patch.object(ingest, "extract_title_from_pdf", AsyncMock(return_value="Recovered Title")),
+            patch.object(
+                ingest,
+                "get_bot_response",
+                AsyncMock(
+                    return_value='{"status":"ok","units":["ABSTRACT"],"appendix_units":[],"reason":"","glossary":[]}'
+                ),
+            ),
+            patch.object(ingest, "extract_and_store_figures", return_value=[]),
+            patch.object(ingest, "extract_and_store_tables", return_value=[]),
+            patch.object(ingest, "refresh_conversation_semantic_result", return_value=semantic_result),
+            patch.object(ingest, "extract_and_store_tags", AsyncMock(return_value=[])) as extract_tags_mock,
+        ):
+            asyncio.run(ingest.handle_ingest_task("task-2", payload))
+
+        extract_tags_mock.assert_awaited_once()
+        self.assertEqual(extract_tags_mock.await_args.args[3], "")
+        self.assertEqual(
+            extract_tags_mock.await_args.kwargs["fallback_abstract"],
+            "This paper proposes a point cloud registration method.",
+        )
 
 
 if __name__ == "__main__":

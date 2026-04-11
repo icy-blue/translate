@@ -11,7 +11,7 @@ from ..domain.paper_tags import build_tag_payloads, extract_abstract_for_tagging
 from ..platform.config import settings
 from ..platform.gateways.poe import classify_paper_tags
 from ..platform.gateways.semantic_scholar import safe_refresh_semantic_scholar_result
-from .conversations import get_conversation, get_messages, get_tags, serialize_semantic_result, serialize_tags
+from .conversations import get_conversation, get_messages, get_semantic_result, get_tags, serialize_semantic_result, serialize_tags
 from .search import normalize_tag_codes
 
 router = APIRouter(tags=["metadata"])
@@ -45,8 +45,11 @@ async def extract_and_store_tags(
     first_bot_message: str,
     tag_model: str,
     api_key: str,
+    fallback_abstract: str = "",
 ):
     abstract = extract_abstract_for_tagging(first_bot_message)
+    if not abstract:
+        abstract = " ".join(str(fallback_abstract or "").split()).strip()
     if not title or not abstract:
         return get_tags(session, conversation_id)
     try:
@@ -77,6 +80,7 @@ async def refresh_conversation_metadata(session: Session, conversation_id: str, 
         ),
         "",
     )
+    semantic_result = refresh_conversation_semantic_result(session, conversation_id, conversation.title or conversation.original_filename or "")
     tags = await extract_and_store_tags(
         session=session,
         conversation_id=conversation_id,
@@ -84,8 +88,8 @@ async def refresh_conversation_metadata(session: Session, conversation_id: str, 
         first_bot_message=first_bot_message,
         tag_model=tag_model,
         api_key=api_key,
+        fallback_abstract=getattr(semantic_result, "abstract", "") if semantic_result else "",
     )
-    semantic_result = refresh_conversation_semantic_result(session, conversation_id, conversation.title or conversation.original_filename or "")
     semantic = serialize_semantic_result(semantic_result)
     return {"tags": [tag.model_dump() for tag in serialize_tags(tags)], **semantic.model_dump()}
 
