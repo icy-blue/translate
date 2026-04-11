@@ -169,11 +169,11 @@ body {
 .layout {
   display: flex;
   gap: 30px;
-  margin-top: 20px;
 }
 
 .content {
   flex: 1;
+  margin-top: 10px;
 }
 
 .content h1,
@@ -190,11 +190,12 @@ body {
    侧边栏样式
    ========================================== */
 .sidebar {
+  box-sizing: border-box;
   width: 260px;
   background: white;
   padding: 20px;
   border-radius: 10px;
-  height: 80vh;
+  max-height: 80vh;
   overflow-y: auto;
   position: sticky;
   top: 120px;
