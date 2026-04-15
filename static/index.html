@@ -2757,10 +2757,7 @@
           duration: 0
         });
         setLoading(true);
-        const action = resolveAutomationAction(translationStatus, {
-          autoTranslateAppendix: false,
-          autoTranslateBreakerLimit: AUTO_TRANSLATE_BREAKER_DEFAULT,
-        });
+        const action = getNextUnitAction(translationStatus);
         if (!action || action.type === "stop") {
           setLoading(false);
           message.destroy("continue-progress");
