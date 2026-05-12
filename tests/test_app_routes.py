@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from app import app
 
@@ -28,6 +29,10 @@ class AppRoutesTest(unittest.TestCase):
         self.assertNotIn("/conversation/{conversation_id}/refresh_metadata", paths)
         self.assertNotIn("/conversation/{conversation_id}/reprocess_assets", paths)
         self.assertNotIn("/agent/pipeline/commit", paths)
+
+    def test_upload_form_includes_tag_model(self):
+        html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('formData.append("tag_model", activeModel);', html)
 
 
 if __name__ == "__main__":

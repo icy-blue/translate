@@ -270,6 +270,34 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             "This paper proposes a point cloud registration method.",
         )
 
+    def test_extract_pdf_abstract_for_tagging_reads_abstract_section(self):
+        pdf_bytes = build_test_pdf_bytes()
+        with patch.object(
+            ingest.PdfReader,
+            "__init__",
+            return_value=None,
+        ), patch.object(
+            ingest.PdfReader,
+            "pages",
+            [
+                SimpleNamespace(
+                    extract_text=lambda: (
+                        "Paper Title\n\n"
+                        "Abstract\n"
+                        "We propose a controllable 3D generation method with differentiable rendering.\n"
+                        "1 Introduction\n"
+                        "This part should not be included."
+                    )
+                )
+            ],
+        ):
+            abstract = ingest.extract_pdf_abstract_for_tagging(pdf_bytes)
+
+        self.assertEqual(
+            abstract,
+            "We propose a controllable 3D generation method with differentiable rendering.",
+        )
+
     def test_handle_ingest_task_passes_deepseek_provider_to_model_calls(self):
         pdf_bytes = build_test_pdf_bytes()
         staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)

@@ -2692,6 +2692,7 @@
             formData.append("api_key", activeApiKey);
             formData.append("poe_model", activeModel);
             formData.append("title_model", activeTitleModel);
+            formData.append("tag_model", activeModel);
             formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
             const enqueueRes = await fetch(`${BASE_URL}/tasks/ingest-pdf`, {

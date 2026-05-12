@@ -149,6 +149,39 @@ def extract_abstract_for_tagging(message_content: str, max_chars: int = 1200) ->
     return trimmed
 
 
+def extract_abstract_from_document_text(document_text: str, max_chars: int = 1200) -> str:
+    if not document_text:
+        return ""
+
+    text = re.sub(r"\r\n?", "\n", document_text)
+    text = re.sub(r"[ \t]+", " ", text)
+    heading_pattern = re.compile(
+        r"(?im)^\s*(?:\d+\s+)?abstract\s*[:：]?\s*$|^\s*abstract\s*[:：]\s*(.+)$"
+    )
+    match = heading_pattern.search(text)
+    if not match:
+        return ""
+
+    if match.group(1):
+        start = match.start(1)
+    else:
+        start = match.end()
+    tail = text[start:]
+    end_pattern = re.compile(
+        r"(?im)^\s*(?:keywords?|index terms)\s*[:：]|^\s*(?:\d+\.?\s*)?(?:introduction|1\s+introduction)\b"
+    )
+    end_match = end_pattern.search(tail)
+    abstract_text = tail[: end_match.start()] if end_match else tail
+    compact_text = re.sub(r"\s+", " ", abstract_text).strip(" -:\n\t")
+    if len(compact_text) <= max_chars:
+        return compact_text
+
+    trimmed = compact_text[:max_chars].rstrip()
+    if " " in trimmed:
+        trimmed = trimmed.rsplit(" ", 1)[0]
+    return trimmed
+
+
 def build_category_selection_prompt(title: str, abstract: str) -> str:
     safe_title = _compact_text(title, max_chars=240) or "-"
     safe_abstract = _compact_text(abstract, max_chars=1200) or "-"

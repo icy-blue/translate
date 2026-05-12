@@ -23,6 +23,7 @@ from ..domain.message_payloads import (
     parse_translation_plan_response,
     preprocess_bot_reply_for_storage,
 )
+from ..domain.paper_tags import extract_abstract_from_document_text
 from ..platform.config import engine, settings
 from ..platform.gateways.poe import extract_arxiv_id, extract_arxiv_id_from_pdf_bytes, extract_title_from_pdf, get_bot_response, normalize_provider, upload_file
 from ..platform.local_files import local_file_url_to_path, write_pdf_file
@@ -127,6 +128,20 @@ def resolve_arxiv_id_from_semantic_result(semantic_result) -> str | None:
         getattr(semantic_result, "paper_id", None),
         getattr(semantic_result, "matched_title", None),
     )
+
+
+def extract_pdf_abstract_for_tagging(file_bytes: bytes) -> str:
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        page_texts = []
+        for index, page in enumerate(reader.pages):
+            if index >= 3:
+                break
+            page_texts.append((page.extract_text() or "").strip())
+    except Exception as exc:
+        print(f"Error extracting local PDF abstract for tags: {exc}")
+        return ""
+    return extract_abstract_from_document_text("\n\n".join(part for part in page_texts if part))
 
 
 def queue_ingest_pdf(
@@ -323,7 +338,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                     session,
                     conversation_id,
                     final_title,
-                    response_content,
+                    extract_pdf_abstract_for_tagging(file_bytes) or response_content,
                     payload.tag_model,
                     payload.api_key,
                     provider=provider,
