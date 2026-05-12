@@ -41,7 +41,7 @@
     // 1. 常量与配置
     // ==========================================
 
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
     const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
 
@@ -553,7 +553,7 @@
         return { label: "全部完成", className: "translation-status-done" };
       }
       if (state === "UNSUPPORTED") {
-        return { label: "翻译失败", className: "translation-status-body-done" };
+        return { label: "翻译失败", className: "translation-status-error" };
       }
       if (state === "BODY_DONE" && status?.active_scope === "appendix" && (status?.completed_unit_count || 0) > 0) {
         return { label: "附录进行中", className: "translation-status-progress" };
@@ -2150,6 +2150,7 @@
       const [glossarySaving, setGlossarySaving] = useState(false);
       const [glossaryDraftSelections, setGlossaryDraftSelections] = useState({});
       const [glossaryCollapsed, setGlossaryCollapsed] = useState(true);
+      const glossaryDefaultStateKeyRef = useRef("");
       const [remainingUnitsExpanded, setRemainingUnitsExpanded] = useState(false);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [paperInfoLoaded, setPaperInfoLoaded] = useState(!initialRouteConversationId);
@@ -3120,6 +3121,11 @@
         : 0;
       const glossaryStatusText = hasGlossaryEntries ? (glossaryNeedsConfirmation ? "待确认" : "已确认") : "无译法表";
       const glossaryMetaText = hasGlossaryEntries ? `${glossaryStatusText} · ${glossaryEntries.length} 项` : "无译法表";
+      const glossaryDefaultStateKey = [
+        conversationId || "pending",
+        translationGlossary?.status || "none",
+        glossaryEntries.map(entry => entry.term).join("|"),
+      ].join(":");
       const compactProgressText = translationProgress?.hasScopedPlan
         ? `正文 ${bodyRatioText} · ${Number(translationProgress?.appendixTotal || 0) > 0 ? `附录 ${appendixRatioText}` : "附录无"}`
         : "进度待解析";
@@ -3148,6 +3154,13 @@
         }
         return `当前正在翻译中，总进度 ${overall}，正文进度 ${body}，附录进度 ${appendix}。`;
       })();
+
+      useEffect(() => {
+        if (glossaryDefaultStateKeyRef.current !== glossaryDefaultStateKey) {
+          setGlossaryCollapsed(!glossaryNeedsConfirmation);
+          glossaryDefaultStateKeyRef.current = glossaryDefaultStateKey;
+        }
+      }, [glossaryDefaultStateKey, glossaryNeedsConfirmation]);
 
       // ===== JSX 渲染 =====
       return (

@@ -678,6 +678,11 @@ body {
   background: linear-gradient(135deg, #f3fbf7 0%, #ffffff 100%);
 }
 
+.translation-status-error {
+  border-color: #ecd0d6;
+  background: linear-gradient(135deg, #fff7f8 0%, #ffffff 100%);
+}
+
 .translation-status-header {
   display: flex;
   align-items: center;
@@ -729,6 +734,11 @@ body {
   color: #23704b;
 }
 
+.translation-status-error .translation-status-badge {
+  background: #fbe8eb;
+  color: #9f4a5a;
+}
+
 .translation-status-topline {
   display: grid;
   grid-template-columns: auto auto minmax(140px, 1fr) auto;
@@ -762,6 +772,10 @@ body {
   white-space: nowrap;
 }
 
+.translation-status-error .translation-status-percent {
+  color: #a64d5d;
+}
+
 .translation-status-progressbar-track {
   position: relative;
   overflow: hidden;
@@ -779,6 +793,10 @@ body {
 
 .translation-status-progressbar-fill-overall {
   background: linear-gradient(90deg, #63a2f0 0%, #2e62da 100%);
+}
+
+.translation-status-error .translation-status-progressbar-fill-overall {
+  background: linear-gradient(90deg, #efb8c1 0%, #b85d6f 100%);
 }
 
 .translation-status-progressbar-fill-body {
