@@ -18,7 +18,10 @@ if str(ROOT) not in sys.path:
 
 from pypdf import PdfReader, PdfWriter
 
+import fastapi_poe as fp
+
 from backend.platform.gateways.poe import extract_title_from_pdf, upload_file
+from backend.platform.local_files import write_pdf_file
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -65,13 +68,12 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
         return _result_error("invalid_input", f"Invalid file_bytes_base64: {exc}")
 
     errors: list[dict[str, Any]] = []
+    conversation_id = str(payload.get("conversation_id", "")).strip() or uuid.uuid4().hex[:12]
+    file_id = uuid.uuid4().hex
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
-            tmp.write(content)
-            tmp.flush()
-            with open(tmp.name, "rb") as fp:
-                attachment = await upload_file(fp, api_key, filename)
+        pdf_url = write_pdf_file(conversation_id, file_id, content)
+        attachment = fp.Attachment(url=pdf_url, content_type="application/pdf", name=filename)
     except Exception as exc:
         return _result_error("poe_upload_failed", f"Failed to prepare original PDF attachment: {exc}")
 
@@ -82,8 +84,8 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
             with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp_first:
                 tmp_first.write(first_page_pdf)
                 tmp_first.flush()
-                with open(tmp_first.name, "rb") as fp:
-                    title_attachment = await upload_file(fp, api_key, f"first_page_{filename}")
+                with open(tmp_first.name, "rb") as file_obj:
+                    title_attachment = await upload_file(file_obj, api_key, f"first_page_{filename}")
         except Exception as exc:
             errors.append(
                 {
@@ -108,9 +110,6 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
                 "retryable": True,
             }
         )
-
-    conversation_id = str(payload.get("conversation_id", "")).strip() or uuid.uuid4().hex[:12]
-    file_id = uuid.uuid4().hex
 
     return {
         "ok": True,

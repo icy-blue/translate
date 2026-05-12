@@ -3,6 +3,7 @@
 **/__pycache__/
 **/.DS_Store
 uploads/
+files/
 translations.db
 .env
 GEMINI.md

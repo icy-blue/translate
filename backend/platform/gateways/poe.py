@@ -18,6 +18,7 @@ from ...domain.paper_tags import (
     parse_tag_codes,
 )
 from ..config import settings
+from ..local_files import local_file_url_to_path
 
 POE_OPENAI_BASE_URL = "https://api.poe.com/v1"
 POE_CHAT_COMPLETIONS_URL = f"{POE_OPENAI_BASE_URL}/chat/completions"
@@ -47,6 +48,9 @@ def _is_image_content_type(content_type: str) -> bool:
 def _file_data_url(url: str, content_type: str) -> str:
     if url.startswith("data:"):
         return url
+    local_path = local_file_url_to_path(url)
+    if local_path is not None:
+        return _to_data_url(local_path.read_bytes(), content_type)
     req = request.Request(url, headers={"User-Agent": "translate-poe-gateway/1.0", "Accept": f"{content_type},*/*"})
     with request.urlopen(req, timeout=120) as response:
         return _to_data_url(response.read(), content_type)

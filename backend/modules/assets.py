@@ -13,6 +13,7 @@ from sqlmodel import Session
 
 from ..app.dependencies import check_read_only, get_db_session
 from ..domain.pdf_figures import extract_pdf_figures, extract_pdf_tables
+from ..platform.local_files import local_file_url_to_path
 from ..platform.models import PaperFigure, PaperTable
 from .conversations import get_figures, get_file_record, get_tables, serialize_figures, serialize_tables
 
@@ -107,6 +108,12 @@ def build_asset_response(asset):
 
 
 def download_pdf_bytes(url: str, timeout: int = 60) -> bytes:
+    local_path = local_file_url_to_path(url)
+    if local_path is not None:
+        try:
+            return local_path.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(f"Failed to read local PDF from {url}: {exc}") from exc
     if url.startswith("data:"):
         try:
             header, encoded = url.split(",", 1)

@@ -31,6 +31,8 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
         self.db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.db_file.close()
         self.addCleanup(Path(self.db_file.name).unlink, missing_ok=True)
+        self.files_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.files_dir.cleanup)
         self.engine = create_engine(f"sqlite:///{self.db_file.name}")
         SQLModel.metadata.create_all(self.engine)
 
@@ -103,6 +105,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
 
         with (
             patch.object(ingest, "engine", self.engine),
+            patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(self.files_dir.name)),
             patch.object(ingest, "mark_task_progress"),
             patch.object(ingest, "update_task_record"),
             patch.object(ingest, "upload_file", AsyncMock(side_effect=[uploaded_attachment, first_page_attachment])),
@@ -137,6 +140,9 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             file_records = session.exec(select(FileRecord).where(FileRecord.fingerprint == fingerprint)).all()
             self.assertEqual(len(file_records), 1)
             self.assertEqual(file_records[0].conversation_id, result["conversation_id"])
+            self.assertEqual(file_records[0].poe_url, f"/files/{result['conversation_id']}/{file_records[0].id}.pdf")
+            self.assertTrue((Path(self.files_dir.name) / result["conversation_id"] / f"{file_records[0].id}.pdf").is_file())
+            self.assertEqual(result["pdf_url"], file_records[0].poe_url)
             first_bot_message = session.exec(
                 select(Message)
                 .where(Message.conversation_id == result["conversation_id"], Message.message_kind == "bot_reply")
@@ -148,6 +154,55 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             self.assertEqual(payload["translation_status"]["current_unit_id"], "")
             self.assertEqual(payload["translation_glossary"]["status"], "draft")
             self.assertEqual(payload["translation_glossary"]["entries"][0]["term"], "mesh face")
+
+    def test_duplicate_upload_restores_missing_local_pdf_url(self):
+        pdf_bytes = build_test_pdf_bytes()
+        staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        staged_pdf.write(pdf_bytes)
+        staged_pdf.flush()
+        staged_pdf.close()
+        self.addCleanup(Path(staged_pdf.name).unlink, missing_ok=True)
+
+        fingerprint = ingest.hashlib.sha256(pdf_bytes).hexdigest()
+        with Session(self.engine) as session:
+            session.add(Conversation(id="conv-existing", title="Paper", original_filename="paper.pdf"))
+            session.add(
+                FileRecord(
+                    id="file-existing",
+                    conversation_id="conv-existing",
+                    filename="paper.pdf",
+                    fingerprint=fingerprint,
+                    poe_url="",
+                    content_type="application/pdf",
+                    poe_name="paper.pdf",
+                )
+            )
+            session.commit()
+
+        payload = ingest.IngestPdfTaskPayload(
+            upload_path=staged_pdf.name,
+            filename="paper.pdf",
+            poe_model="poe-model",
+            title_model="title-model",
+            tag_model="tag-model",
+            extract_tags=False,
+            api_key="test-key",
+        )
+
+        with (
+            patch.object(ingest, "engine", self.engine),
+            patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(self.files_dir.name)),
+            patch.object(ingest, "mark_task_progress"),
+            patch.object(ingest, "update_task_record"),
+        ):
+            result = asyncio.run(ingest.handle_ingest_task("task-duplicate", payload))
+
+        self.assertTrue(result["exists"])
+        self.assertEqual(result["conversation_id"], "conv-existing")
+        self.assertEqual(result["pdf_url"], "/files/conv-existing/file-existing.pdf")
+        self.assertEqual((Path(self.files_dir.name) / "conv-existing" / "file-existing.pdf").read_bytes(), pdf_bytes)
+        with Session(self.engine) as session:
+            self.assertEqual(session.get(FileRecord, "file-existing").poe_url, "/files/conv-existing/file-existing.pdf")
 
     def test_handle_ingest_task_extracts_tags_with_semantic_abstract_fallback(self):
         pdf_bytes = build_test_pdf_bytes()
@@ -189,6 +244,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
 
         with (
             patch.object(ingest, "engine", self.engine),
+            patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(self.files_dir.name)),
             patch.object(ingest, "mark_task_progress"),
             patch.object(ingest, "update_task_record"),
             patch.object(ingest, "upload_file", AsyncMock(side_effect=[uploaded_attachment, first_page_attachment])),

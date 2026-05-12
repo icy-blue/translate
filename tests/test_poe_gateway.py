@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import fastapi_poe as fp
@@ -99,6 +101,35 @@ class PoeGatewayTest(unittest.TestCase):
 
         with patch.object(poe.request, "urlopen", side_effect=fake_urlopen):
             response = asyncio.run(poe.get_bot_response([message], "Claude-Sonnet-4.6", "test-key"))
+
+        self.assertEqual(response, "ok")
+        file_data = captured_payloads[0]["messages"][0]["content"][1]["file"]["file_data"]
+        self.assertTrue(file_data.startswith("data:application/pdf;base64,"))
+
+    def test_get_bot_response_converts_local_file_url_to_data_url(self):
+        captured_payloads: list[dict] = []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = Path(tmpdir) / "conv-1" / "file-1.pdf"
+            pdf_path.parent.mkdir(parents=True)
+            pdf_path.write_bytes(b"%PDF-local")
+
+            def fake_urlopen(req, timeout):
+                captured_payloads.append(json.loads(req.data.decode("utf-8")))
+                return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+            attachment = fp.Attachment(
+                url="/files/conv-1/file-1.pdf",
+                content_type="application/pdf",
+                name="paper.pdf",
+            )
+            message = fp.ProtocolMessage(role="user", content="Read this.", attachments=[attachment])
+
+            with (
+                patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(tmpdir)),
+                patch.object(poe.request, "urlopen", side_effect=fake_urlopen),
+            ):
+                response = asyncio.run(poe.get_bot_response([message], "Claude-Sonnet-4.6", "test-key"))
 
         self.assertEqual(response, "ok")
         file_data = captured_payloads[0]["messages"][0]["content"][1]["file"]["file_data"]

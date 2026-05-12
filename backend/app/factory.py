@@ -17,6 +17,7 @@ from ..modules.search import router as search_router
 from ..modules.system import router as system_router
 from ..modules.translation import router as translation_router
 from ..platform.config import engine
+from ..platform.local_files import LOCAL_FILES_DIR, ensure_local_files_dir
 from ..platform.models import register_sqlmodel_tables
 from ..platform.schema_maintenance import (
     assert_message_schema_consistent,
@@ -46,6 +47,7 @@ async def app_lifespan(_app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    ensure_local_files_dir()
     app = FastAPI(lifespan=app_lifespan)
     app.add_middleware(
         CORSMiddleware,
@@ -64,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(pipeline_router)
     app.include_router(system_router)
+    app.mount("/files", StaticFiles(directory=str(LOCAL_FILES_DIR)), name="files")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     return app
 

@@ -25,6 +25,7 @@ from ..domain.message_payloads import (
 )
 from ..platform.config import engine, settings
 from ..platform.gateways.poe import extract_title_from_pdf, get_bot_response, upload_file
+from ..platform.local_files import local_file_url_to_path, write_pdf_file
 from ..platform.models import Conversation, FileRecord
 from ..platform.task_runtime import enqueue_task, mark_task_progress, register_task_definition, update_task_record
 from .assets import extract_and_store_figures, extract_and_store_tables
@@ -64,13 +65,30 @@ def find_existing_file(session: Session, fingerprint: str) -> Optional[FileRecor
     return None
 
 
+def ensure_existing_file_local_pdf(session: Session, file_record: FileRecord, file_bytes: bytes) -> FileRecord:
+    local_path = local_file_url_to_path(file_record.poe_url)
+    if local_path is not None and local_path.exists():
+        return file_record
+
+    pdf_url = write_pdf_file(file_record.conversation_id, file_record.id, file_bytes)
+    file_record.poe_url = pdf_url
+    file_record.content_type = "application/pdf"
+    file_record.poe_name = file_record.poe_name or file_record.filename
+    session.add(file_record)
+    session.commit()
+    session.refresh(file_record)
+    return file_record
+
+
 def create_conversation_shell(
     session: Session,
     conversation_id: str,
     file_id: str,
     original_filename: str,
     fingerprint: str,
-    attachment,
+    pdf_url: str,
+    content_type: str,
+    poe_name: str,
 ) -> None:
     session.add(Conversation(id=conversation_id, title=original_filename, original_filename=original_filename))
     session.add(
@@ -79,9 +97,9 @@ def create_conversation_shell(
             conversation_id=conversation_id,
             filename=original_filename,
             fingerprint=fingerprint,
-            poe_url=attachment.url,
-            content_type=attachment.content_type,
-            poe_name=attachment.name,
+            poe_url=pdf_url,
+            content_type=content_type,
+            poe_name=poe_name,
         )
     )
     session.commit()
@@ -139,6 +157,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         with Session(engine) as session:
             existing_file = find_existing_file(session, fingerprint)
             if existing_file:
+                existing_file = ensure_existing_file_local_pdf(session, existing_file, file_bytes)
                 update_task_record(task_id, conversation_id=existing_file.conversation_id)
                 detail = build_conversation_detail(session, existing_file.conversation_id)
                 return {
@@ -156,15 +175,21 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         conversation_id = uuid.uuid4().hex[:12]
         file_id = uuid.uuid4().hex
         mark_task_progress(task_id, "准备原始 PDF 文件")
-        with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
-            tmp.write(file_bytes)
-            tmp.flush()
-            with open(tmp.name, "rb") as file_obj:
-                pdf_attachment = await upload_file(file_obj, payload.api_key, payload.filename)
+        pdf_url = write_pdf_file(conversation_id, file_id, file_bytes)
+        pdf_attachment = fp.Attachment(url=pdf_url, content_type="application/pdf", name=payload.filename)
 
         mark_task_progress(task_id, "创建会话壳")
         with Session(engine) as session:
-            create_conversation_shell(session, conversation_id, file_id, payload.filename, fingerprint, pdf_attachment)
+            create_conversation_shell(
+                session,
+                conversation_id,
+                file_id,
+                payload.filename,
+                fingerprint,
+                pdf_url,
+                "application/pdf",
+                payload.filename,
+            )
         update_task_record(task_id, conversation_id=conversation_id)
 
         title_extraction_attachment = pdf_attachment
@@ -263,7 +288,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                 "translation_glossary": prepared_response["translation_glossary"],
                 "content": response_content,
                 "display_reply": response_content,
-                "pdf_url": pdf_attachment.url,
+                "pdf_url": pdf_url,
                 "figures": [figure.model_dump() for figure in detail.figures],
                 "tables": [table.model_dump() for table in detail.tables],
                 "tags": [tag.model_dump() for tag in detail.tags],

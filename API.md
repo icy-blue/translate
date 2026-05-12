@@ -152,7 +152,7 @@
 
 - 基本信息：`id`、`title`、`created_at`
 - 消息列表：`messages`
-- 原 PDF 地址：`pdf_url`
+- 原 PDF 本地下载路径：`pdf_url`，例如 `/files/{conversation_id}/{file_id}.pdf`
 - 图表：`figures`、`tables`
 - 标签：`tags`
 - 语义元数据：`venue_abbr`、`ccf_category`、`ccf_type`、`citation_count`、`venue`、`year`、`semantic_updated_at`
@@ -308,6 +308,7 @@ JSON payload 核心字段：
 关键行为：
 
 - 仍然按 `fingerprint` 去重
+- `poe_url` 推荐传 `/files/{conversation_id}/{file_id}.pdf` 这类本地下载路径；历史 `data:` 或远程 URL 仍会在后端读取后转换给 Poe 使用
 - 若已有有效会话，返回 `exists=true`
 - bot 消息会走和在线流程一致的 payload 预处理
 

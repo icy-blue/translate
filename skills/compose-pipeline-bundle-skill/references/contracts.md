@@ -6,6 +6,7 @@ Top-level bundle fields:
 - `file_record`
   - required: `filename`, `fingerprint`, `poe_url`
   - optional defaults: `content_type="application/pdf"`, `poe_name=filename`
+  - preferred `poe_url`: local `/files/{conversation_id}/{file_id}.pdf`
 - `messages`
 - `figures`
 - `tables`

@@ -85,7 +85,7 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 说明：
 
 - `api_key` 不是环境变量，而是前端/客户端通过表单字段提交给写接口的 Poe API key。
-- 应用启动时会自动执行建表、补资产列、校验 message schema、恢复未完成任务并启动 worker。
+- 应用启动时会自动执行建表、补资产列、校验 message schema、创建本地 `files/` 目录、恢复未完成任务并启动 worker。
 - 如果启动时报 `message table schema is inconsistent`，先运行：
 
 ```bash
@@ -110,7 +110,7 @@ python scripts/maintain_message_kind_schema.py --write
 1. 客户端上传 PDF 到 /tasks/ingest-pdf
 2. 服务写入 AsyncJob，后台 worker 开始处理
 3. 计算 PDF 指纹；若已存在有效会话则直接返回旧结果
-4. 将原始 PDF 转成 Poe OpenAI-compatible 文件 data URL，并尝试只用首页提取标题
+4. 将原始 PDF 保存到 `files/{conversation_id}/{file_id}.pdf`，数据库记录 `/files/{conversation_id}/{file_id}.pdf`
 5. 调用 planner，生成 `translation_plan` 与 `translation_glossary`
 6. 保存 Conversation / FileRecord / Message / 图 / 表 / 标签 / Semantic Scholar 结果
 7. 前端轮询 `/tasks/{task_id}`，得到会话详情、当前 `translation_status` 与待确认术语词表
@@ -134,8 +134,18 @@ python scripts/maintain_message_kind_schema.py --write
 其中：
 
 - `Message.client_payload_json` 用来持久化 `translation_plan`、`translation_status` 和 `translation_glossary`
+- `FileRecord.poe_url` 复用为本地 PDF 下载路径，例如 `/files/{conversation_id}/{file_id}.pdf`
 - `AsyncJob` 用来承载 ingest / continue 这类后台任务
 - 图表二进制直接保存在数据库中
+
+## 本地 PDF 文件
+
+新上传的 PDF 会保存到项目根目录的 `files/` 下。旧数据可迁移：
+
+```bash
+python scripts/backfill_local_files.py --dry-run
+python scripts/backfill_local_files.py
+```
 
 ## 目录结构
 

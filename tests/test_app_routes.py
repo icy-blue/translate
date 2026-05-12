@@ -17,6 +17,7 @@ class AppRoutesTest(unittest.TestCase):
         self.assertIn("/metadata/{conversation_id}/tags", paths)
         self.assertIn("/assets/{conversation_id}/reprocess", paths)
         self.assertIn("/pipeline/commits", paths)
+        self.assertIn("/files", paths)
 
     def test_legacy_routes_are_not_registered(self):
         paths = {route.path for route in app.routes}

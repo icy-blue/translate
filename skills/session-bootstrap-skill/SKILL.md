@@ -24,7 +24,7 @@ Use after `pdf-ingest-skill` when PDF bytes are available and you need Poe attac
 - `file_record` (metadata draft, no DB write)
 
 ## Steps
-1. Decode input bytes and prepare the original PDF as a Poe OpenAI-compatible file data URL.
+1. Decode input bytes and save the original PDF to local `/files/{conversation_id}/{file_id}.pdf`.
 2. Build first-page PDF and prepare it as a file data URL for title extraction.
 3. Request title model to extract title, fallback to filename.
 4. Return all bootstrap fields.
