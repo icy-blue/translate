@@ -213,7 +213,11 @@ python scripts/scrape_ccf_conferences.py
 python scripts/maintain_message_kind_schema.py --write
 python scripts/backfill_message_payload_cleanup.py --write
 python scripts/backfill_translation_payload_v2.py --write
+python scripts/import_sqlite_export.py --source /path/to/translations.db
+python scripts/backfill_formula_text_artifacts.py --output -
 ```
+
+跨机器 SQLite 导入、替换导入和公式脏 token 修复的详细流程见 [Maintenance Scripts](docs/maintenance-scripts.md)。
 
 ## 测试
 

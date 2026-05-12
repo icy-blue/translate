@@ -11,4 +11,5 @@ _temp/
 data/paper_semantic_scholar_results.csv
 .codex/
 data/
-docs/
+docs/*
+!docs/maintenance-scripts.md
