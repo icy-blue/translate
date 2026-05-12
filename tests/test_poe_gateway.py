@@ -165,6 +165,33 @@ class PoeGatewayTest(unittest.TestCase):
         self.assertIn("[PDF: paper.pdf]", content)
         self.assertIn("Extracted PDF text.", content)
 
+    def test_deepseek_arxiv_pdf_uses_html_text_without_pdf_extraction(self):
+        captured_payloads: list[dict] = []
+
+        def fake_urlopen(req, timeout):
+            captured_payloads.append(json.loads(req.data.decode("utf-8")))
+            return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        attachment = fp.Attachment(
+            url="data:application/pdf;base64,JVBERg==",
+            content_type="application/pdf",
+            name="2605.10922v1.pdf",
+        )
+        message = fp.ProtocolMessage(role="user", content="Plan this.", attachments=[attachment])
+
+        with (
+            patch.object(poe, "_arxiv_html_text", return_value="Precise arXiv HTML text.") as html_mock,
+            patch.object(poe, "_pdf_text_from_bytes", side_effect=AssertionError("PDF extraction should not be used")),
+            patch.object(poe.request, "urlopen", side_effect=fake_urlopen),
+        ):
+            response = asyncio.run(poe.get_bot_response([message], "deepseek-v4-pro", "deepseek-key", provider="deepseek"))
+
+        self.assertEqual(response, "ok")
+        html_mock.assert_called_once_with("2605.10922v1")
+        content = captured_payloads[0]["messages"][0]["content"]
+        self.assertIn("[arXiv HTML: 2605.10922v1]", content)
+        self.assertIn("Precise arXiv HTML text.", content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -888,6 +888,7 @@
       const activeDeepseekModel = deepseekModel || defaultDeepseekModel;
       const activeModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
       const activeTitleModel = activeProvider === "deepseek" ? activeDeepseekModel : (titleModel || defaultPoeModel);
+      const activeProviderLabel = activeProvider === "deepseek" ? "DeepSeek" : "Poe";
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -2164,6 +2165,7 @@
       const activeDeepseekModel = deepseekModel || defaultDeepseekModel;
       const activeModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
       const activeTitleModel = activeProvider === "deepseek" ? activeDeepseekModel : (titleModel || defaultPoeModel);
+      const activeProviderLabel = activeProvider === "deepseek" ? "DeepSeek" : "Poe";
       const CHAT_SCROLL_EXTRA_GAP = 20;
 
       // ===== 模型选项 =====
@@ -2666,7 +2668,7 @@
 
           const progressKey = `upload-progress-${Date.now()}`;
           let linkedConversationId = null;
-          message.open({ key: progressKey, type: "loading", content: "正在上传：准备提交任务", duration: 0 });
+          message.open({ key: progressKey, type: "loading", content: `正在使用 ${activeProviderLabel} 处理：准备提交任务`, duration: 0 });
           setLoading(true);
           setPaperInfoLoaded(false);
           setBlocks([]);
@@ -2702,7 +2704,7 @@
               return;
             }
 
-            message.open({ key: progressKey, type: "loading", content: "正在上传：任务已入队，等待 worker 处理", duration: 0 });
+            message.open({ key: progressKey, type: "loading", content: `正在使用 ${activeProviderLabel} 处理：任务已入队，等待 worker 处理`, duration: 0 });
             const data = await waitForJobResult(enqueueData.task_id, {
               onTick: async (jobData) => {
                 if (jobData?.conversation_id && !linkedConversationId) {
@@ -2716,7 +2718,7 @@
                 }
               },
               onProgress: async (progressText) => {
-                message.open({ key: progressKey, type: "loading", content: `上传处理中：${progressText}`, duration: 0 });
+                message.open({ key: progressKey, type: "loading", content: `正在使用 ${activeProviderLabel} 处理：${progressText}`, duration: 0 });
                 const titlePrefix = "标题已提取：";
                 if (typeof progressText === "string" && progressText.startsWith(titlePrefix)) {
                   const extractedTitle = progressText.slice(titlePrefix.length).trim();
@@ -2778,7 +2780,7 @@
               message.open({
                 key: progressKey,
                 type: "loading",
-                content: `翻译处理中：${progressText}`,
+                content: `正在使用 ${activeProviderLabel} 翻译：${progressText}`,
                 duration: 0
               });
             },
@@ -2802,7 +2804,7 @@
         message.open({
           key: "continue-progress",
           type: "loading",
-          content: "翻译处理中：准备提交任务",
+          content: `正在使用 ${activeProviderLabel} 翻译：准备提交任务`,
           duration: 0
         });
         setLoading(true);

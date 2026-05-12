@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from html.parser import HTMLParser
 import io
 import json
 import mimetypes
+import re
 from typing import Any
 from typing import Optional
 from urllib import error, request
@@ -27,6 +29,7 @@ POE_CHAT_COMPLETIONS_URL = f"{POE_OPENAI_BASE_URL}/chat/completions"
 DEEPSEEK_PROVIDER = "deepseek"
 POE_PROVIDER = "poe"
 SUPPORTED_PROVIDERS = {POE_PROVIDER, DEEPSEEK_PROVIDER}
+ARXIV_ID_PATTERN = re.compile(r"(?i)(?:arxiv[:_\-\s/]+|abs/|pdf/|html/)?(\d{4}\.\d{4,5})(v\d+)?")
 
 
 def normalize_provider(provider: str | None) -> str:
@@ -94,6 +97,84 @@ def _pdf_text_from_bytes(content: bytes) -> str:
     return text
 
 
+def extract_arxiv_id(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, (dict, list)):
+            candidates = [json.dumps(value, ensure_ascii=False)]
+        else:
+            candidates = [str(value)]
+        for candidate in candidates:
+            for match in ARXIV_ID_PATTERN.finditer(candidate):
+                prefix = candidate[max(0, match.start() - 12) : match.start()].lower()
+                raw_match = match.group(0).lower()
+                if "semanticscholar" in prefix and not any(marker in raw_match for marker in ("arxiv", "abs/", "pdf/", "html/")):
+                    continue
+                return f"{match.group(1)}{match.group(2) or ''}"
+    return None
+
+
+def extract_arxiv_id_from_pdf_bytes(content: bytes) -> str | None:
+    try:
+        return extract_arxiv_id(_pdf_text_from_bytes(content))
+    except Exception:
+        return None
+
+
+class _ArxivHtmlTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._skip_depth = 0
+        self._chunks: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in {"script", "style", "noscript", "svg", "math"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"script", "style", "noscript", "svg", "math"} and self._skip_depth:
+            self._skip_depth -= 1
+        if tag.lower() in {"p", "div", "section", "article", "h1", "h2", "h3", "h4", "li", "tr"}:
+            self._chunks.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        text = " ".join(data.split())
+        if text:
+            self._chunks.append(text)
+
+    def text(self) -> str:
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(self._chunks)).strip()
+
+
+def _arxiv_html_url(arxiv_id: str) -> str:
+    return f"https://arxiv.org/html/{arxiv_id}"
+
+
+def _arxiv_html_text(arxiv_id: str) -> str:
+    req = request.Request(
+        _arxiv_html_url(arxiv_id),
+        headers={"User-Agent": "translate-deepseek-arxiv-html/1.0", "Accept": "text/html,*/*"},
+    )
+    try:
+        with request.urlopen(req, timeout=120) as response:
+            html = response.read().decode("utf-8", errors="replace")
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id} with HTTP {exc.code}: {body[:500]}") from exc
+    except error.URLError as exc:
+        raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id}: {exc}") from exc
+
+    parser = _ArxivHtmlTextParser()
+    parser.feed(html)
+    text = parser.text()
+    if not text:
+        raise RuntimeError(f"arXiv HTML {arxiv_id} did not contain extractable text.")
+    return text
+
+
 def _attachment_part(attachment: Any) -> dict[str, Any]:
     url = str(getattr(attachment, "url", "")).strip()
     content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
@@ -122,11 +203,15 @@ def _message_payload(message: fp.ProtocolMessage) -> dict[str, Any]:
     return {"role": _message_role(str(message.role)), "content": parts}
 
 
-def _deepseek_attachment_text(attachment: Any) -> str:
+def _deepseek_attachment_text(attachment: Any, arxiv_id: str | None = None) -> str:
     url = str(getattr(attachment, "url", "")).strip()
     content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
     name = str(getattr(attachment, "name", "")).strip() or "attachment"
     if content_type.lower() == "application/pdf" or name.lower().endswith(".pdf"):
+        detected_arxiv_id = arxiv_id or extract_arxiv_id(name, url)
+        if detected_arxiv_id:
+            text = _arxiv_html_text(detected_arxiv_id)
+            return f"[arXiv HTML: {detected_arxiv_id}]\n{text}"
         text = _pdf_text_from_bytes(_file_bytes(url, content_type))
         return f"[PDF: {name}]\n{text}"
     if _is_image_content_type(content_type):
@@ -137,11 +222,11 @@ def _deepseek_attachment_text(attachment: Any) -> str:
     return f"[Attachment: {name}]\n{content}"
 
 
-def _deepseek_message_payload(message: fp.ProtocolMessage) -> dict[str, Any]:
+def _deepseek_message_payload(message: fp.ProtocolMessage, arxiv_id: str | None = None) -> dict[str, Any]:
     attachments = list(getattr(message, "attachments", None) or [])
     content = str(getattr(message, "content", "") or "").strip()
     if attachments:
-        attachment_blocks = "\n\n".join(_deepseek_attachment_text(attachment) for attachment in attachments)
+        attachment_blocks = "\n\n".join(_deepseek_attachment_text(attachment, arxiv_id=arxiv_id) for attachment in attachments)
         content = f"{content}\n\n{attachment_blocks}" if content else attachment_blocks
     return {"role": _message_role(str(message.role)), "content": content}
 
@@ -179,27 +264,45 @@ def _post_chat_completion(payload: dict[str, Any], api_key: str, *, provider: st
         raise RuntimeError(f"Unexpected {provider_label} API response: {data}") from exc
 
 
-def _get_chat_completion(messages: list[fp.ProtocolMessage], bot_name: str, api_key: str, provider: str = POE_PROVIDER) -> str:
+def _get_chat_completion(
+    messages: list[fp.ProtocolMessage],
+    bot_name: str,
+    api_key: str,
+    provider: str = POE_PROVIDER,
+    arxiv_id: str | None = None,
+) -> str:
     normalized_provider = normalize_provider(provider)
     payload = {
         "model": bot_name,
         "messages": [
-            _deepseek_message_payload(message) if normalized_provider == DEEPSEEK_PROVIDER else _message_payload(message)
+            _deepseek_message_payload(message, arxiv_id=arxiv_id) if normalized_provider == DEEPSEEK_PROVIDER else _message_payload(message)
             for message in messages
         ],
     }
     return _post_chat_completion(payload, api_key, provider=normalized_provider)
 
 
-async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str, model: str, provider: str = POE_PROVIDER) -> Optional[str]:
+async def extract_title_from_pdf(
+    pdf_attachment: fp.Attachment,
+    api_key: str,
+    model: str,
+    provider: str = POE_PROVIDER,
+    arxiv_id: str | None = None,
+) -> Optional[str]:
     prompt = settings.title_prompt
     message = fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])
-    title_text = await get_bot_response([message], model, api_key, provider=provider)
+    title_text = await get_bot_response([message], model, api_key, provider=provider, arxiv_id=arxiv_id)
     return title_text.strip() or None
 
 
-async def get_bot_response(messages: list[fp.ProtocolMessage], bot_name: str, api_key: str, provider: str = POE_PROVIDER) -> str:
-    return await asyncio.to_thread(_get_chat_completion, messages, bot_name, api_key, provider)
+async def get_bot_response(
+    messages: list[fp.ProtocolMessage],
+    bot_name: str,
+    api_key: str,
+    provider: str = POE_PROVIDER,
+    arxiv_id: str | None = None,
+) -> str:
+    return await asyncio.to_thread(_get_chat_completion, messages, bot_name, api_key, provider, arxiv_id)
 
 
 async def upload_file(file, api_key: str, file_name: str) -> fp.Attachment:

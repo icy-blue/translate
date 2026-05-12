@@ -87,7 +87,7 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 说明：
 
 - `api_key` 不是环境变量，而是前端/客户端通过表单字段提交给写接口的当前 provider API key；不传 `provider` 时默认使用 Poe。
-- DeepSeek 模式通过 `provider=deepseek` 启用。由于 DeepSeek 当前接入走纯文本 OpenAI chat/completions，后端会先从本地 PDF 抽取文本；扫描版或不可抽取文本的 PDF 仍建议使用 Poe。
+- DeepSeek 模式通过 `provider=deepseek` 启用。由于 DeepSeek 当前接入走纯文本 OpenAI chat/completions，后端会先准备论文文本；若从文件名、PDF 文本或 Semantic Scholar 匹配识别为 arXiv 论文，会优先抓取 `https://arxiv.org/html/{arxiv_id}` 作为文本来源，不再使用普通 PDF 抽文本；非 arXiv PDF 才使用本地 PDF 文本抽取。扫描版或不可抽取文本的非 arXiv PDF 仍建议使用 Poe。
 - 应用启动时会自动执行建表、补资产列、校验 message schema、创建本地 `files/` 目录、恢复未完成任务并启动 worker。
 - 如果启动时报 `message table schema is inconsistent`，先运行：
 

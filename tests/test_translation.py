@@ -15,7 +15,7 @@ from backend.domain.message_payloads import (
 )
 from backend.modules import translation
 from backend.modules.conversations import add_message
-from backend.platform.models import Conversation, FileRecord
+from backend.platform.models import Conversation, FileRecord, PaperSemanticScholarResult
 
 
 class ContinueTranslationFlowTest(unittest.TestCase):
@@ -81,7 +81,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         )
         with (
             patch.object(translation, "engine", self.engine),
-            patch.object(translation, "mark_task_progress"),
+            patch.object(translation, "mark_task_progress") as progress_mock,
             patch.object(
                 translation,
                 "get_bot_response",
@@ -96,6 +96,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         self.assertEqual(result["translation_status"]["state"], "BODY_DONE")
         self.assertEqual(result["translation_status"]["active_scope"], "appendix")
         self.assertEqual(result["translation_status"]["next_unit_id"], "APPENDIX A")
+        progress_mock.assert_any_call("task-1", "等待 Poe 返回翻译结果")
 
     def test_continue_translation_completes_appendix_scope(self):
         translation_plan = normalize_translation_plan_payload(
@@ -168,7 +169,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         )
         with (
             patch.object(translation, "engine", self.engine),
-            patch.object(translation, "mark_task_progress"),
+            patch.object(translation, "mark_task_progress") as progress_mock,
             patch.object(
                 translation,
                 "get_bot_response",
@@ -181,6 +182,58 @@ class ContinueTranslationFlowTest(unittest.TestCase):
 
         self.assertEqual(result["translation_status"]["current_unit_id"], "ABSTRACT")
         self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
+        progress_mock.assert_any_call("task-deepseek", "等待 DeepSeek 返回翻译结果")
+
+    def test_continue_translation_passes_semantic_arxiv_id_to_deepseek(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["ABSTRACT"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[],
+            current_unit_id="",
+            attempted_scope="body",
+            raw_translation_result=None,
+        )
+        self._seed_conversation(translation_plan, translation_status)
+        with Session(self.engine) as session:
+            session.add(
+                PaperSemanticScholarResult(
+                    conversation_id="conv-1",
+                    status="matched",
+                    external_ids_json='{"ArXiv": "2605.10922v1"}',
+                    raw_response_json="{}",
+                )
+            )
+            session.commit()
+
+        payload = translation.ContinueTranslationTaskPayload(
+            conversation_id="conv-1",
+            action="continue",
+            target_scope="body",
+            provider="deepseek",
+            poe_model="deepseek-v4-pro",
+            api_key="deepseek-key",
+        )
+        with (
+            patch.object(translation, "engine", self.engine),
+            patch.object(translation, "mark_task_progress"),
+            patch.object(
+                translation,
+                "get_bot_response",
+                AsyncMock(
+                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 摘要\n译文'
+                ),
+            ) as response_mock,
+        ):
+            asyncio.run(translation.handle_continue_translation("task-deepseek-arxiv", payload))
+
+        self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
 
     def test_continue_translation_rejects_unconfirmed_glossary(self):
         translation_plan = normalize_translation_plan_payload(
