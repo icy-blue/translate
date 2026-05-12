@@ -24,6 +24,7 @@ Use when metadata enrichment is enabled.
 3. Return metadata.
 
 ## Failure Handling
+- Semantic Scholar `Title match not found`: return `ok=true` with `meta.status=not_found`.
 - Network/API errors: `ok=false` with `error.code=metadata_failed`.
 
 ## References

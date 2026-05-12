@@ -82,6 +82,13 @@ def fetch_semantic_scholar_match(title: str, api_key: str | None = None, timeout
                 return json.load(response)
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace").strip()
+            if exc.code == 404 and "Title match not found" in body:
+                return {
+                    "data": [],
+                    "error": body,
+                    "status_code": exc.code,
+                    "query": title,
+                }
             should_retry = exc.code in {429, 500, 502, 503, 504} and attempt < max_retries
             if should_retry:
                 time.sleep(get_retry_delay(exc, attempt))
