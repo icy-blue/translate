@@ -155,7 +155,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
 
         conversation_id = uuid.uuid4().hex[:12]
         file_id = uuid.uuid4().hex
-        mark_task_progress(task_id, "上传原始 PDF 到 Poe")
+        mark_task_progress(task_id, "准备原始 PDF 文件")
         with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
             tmp.write(file_bytes)
             tmp.flush()

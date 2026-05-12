@@ -110,7 +110,7 @@ python scripts/maintain_message_kind_schema.py --write
 1. 客户端上传 PDF 到 /tasks/ingest-pdf
 2. 服务写入 AsyncJob，后台 worker 开始处理
 3. 计算 PDF 指纹；若已存在有效会话则直接返回旧结果
-4. 上传原始 PDF 到 Poe，并尝试只用首页提取标题
+4. 将原始 PDF 转成 Poe OpenAI-compatible 文件 data URL，并尝试只用首页提取标题
 5. 调用 planner，生成 `translation_plan` 与 `translation_glossary`
 6. 保存 Conversation / FileRecord / Message / 图 / 表 / 标签 / Semantic Scholar 结果
 7. 前端轮询 `/tasks/{task_id}`，得到会话详情、当前 `translation_status` 与待确认术语词表

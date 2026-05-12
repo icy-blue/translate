@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import urllib.error
 import urllib.request
 from typing import Optional
@@ -105,6 +107,14 @@ def build_asset_response(asset):
 
 
 def download_pdf_bytes(url: str, timeout: int = 60) -> bytes:
+    if url.startswith("data:"):
+        try:
+            header, encoded = url.split(",", 1)
+            if ";base64" not in header:
+                raise ValueError("Only base64 data URLs are supported.")
+            return base64.b64decode(encoded)
+        except (ValueError, binascii.Error) as exc:
+            raise RuntimeError(f"Failed to decode PDF data URL: {exc}") from exc
     request = urllib.request.Request(url, headers={"User-Agent": "translate-reprocess/1.0", "Accept": "application/pdf,*/*"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:

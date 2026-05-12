@@ -24,13 +24,13 @@ Use after `pdf-ingest-skill` when PDF bytes are available and you need Poe attac
 - `file_record` (metadata draft, no DB write)
 
 ## Steps
-1. Decode input bytes and upload original PDF to Poe.
-2. Build first-page PDF and upload it for title extraction.
+1. Decode input bytes and prepare the original PDF as a Poe OpenAI-compatible file data URL.
+2. Build first-page PDF and prepare it as a file data URL for title extraction.
 3. Request title model to extract title, fallback to filename.
 4. Return all bootstrap fields.
 
 ## Failure Handling
-- Poe upload failure: `error.code=poe_upload_failed`.
+- Poe file preparation failure: `error.code=poe_upload_failed`.
 - Title extraction failure: fallback to filename and include warning.
 
 ## References

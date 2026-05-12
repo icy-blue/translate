@@ -73,7 +73,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
             with open(tmp.name, "rb") as fp:
                 attachment = await upload_file(fp, api_key, filename)
     except Exception as exc:
-        return _result_error("poe_upload_failed", f"Failed to upload original PDF: {exc}")
+        return _result_error("poe_upload_failed", f"Failed to prepare original PDF attachment: {exc}")
 
     title_attachment = attachment
     first_page_pdf = _build_first_page_pdf_bytes(content)
@@ -89,7 +89,7 @@ async def _run(payload: dict[str, Any]) -> dict[str, Any]:
                 {
                     "skill": "session-bootstrap-skill",
                     "type": "warning",
-                    "message": f"First-page upload failed, fallback to original file: {exc}",
+                    "message": f"First-page attachment preparation failed, fallback to original file: {exc}",
                     "retryable": True,
                 }
             )
