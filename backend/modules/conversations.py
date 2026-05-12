@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc
 from sqlmodel import Session, func, select
 
-from ..app.dependencies import get_db_session
+from ..app.dependencies import check_read_only, get_db_session
 from ..domain.message_kinds import infer_message_kind, is_bot_message_kind
 from ..domain.message_payloads import (
     normalize_translation_glossary_payload,
@@ -20,6 +22,7 @@ from ..domain.message_payloads import (
 )
 from ..domain.paper_tags import get_tag_definition
 from ..platform.models import (
+    AsyncJob,
     Conversation,
     FileRecord,
     Message,
@@ -28,6 +31,7 @@ from ..platform.models import (
     PaperTable,
     PaperTag,
 )
+from ..platform.local_files import LOCAL_FILES_DIR
 
 router = APIRouter(tags=["conversations"])
 LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo or timezone.utc
@@ -117,6 +121,17 @@ class ConversationListResponse(BaseModel):
     conversations: list[ConversationListItemResponse]
     has_more: bool
     total: int
+
+
+class DeleteConversationRequest(BaseModel):
+    confirmation_id: str = ""
+
+
+class DeleteConversationResponse(BaseModel):
+    deleted: bool
+    conversation_id: str
+    counts: dict[str, int]
+    files_deleted: bool
 
 
 def ensure_local_timezone(dt: datetime) -> datetime:
@@ -284,6 +299,49 @@ def count_conversations(session: Session) -> int:
     return session.exec(select(func.count(Conversation.id))).one()
 
 
+def has_active_jobs(session: Session, conversation_id: str) -> bool:
+    statement = select(AsyncJob).where(
+        AsyncJob.conversation_id == conversation_id,
+        AsyncJob.status.in_(["queued", "running"]),
+    )
+    return session.exec(statement).first() is not None
+
+
+def delete_conversation_files(conversation_id: str, files_dir: Path = LOCAL_FILES_DIR) -> bool:
+    root = files_dir.resolve()
+    target = (root / conversation_id).resolve()
+    if root != target and root not in target.parents:
+        raise ValueError("Conversation file path escapes the files directory.")
+    if not target.exists():
+        return False
+    if not target.is_dir():
+        raise ValueError("Conversation file path is not a directory.")
+    shutil.rmtree(target)
+    return True
+
+
+def delete_conversation_data(session: Session, conversation_id: str, files_dir: Path = LOCAL_FILES_DIR) -> DeleteConversationResponse:
+    counts: dict[str, int] = {}
+    for model in (Message, FileRecord, PaperFigure, PaperTable, PaperTag, PaperSemanticScholarResult, AsyncJob):
+        rows = session.exec(select(model).where(model.conversation_id == conversation_id)).all()
+        counts[model.__name__] = len(rows)
+        for row in rows:
+            session.delete(row)
+
+    conversation = session.get(Conversation, conversation_id)
+    counts["Conversation"] = 1 if conversation else 0
+    if conversation:
+        session.delete(conversation)
+
+    files_deleted = delete_conversation_files(conversation_id, files_dir)
+    return DeleteConversationResponse(
+        deleted=bool(conversation),
+        conversation_id=conversation_id,
+        counts=counts,
+        files_deleted=files_deleted,
+    )
+
+
 def serialize_message(message: Message) -> MessageResponse:
     payload = safe_json_loads(message.client_payload_json, {})
     translation_plan = normalize_translation_plan_payload(payload.get("translation_plan")) if isinstance(payload, dict) else None
@@ -441,6 +499,30 @@ def build_conversation_list_items(
 @router.get("/conversations/{conversation_id}")
 async def get_conversation_route(conversation_id: str, session: Session = Depends(get_db_session)):
     return build_conversation_detail(session, conversation_id).model_dump()
+
+
+@router.delete("/conversations/{conversation_id}", response_model=DeleteConversationResponse)
+async def delete_conversation_route(
+    conversation_id: str,
+    payload: DeleteConversationRequest,
+    session: Session = Depends(get_db_session),
+    _read_only: None = Depends(check_read_only),
+):
+    conversation = get_conversation(session, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    if payload.confirmation_id != conversation_id:
+        raise HTTPException(status_code=400, detail="Confirmation id does not match the conversation id.")
+    if has_active_jobs(session, conversation_id):
+        raise HTTPException(status_code=409, detail="Conversation has queued or running tasks.")
+
+    try:
+        response = delete_conversation_data(session, conversation_id)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    session.commit()
+    return response.model_dump()
 
 
 @router.get("/conversations", response_model=ConversationListResponse)

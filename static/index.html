@@ -43,7 +43,7 @@
 
     const { useState, useEffect, useRef } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, DeleteOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
 
     const BASE_URL = "";
     const AUTO_TRANSLATE_BREAKER_DEFAULT = 8;
@@ -2150,6 +2150,9 @@
       const [glossarySaving, setGlossarySaving] = useState(false);
       const [glossaryDraftSelections, setGlossaryDraftSelections] = useState({});
       const [glossaryCollapsed, setGlossaryCollapsed] = useState(true);
+      const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+      const [deleteConfirmationId, setDeleteConfirmationId] = useState("");
+      const [deleteSubmitting, setDeleteSubmitting] = useState(false);
       const glossaryDefaultStateKeyRef = useRef("");
       const [remainingUnitsExpanded, setRemainingUnitsExpanded] = useState(false);
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
@@ -2223,6 +2226,52 @@
           message.error("复制失败");
         });
       };
+
+      function closeDeleteModal() {
+        if (deleteSubmitting) {
+          return;
+        }
+        setDeleteModalVisible(false);
+        setDeleteConfirmationId("");
+      }
+
+      async function handleDeleteConversation() {
+        if (!conversationId || deleteConfirmationId !== conversationId) {
+          return;
+        }
+
+        setDeleteSubmitting(true);
+        try {
+          const res = await fetch(`${BASE_URL}/conversations/${conversationId}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmation_id: deleteConfirmationId }),
+          });
+          if (!res.ok) {
+            let detail = "";
+            try {
+              const data = await res.json();
+              detail = typeof data?.detail === "string" ? data.detail : "";
+            } catch (err) {
+              detail = "";
+            }
+            if (res.status === 409) {
+              message.error("当前会话有进行中的任务，暂不能删除");
+            } else if (detail) {
+              message.error(detail);
+            } else {
+              message.error("删除会话失败");
+            }
+            return;
+          }
+          message.success("会话已删除");
+          window.location.href = "/";
+        } catch (err) {
+          message.error("删除会话失败");
+        } finally {
+          setDeleteSubmitting(false);
+        }
+      }
 
       // ===== 响应式监听 =====
       useEffect(() => {
@@ -3305,6 +3354,16 @@
                       </Button>
                     </Tooltip>
                   )}
+                  {!readOnly && !isMobile && conversationId && (
+                    <Button
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => setDeleteModalVisible(true)}
+                      disabled={loading || autoTranslating || deleteSubmitting}
+                    >
+                      删除对话
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3600,6 +3659,37 @@
               </div>
             ))}
           </Drawer>
+
+          <Modal
+            title="删除对话"
+            open={deleteModalVisible}
+            onOk={handleDeleteConversation}
+            onCancel={closeDeleteModal}
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{
+              danger: true,
+              disabled: deleteConfirmationId !== conversationId,
+            }}
+            confirmLoading={deleteSubmitting}
+            destroyOnClose
+          >
+            <div style={{ lineHeight: 1.7 }}>
+              <p style={{ marginBottom: 12 }}>
+                此操作会永久删除当前对话、相关任务记录、标签、图表、论文信息以及本地 PDF 文件。
+              </p>
+              <p style={{ marginBottom: 8 }}>
+                请输入 chat id <strong>{conversationId}</strong> 确认删除。
+              </p>
+              <Input
+                value={deleteConfirmationId}
+                onChange={event => setDeleteConfirmationId(event.target.value)}
+                placeholder={conversationId || "chat id"}
+                disabled={deleteSubmitting}
+                autoFocus
+              />
+            </div>
+          </Modal>
 
           <Modal
             title="模型 API 配置"

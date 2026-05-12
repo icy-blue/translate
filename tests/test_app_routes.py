@@ -20,6 +20,10 @@ class AppRoutesTest(unittest.TestCase):
         self.assertIn("/pipeline/commits", paths)
         self.assertIn("/files", paths)
 
+    def test_conversation_delete_route_is_registered(self):
+        routes = {(route.path, tuple(sorted(getattr(route, "methods", [])))) for route in app.routes}
+        self.assertIn(("/conversations/{conversation_id}", ("DELETE",)), routes)
+
     def test_legacy_routes_are_not_registered(self):
         paths = {route.path for route in app.routes}
         self.assertNotIn("/upload", paths)
@@ -33,6 +37,13 @@ class AppRoutesTest(unittest.TestCase):
     def test_upload_form_includes_tag_model(self):
         html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn('formData.append("tag_model", activeModel);', html)
+
+    def test_chat_delete_ui_requires_desktop_confirmation(self):
+        html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("DeleteOutlined", html)
+        self.assertIn('method: "DELETE"', html)
+        self.assertIn("confirmation_id: deleteConfirmationId", html)
+        self.assertIn("!readOnly && !isMobile && conversationId", html)
 
 
 if __name__ == "__main__":
