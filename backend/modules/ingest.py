@@ -24,7 +24,7 @@ from ..domain.message_payloads import (
     preprocess_bot_reply_for_storage,
 )
 from ..platform.config import engine, settings
-from ..platform.gateways.poe import extract_title_from_pdf, get_bot_response, upload_file
+from ..platform.gateways.poe import extract_title_from_pdf, get_bot_response, normalize_provider, upload_file
 from ..platform.local_files import local_file_url_to_path, write_pdf_file
 from ..platform.models import Conversation, FileRecord
 from ..platform.task_runtime import enqueue_task, mark_task_progress, register_task_definition, update_task_record
@@ -40,6 +40,7 @@ TASK_UPLOAD_DIR = PROJECT_ROOT / "_temp" / "task_uploads"
 class IngestPdfTaskPayload(BaseModel):
     upload_path: str
     filename: str
+    provider: str = "poe"
     poe_model: str
     title_model: str
     tag_model: str
@@ -119,6 +120,7 @@ def update_conversation_title(session: Session, conversation_id: str, title: str
 def queue_ingest_pdf(
     *,
     filename: str,
+    provider: str,
     poe_model: str,
     title_model: str,
     tag_model: str,
@@ -126,15 +128,28 @@ def queue_ingest_pdf(
     api_key: str,
     file_bytes: bytes,
 ) -> dict:
+    normalized_provider = normalize_provider(provider)
     TASK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     staged_path = TASK_UPLOAD_DIR / f"{uuid.uuid4().hex}.pdf"
     staged_path.write_bytes(file_bytes)
+    default_model = settings.deepseek_model if normalized_provider == "deepseek" else settings.poe_model
+    resolved_poe_model = str(poe_model or "").strip() or default_model
+    resolved_title_model = str(title_model or "").strip() or default_model
+    resolved_tag_model = str(tag_model or "").strip() or default_model
+    if normalized_provider == "deepseek":
+        if resolved_poe_model == settings.poe_model:
+            resolved_poe_model = settings.deepseek_model
+        if resolved_title_model == settings.poe_model:
+            resolved_title_model = settings.deepseek_model
+        if resolved_tag_model == settings.poe_model:
+            resolved_tag_model = settings.deepseek_model
     payload = IngestPdfTaskPayload(
         upload_path=str(staged_path),
         filename=filename,
-        poe_model=poe_model,
-        title_model=title_model,
-        tag_model=tag_model,
+        provider=normalized_provider,
+        poe_model=resolved_poe_model,
+        title_model=resolved_title_model,
+        tag_model=resolved_tag_model,
         extract_tags=extract_tags,
         api_key=api_key,
     )
@@ -145,6 +160,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
     upload_path = Path(payload.upload_path)
     if not payload.api_key:
         raise HTTPException(status_code=400, detail="API Key is required.")
+    provider = normalize_provider(payload.provider)
     try:
         mark_task_progress(task_id, "读取上传文件")
         if not upload_path.exists():
@@ -210,7 +226,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             print(f"Error processing PDF for title extraction: {exc}")
 
         mark_task_progress(task_id, "提取论文标题")
-        extracted_title = await extract_title_from_pdf(title_extraction_attachment, payload.api_key, payload.title_model)
+        extracted_title = await extract_title_from_pdf(title_extraction_attachment, payload.api_key, payload.title_model, provider=provider)
         final_title = extracted_title or payload.filename
         with Session(engine) as session:
             if update_conversation_title(session, conversation_id, final_title) is None:
@@ -222,6 +238,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             [fp.ProtocolMessage(role="user", content=planner_prompt, attachments=[pdf_attachment])],
             payload.poe_model,
             payload.api_key,
+            provider=provider,
         )
         translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_response_text))
         translation_glossary = normalize_translation_glossary_payload(parse_translation_glossary_response(planner_response_text))
@@ -276,6 +293,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                     response_content,
                     payload.tag_model,
                     payload.api_key,
+                    provider=provider,
                     fallback_abstract=getattr(semantic_result, "abstract", "") if semantic_result else "",
                 )
             detail = build_conversation_detail(session, conversation_id)
@@ -315,6 +333,7 @@ register_task_definition("ingest_pdf", IngestPdfTaskPayload, handle_ingest_task)
 @router.post("/tasks/ingest-pdf")
 async def ingest_pdf_route(
     file: UploadFile = File(...),
+    provider: str = Form(default="poe"),
     poe_model: str = Form(default=settings.poe_model),
     title_model: str = Form(default=settings.poe_model),
     tag_model: str = Form(default=settings.poe_model),
@@ -325,6 +344,7 @@ async def ingest_pdf_route(
     file_bytes = await validate_upload(file)
     return queue_ingest_pdf(
         filename=(file.filename or "").strip(),
+        provider=provider,
         poe_model=poe_model,
         title_model=title_model,
         tag_model=tag_model,

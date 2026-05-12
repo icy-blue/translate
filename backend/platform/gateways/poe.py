@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import mimetypes
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Optional
 from urllib import error, request
 
 import fastapi_poe as fp
+from pypdf import PdfReader
 
 from ...domain.paper_tags import (
     build_category_selection_prompt,
@@ -22,6 +24,16 @@ from ..local_files import local_file_url_to_path
 
 POE_OPENAI_BASE_URL = "https://api.poe.com/v1"
 POE_CHAT_COMPLETIONS_URL = f"{POE_OPENAI_BASE_URL}/chat/completions"
+DEEPSEEK_PROVIDER = "deepseek"
+POE_PROVIDER = "poe"
+SUPPORTED_PROVIDERS = {POE_PROVIDER, DEEPSEEK_PROVIDER}
+
+
+def normalize_provider(provider: str | None) -> str:
+    normalized = str(provider or POE_PROVIDER).strip().lower()
+    if normalized not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"Unsupported provider: {provider}")
+    return normalized
 
 
 def _guess_content_type(file_name: str) -> str:
@@ -56,6 +68,32 @@ def _file_data_url(url: str, content_type: str) -> str:
         return _to_data_url(response.read(), content_type)
 
 
+def _file_bytes(url: str, content_type: str) -> bytes:
+    if url.startswith("data:"):
+        header, _, encoded = url.partition(",")
+        if ";base64" not in header:
+            raise RuntimeError("Unsupported data URL attachment encoding.")
+        return base64.b64decode(encoded)
+    local_path = local_file_url_to_path(url)
+    if local_path is not None:
+        return local_path.read_bytes()
+    req = request.Request(url, headers={"User-Agent": "translate-poe-gateway/1.0", "Accept": f"{content_type},*/*"})
+    with request.urlopen(req, timeout=120) as response:
+        return response.read()
+
+
+def _pdf_text_from_bytes(content: bytes) -> str:
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        page_text = [(page.extract_text() or "").strip() for page in reader.pages]
+    except Exception as exc:
+        raise RuntimeError(f"Failed to extract PDF text for DeepSeek: {exc}") from exc
+    text = "\n\n".join(part for part in page_text if part)
+    if not text.strip():
+        raise RuntimeError("DeepSeek provider requires extractable PDF text; this PDF may be scanned or image-based.")
+    return text
+
+
 def _attachment_part(attachment: Any) -> dict[str, Any]:
     url = str(getattr(attachment, "url", "")).strip()
     content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
@@ -84,10 +122,41 @@ def _message_payload(message: fp.ProtocolMessage) -> dict[str, Any]:
     return {"role": _message_role(str(message.role)), "content": parts}
 
 
-def _post_chat_completion(payload: dict[str, Any], api_key: str) -> str:
+def _deepseek_attachment_text(attachment: Any) -> str:
+    url = str(getattr(attachment, "url", "")).strip()
+    content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
+    name = str(getattr(attachment, "name", "")).strip() or "attachment"
+    if content_type.lower() == "application/pdf" or name.lower().endswith(".pdf"):
+        text = _pdf_text_from_bytes(_file_bytes(url, content_type))
+        return f"[PDF: {name}]\n{text}"
+    if _is_image_content_type(content_type):
+        raise RuntimeError("DeepSeek provider does not support image attachments in this workflow.")
+    content = _file_bytes(url, content_type).decode("utf-8", errors="replace").strip()
+    if not content:
+        raise RuntimeError(f"DeepSeek provider could not read text from attachment: {name}")
+    return f"[Attachment: {name}]\n{content}"
+
+
+def _deepseek_message_payload(message: fp.ProtocolMessage) -> dict[str, Any]:
+    attachments = list(getattr(message, "attachments", None) or [])
+    content = str(getattr(message, "content", "") or "").strip()
+    if attachments:
+        attachment_blocks = "\n\n".join(_deepseek_attachment_text(attachment) for attachment in attachments)
+        content = f"{content}\n\n{attachment_blocks}" if content else attachment_blocks
+    return {"role": _message_role(str(message.role)), "content": content}
+
+
+def _post_chat_completion(payload: dict[str, Any], api_key: str, *, provider: str) -> str:
+    normalized_provider = normalize_provider(provider)
+    if normalized_provider == DEEPSEEK_PROVIDER:
+        url = f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
+        provider_label = "DeepSeek"
+    else:
+        url = POE_CHAT_COMPLETIONS_URL
+        provider_label = "Poe"
     body = json.dumps(payload).encode("utf-8")
     req = request.Request(
-        POE_CHAT_COMPLETIONS_URL,
+        url,
         data=body,
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -100,33 +169,37 @@ def _post_chat_completion(payload: dict[str, Any], api_key: str) -> str:
             data = json.loads(response.read().decode("utf-8"))
     except error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Poe API request failed with HTTP {exc.code}: {error_body}") from exc
+        raise RuntimeError(f"{provider_label} API request failed with HTTP {exc.code}: {error_body}") from exc
     except error.URLError as exc:
-        raise RuntimeError(f"Poe API request failed: {exc}") from exc
+        raise RuntimeError(f"{provider_label} API request failed: {exc}") from exc
 
     try:
         return str(data["choices"][0]["message"].get("content") or "")
     except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"Unexpected Poe API response: {data}") from exc
+        raise RuntimeError(f"Unexpected {provider_label} API response: {data}") from exc
 
 
-def _get_chat_completion(messages: list[fp.ProtocolMessage], bot_name: str, api_key: str) -> str:
+def _get_chat_completion(messages: list[fp.ProtocolMessage], bot_name: str, api_key: str, provider: str = POE_PROVIDER) -> str:
+    normalized_provider = normalize_provider(provider)
     payload = {
         "model": bot_name,
-        "messages": [_message_payload(message) for message in messages],
+        "messages": [
+            _deepseek_message_payload(message) if normalized_provider == DEEPSEEK_PROVIDER else _message_payload(message)
+            for message in messages
+        ],
     }
-    return _post_chat_completion(payload, api_key)
+    return _post_chat_completion(payload, api_key, provider=normalized_provider)
 
 
-async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str, model: str) -> Optional[str]:
+async def extract_title_from_pdf(pdf_attachment: fp.Attachment, api_key: str, model: str, provider: str = POE_PROVIDER) -> Optional[str]:
     prompt = settings.title_prompt
     message = fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])
-    title_text = await get_bot_response([message], model, api_key)
+    title_text = await get_bot_response([message], model, api_key, provider=provider)
     return title_text.strip() or None
 
 
-async def get_bot_response(messages: list[fp.ProtocolMessage], bot_name: str, api_key: str) -> str:
-    return await asyncio.to_thread(_get_chat_completion, messages, bot_name, api_key)
+async def get_bot_response(messages: list[fp.ProtocolMessage], bot_name: str, api_key: str, provider: str = POE_PROVIDER) -> str:
+    return await asyncio.to_thread(_get_chat_completion, messages, bot_name, api_key, provider)
 
 
 async def upload_file(file, api_key: str, file_name: str) -> fp.Attachment:
@@ -137,10 +210,10 @@ async def upload_file(file, api_key: str, file_name: str) -> fp.Attachment:
     return fp.Attachment(url=_to_data_url(content, content_type), content_type=content_type, name=file_name)
 
 
-async def classify_paper_tags(title: str, abstract: str, bot_name: str, api_key: str) -> list[dict]:
+async def classify_paper_tags(title: str, abstract: str, bot_name: str, api_key: str, provider: str = POE_PROVIDER) -> list[dict]:
     stage1_prompt = build_category_selection_prompt(title, abstract)
     stage1_message = fp.ProtocolMessage(role="user", content=stage1_prompt)
-    stage1_response = await get_bot_response([stage1_message], bot_name, api_key)
+    stage1_response = await get_bot_response([stage1_message], bot_name, api_key, provider=provider)
 
     category_codes = parse_category_codes(stage1_response)
     stage2_prompt = build_tagging_followup_prompt(category_codes)
@@ -149,5 +222,5 @@ async def classify_paper_tags(title: str, abstract: str, bot_name: str, api_key:
         fp.ProtocolMessage(role="bot", content=stage1_response),
         fp.ProtocolMessage(role="user", content=stage2_prompt),
     ]
-    stage2_response = await get_bot_response(stage2_messages, bot_name, api_key)
-    return build_tag_payloads(parse_tag_codes(stage2_response), source="poe")
+    stage2_response = await get_bot_response(stage2_messages, bot_name, api_key, provider=provider)
+    return build_tag_payloads(parse_tag_codes(stage2_response), source=normalize_provider(provider))

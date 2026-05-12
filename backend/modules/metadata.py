@@ -9,7 +9,7 @@ from ..app.dependencies import check_read_only, get_api_key, get_db_session
 from ..domain.message_payloads import infer_message_metadata
 from ..domain.paper_tags import build_tag_payloads, extract_abstract_for_tagging
 from ..platform.config import settings
-from ..platform.gateways.poe import classify_paper_tags
+from ..platform.gateways.poe import classify_paper_tags, normalize_provider
 from ..platform.gateways.semantic_scholar import safe_refresh_semantic_scholar_result
 from .conversations import get_conversation, get_messages, get_semantic_result, get_tags, serialize_semantic_result, serialize_tags
 from .search import normalize_tag_codes
@@ -45,6 +45,7 @@ async def extract_and_store_tags(
     first_bot_message: str,
     tag_model: str,
     api_key: str,
+    provider: str = "poe",
     fallback_abstract: str = "",
 ):
     abstract = extract_abstract_for_tagging(first_bot_message)
@@ -53,7 +54,7 @@ async def extract_and_store_tags(
     if not title or not abstract:
         return get_tags(session, conversation_id)
     try:
-        extracted_tags = await classify_paper_tags(title, abstract, tag_model, api_key)
+        extracted_tags = await classify_paper_tags(title, abstract, tag_model, api_key, provider=provider)
         if extracted_tags:
             replace_tags(session, conversation_id, extracted_tags)
         return get_tags(session, conversation_id)
@@ -67,7 +68,11 @@ def refresh_conversation_semantic_result(session: Session, conversation_id: str,
     return safe_refresh_semantic_scholar_result(session=session, conversation_id=conversation_id, title=title)
 
 
-async def refresh_conversation_metadata(session: Session, conversation_id: str, tag_model: str, api_key: str) -> dict:
+async def refresh_conversation_metadata(session: Session, conversation_id: str, tag_model: str, api_key: str, provider: str = "poe") -> dict:
+    normalized_provider = normalize_provider(provider)
+    resolved_tag_model = str(tag_model or "").strip() or settings.poe_model
+    if normalized_provider == "deepseek" and resolved_tag_model == settings.poe_model:
+        resolved_tag_model = settings.deepseek_model
     conversation = get_conversation(session, conversation_id)
     if not conversation:
         raise ValueError("Conversation not found.")
@@ -86,8 +91,9 @@ async def refresh_conversation_metadata(session: Session, conversation_id: str, 
         conversation_id=conversation_id,
         title=conversation.title or conversation.original_filename or "",
         first_bot_message=first_bot_message,
-        tag_model=tag_model,
+        tag_model=resolved_tag_model,
         api_key=api_key,
+        provider=normalized_provider,
         fallback_abstract=getattr(semantic_result, "abstract", "") if semantic_result else "",
     )
     semantic = serialize_semantic_result(semantic_result)
@@ -105,13 +111,14 @@ def update_conversation_tags(session: Session, conversation_id: str, tag_codes: 
 @router.post("/metadata/{conversation_id}/refresh")
 async def refresh_metadata_route(
     conversation_id: str,
+    provider: str = Form(default="poe"),
     tag_model: str = Form(default=settings.poe_model),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only),
 ):
     try:
-        return await refresh_conversation_metadata(session, conversation_id, tag_model, api_key)
+        return await refresh_conversation_metadata(session, conversation_id, tag_model, api_key, provider=provider)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

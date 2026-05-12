@@ -23,6 +23,14 @@ class Settings(BaseSettings):
         default="GPT-5.2-Instant",
         validation_alias="POE_MODEL",
     )
+    deepseek_model: str = Field(
+        default="deepseek-v4-pro",
+        validation_alias="DEEPSEEK_MODEL",
+    )
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com",
+        validation_alias="DEEPSEEK_BASE_URL",
+    )
     title_prompt: str = Field(
         default="请查看附加的 PDF 文档，提取论文标题。标题可能由多行组成，仅返回标题文本，不要翻译或添加其他注释。",
         validation_alias="TITLE_PROMPT",

@@ -270,6 +270,54 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             "This paper proposes a point cloud registration method.",
         )
 
+    def test_handle_ingest_task_passes_deepseek_provider_to_model_calls(self):
+        pdf_bytes = build_test_pdf_bytes()
+        staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        staged_pdf.write(pdf_bytes)
+        staged_pdf.flush()
+        staged_pdf.close()
+        self.addCleanup(Path(staged_pdf.name).unlink, missing_ok=True)
+
+        payload = ingest.IngestPdfTaskPayload(
+            upload_path=staged_pdf.name,
+            filename="paper.pdf",
+            provider="deepseek",
+            poe_model="deepseek-v4-pro",
+            title_model="deepseek-v4-pro",
+            tag_model="deepseek-v4-flash",
+            extract_tags=True,
+            api_key="deepseek-key",
+        )
+        first_page_attachment = fp.Attachment(
+            url="data:application/pdf;base64,JVBERg==",
+            content_type="application/pdf",
+            name="first_page_paper.pdf",
+        )
+
+        with (
+            patch.object(ingest, "engine", self.engine),
+            patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(self.files_dir.name)),
+            patch.object(ingest, "mark_task_progress"),
+            patch.object(ingest, "update_task_record"),
+            patch.object(ingest, "upload_file", AsyncMock(return_value=first_page_attachment)),
+            patch.object(ingest, "extract_title_from_pdf", AsyncMock(return_value="DeepSeek Title")) as title_mock,
+            patch.object(
+                ingest,
+                "get_bot_response",
+                AsyncMock(return_value='{"status":"ok","units":["ABSTRACT"],"appendix_units":[],"reason":"","glossary":[]}'),
+            ) as response_mock,
+            patch.object(ingest, "extract_and_store_figures", return_value=[]),
+            patch.object(ingest, "extract_and_store_tables", return_value=[]),
+            patch.object(ingest, "refresh_conversation_semantic_result", return_value=None),
+            patch.object(ingest, "extract_and_store_tags", AsyncMock(return_value=[])) as extract_tags_mock,
+        ):
+            result = asyncio.run(ingest.handle_ingest_task("task-deepseek", payload))
+
+        self.assertEqual(result["title"], "DeepSeek Title")
+        self.assertEqual(title_mock.await_args.kwargs["provider"], "deepseek")
+        self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
+        self.assertEqual(extract_tags_mock.await_args.kwargs["provider"], "deepseek")
+
 
 if __name__ == "__main__":
     unittest.main()

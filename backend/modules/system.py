@@ -29,4 +29,8 @@ async def serve_chat_root():
 
 @router.get("/config")
 async def get_config():
-    return {"read_only": settings.read_only, "default_poe_model": settings.poe_model}
+    return {
+        "read_only": settings.read_only,
+        "default_poe_model": settings.poe_model,
+        "default_deepseek_model": settings.deepseek_model,
+    }

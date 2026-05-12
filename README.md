@@ -1,6 +1,6 @@
 # PDF 论文翻译助手
 
-一个基于 FastAPI + Poe 的 PDF 论文翻译服务。当前版本已经从“整篇长对话续翻”切到“先规划 unit 与术语词表，再按 unit 逐段翻译”的任务流，支持异步上传、术语确认后再开翻、按正文/附录继续翻译、标签与元数据维护、图表资产提取，以及 Agent 批量入库。
+一个基于 FastAPI + Poe/DeepSeek 的 PDF 论文翻译服务。当前版本已经从“整篇长对话续翻”切到“先规划 unit 与术语词表，再按 unit 逐段翻译”的任务流，支持异步上传、术语确认后再开翻、按正文/附录继续翻译、标签与元数据维护、图表资产提取，以及 Agent 批量入库。
 
 ## Demo
 
@@ -29,7 +29,7 @@
 - 后端：FastAPI
 - 数据层：SQLModel / SQLAlchemy
 - 数据库：SQLite 默认，兼容 PostgreSQL
-- 模型调用：`fastapi-poe`
+- 模型调用：Poe OpenAI 兼容接口；DeepSeek OpenAI 兼容接口可选
 - PDF 处理：`pypdf`、`pymupdf`
 - 图像处理：`pillow`
 - 前端：`static/index.html` 单页应用
@@ -74,6 +74,8 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite:///translations.db` | 数据库连接串 |
 | `POE_MODEL` | `GPT-5.2-Instant` | 上传、标题提取、续翻默认模型 |
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 选择 DeepSeek provider 时的默认模型 |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek OpenAI 兼容 API 地址 |
 | `TITLE_PROMPT` | 内置标题提取提示词 | 从 PDF 提取标题 |
 | `INITIAL_PROMPT` | 内置 `translation-plan extractor` 提示词 | 首轮先生成 unit 规划 |
 | `CONTINUE_PROMPT` | 内置 unit 翻译提示词 | 只翻当前 unit，并要求输出 `TRANSLATION_STATUS_JSON` |
@@ -84,7 +86,8 @@ gunicorn -k uvicorn.workers.UvicornWorker app:app -w 4 -b 127.0.0.1:8000
 
 说明：
 
-- `api_key` 不是环境变量，而是前端/客户端通过表单字段提交给写接口的 Poe API key。
+- `api_key` 不是环境变量，而是前端/客户端通过表单字段提交给写接口的当前 provider API key；不传 `provider` 时默认使用 Poe。
+- DeepSeek 模式通过 `provider=deepseek` 启用。由于 DeepSeek 当前接入走纯文本 OpenAI chat/completions，后端会先从本地 PDF 抽取文本；扫描版或不可抽取文本的 PDF 仍建议使用 Poe。
 - 应用启动时会自动执行建表、补资产列、校验 message schema、创建本地 `files/` 目录、恢复未完成任务并启动 worker。
 - 如果启动时报 `message table schema is inconsistent`，先运行：
 

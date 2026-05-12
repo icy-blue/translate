@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>论文翻译 - Poe API</title>
+  <title>论文翻译 - 模型 API</title>
 
   <!-- React -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -850,9 +850,13 @@
       const [tagKeyword, setTagKeyword] = useState("");
       const [uiLanguage, setUiLanguage] = useState(getBrowserLanguage());
       const [mobileSearchDirty, setMobileSearchDirty] = useState(false);
+      const [provider, setProvider] = useState(localStorage.getItem("llm_provider") || "poe");
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
+      const [deepseekApiKey, setDeepseekApiKey] = useState(localStorage.getItem("deepseek_api_key") || "");
       const [defaultPoeModel, setDefaultPoeModel] = useState("GPT-5.2-Instant");
+      const [defaultDeepseekModel, setDefaultDeepseekModel] = useState("deepseek-v4-pro");
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "");
+      const [deepseekModel, setDeepseekModel] = useState(localStorage.getItem("deepseek_model") || "");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
@@ -870,14 +874,20 @@
         { label: "GLM-4.7-Flash", value: "GLM-4.7-Flash" },
         { label: "GPT-5-Chat", value: "GPT-5-Chat"},
         { label: "GPT-5", value: "GPT-5"},
+        { label: "deepseek-v4-pro", value: "deepseek-v4-pro" },
+        { label: "deepseek-v4-flash", value: "deepseek-v4-flash" },
       ];
 
       const automationSettings = buildAutomationSettingsSnapshot({
         autoTranslateAppendix,
         autoTranslateBreakerLimit,
       });
+      const activeProvider = provider === "deepseek" ? "deepseek" : "poe";
+      const activeApiKey = activeProvider === "deepseek" ? deepseekApiKey : poeApiKey;
       const activePoeModel = poeModel || defaultPoeModel;
-      const activeTitleModel = titleModel || defaultPoeModel;
+      const activeDeepseekModel = deepseekModel || defaultDeepseekModel;
+      const activeModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
+      const activeTitleModel = activeProvider === "deepseek" ? activeDeepseekModel : (titleModel || defaultPoeModel);
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -1046,6 +1056,9 @@
             if (data.default_poe_model) {
               setDefaultPoeModel(data.default_poe_model);
             }
+            if (data.default_deepseek_model) {
+              setDefaultDeepseekModel(data.default_deepseek_model);
+            }
           }
         } catch (err) {
           console.error("Failed to load config:", err);
@@ -1070,9 +1083,12 @@
       }
 
       const saveConfig = () => {
+        localStorage.setItem("llm_provider", activeProvider);
         localStorage.setItem("poe_api_key", poeApiKey);
+        localStorage.setItem("deepseek_api_key", deepseekApiKey);
         localStorage.setItem("poe_model", activePoeModel);
-        localStorage.setItem("title_model", activeTitleModel);
+        localStorage.setItem("deepseek_model", activeDeepseekModel);
+        localStorage.setItem("title_model", titleModel || defaultPoeModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
@@ -1890,20 +1906,33 @@
             )}
           </div>
           <Modal
-            title="Poe API 配置"
+            title="模型 API 配置"
             open={configModalVisible}
             onOk={saveConfig}
             onCancel={() => setConfigModalVisible(false)}
             width={500}
           >
             <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", marginBottom: 8 }}>Poe API Key：</label>
-              <Input.Password
-                placeholder="请输入 Poe API Key"
-                value={poeApiKey}
-                onChange={e => setPoeApiKey(e.target.value)}
+              <label style={{ display: "block", marginBottom: 8 }}>供应商：</label>
+              <Select
+                style={{ width: "100%" }}
+                value={activeProvider}
+                onChange={setProvider}
+                options={[
+                  { label: "Poe", value: "poe" },
+                  { label: "DeepSeek", value: "deepseek" },
+                ]}
               />
             </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>{activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key：</label>
+              <Input.Password
+                placeholder={`请输入 ${activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key`}
+                value={activeApiKey}
+                onChange={e => activeProvider === "deepseek" ? setDeepseekApiKey(e.target.value) : setPoeApiKey(e.target.value)}
+              />
+            </div>
+            {activeProvider === "poe" && (
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
               <Select
@@ -1913,12 +1942,13 @@
                 options={modelOptions}
               />
             </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={activePoeModel}
-                onChange={setPoeModel}
+                value={activeModel}
+                onChange={activeProvider === "deepseek" ? setDeepseekModel : setPoeModel}
                 options={modelOptions}
               />
             </div>
@@ -1930,7 +1960,7 @@
                 上传后自动提取论文标签
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
-                开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+                开启后会在获得摘要后额外请求当前供应商进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
               </div>
             </div>
             <div style={{ marginBottom: 20 }}>
@@ -2091,9 +2121,13 @@
       const [tablesExpanded, setTablesExpanded] = useState(false);
 
       // ===== 配置状态 =====
+      const [provider, setProvider] = useState(localStorage.getItem("llm_provider") || "poe");
       const [poeApiKey, setPoeApiKey] = useState(localStorage.getItem("poe_api_key") || "");
+      const [deepseekApiKey, setDeepseekApiKey] = useState(localStorage.getItem("deepseek_api_key") || "");
       const [defaultPoeModel, setDefaultPoeModel] = useState("GPT-5.2-Instant");
+      const [defaultDeepseekModel, setDefaultDeepseekModel] = useState("deepseek-v4-pro");
       const [poeModel, setPoeModel] = useState(localStorage.getItem("poe_model") || "");
+      const [deepseekModel, setDeepseekModel] = useState(localStorage.getItem("deepseek_model") || "");
       const [titleModel, setTitleModel] = useState(localStorage.getItem("title_model") || "");
       const [extractTagsOnUpload, setExtractTagsOnUpload] = useState(localStorage.getItem("extract_tags_on_upload") === "true");
       const [autoTranslateAppendix, setAutoTranslateAppendix] = useState(getStoredBoolean(AUTO_TRANSLATE_LOCAL_KEYS.appendix, false));
@@ -2124,8 +2158,12 @@
         autoTranslateAppendix,
         autoTranslateBreakerLimit,
       });
+      const activeProvider = provider === "deepseek" ? "deepseek" : "poe";
+      const activeApiKey = activeProvider === "deepseek" ? deepseekApiKey : poeApiKey;
       const activePoeModel = poeModel || defaultPoeModel;
-      const activeTitleModel = titleModel || defaultPoeModel;
+      const activeDeepseekModel = deepseekModel || defaultDeepseekModel;
+      const activeModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
+      const activeTitleModel = activeProvider === "deepseek" ? activeDeepseekModel : (titleModel || defaultPoeModel);
       const CHAT_SCROLL_EXTRA_GAP = 20;
 
       // ===== 模型选项 =====
@@ -2140,6 +2178,8 @@
         { label: "GLM-4.7-Flash", value: "GLM-4.7-Flash" },
         { label: "GPT-5-Chat", value: "GPT-5-Chat"},
         { label: "GPT-5", value: "GPT-5"},
+        { label: "deepseek-v4-pro", value: "deepseek-v4-pro" },
+        { label: "deepseek-v4-flash", value: "deepseek-v4-flash" },
       ];
 
       // ===== 配置管理 =====
@@ -2147,9 +2187,12 @@
        * 保存配置到 localStorage
        */
       const saveConfig = () => {
+        localStorage.setItem("llm_provider", activeProvider);
         localStorage.setItem("poe_api_key", poeApiKey);
+        localStorage.setItem("deepseek_api_key", deepseekApiKey);
         localStorage.setItem("poe_model", activePoeModel);
-        localStorage.setItem("title_model", activeTitleModel);
+        localStorage.setItem("deepseek_model", activeDeepseekModel);
+        localStorage.setItem("title_model", titleModel || defaultPoeModel);
         localStorage.setItem("extract_tags_on_upload", String(extractTagsOnUpload));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.appendix, String(autoTranslateAppendix));
         localStorage.setItem(AUTO_TRANSLATE_LOCAL_KEYS.breakerLimit, String(Math.max(1, Number(autoTranslateBreakerLimit) || AUTO_TRANSLATE_BREAKER_DEFAULT)));
@@ -2212,7 +2255,7 @@
         if (paperTitle) {
           document.title = `论文翻译 - ${paperTitle}`;
         } else {
-          document.title = "论文翻译 - Poe API";
+          document.title = "论文翻译 - 模型 API";
         }
       }, [paperTitle]);
 
@@ -2404,6 +2447,9 @@
             if (data.default_poe_model) {
               setDefaultPoeModel(data.default_poe_model);
             }
+            if (data.default_deepseek_model) {
+              setDefaultDeepseekModel(data.default_deepseek_model);
+            }
           }
         } catch (err) {
           console.error("Failed to load config:", err);
@@ -2497,7 +2543,7 @@
         if (!conversationId) {
           return;
         }
-        if (!poeApiKey) {
+        if (!activeApiKey) {
           message.warning("请先配置 API Key");
           return;
         }
@@ -2506,8 +2552,9 @@
         setTagRefreshing(true);
         try {
           const formData = new FormData();
-          formData.append("api_key", poeApiKey);
-          formData.append("tag_model", activePoeModel);
+          formData.append("provider", activeProvider);
+          formData.append("api_key", activeApiKey);
+          formData.append("tag_model", activeModel);
 
           const res = await fetch(`${BASE_URL}/metadata/${conversationId}/refresh`, {
             method: "POST",
@@ -2615,7 +2662,7 @@
         accept: ".pdf",
         showUploadList: false,
         customRequest: async ({ file }) => {
-          if (!poeApiKey) { message.error("请先配置 API Key"); return; }
+          if (!activeApiKey) { message.error("请先配置 API Key"); return; }
 
           const progressKey = `upload-progress-${Date.now()}`;
           let linkedConversationId = null;
@@ -2639,8 +2686,9 @@
           try {
             const formData = new FormData();
             formData.append("file", file);
-            formData.append("api_key", poeApiKey);
-            formData.append("poe_model", activePoeModel);
+            formData.append("provider", activeProvider);
+            formData.append("api_key", activeApiKey);
+            formData.append("poe_model", activeModel);
             formData.append("title_model", activeTitleModel);
             formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
@@ -2710,8 +2758,9 @@
         try {
           const progressKey = action.progressKey || "continue-progress";
           const formData = new FormData();
-          formData.append("api_key", poeApiKey);
-          formData.append("poe_model", activePoeModel);
+          formData.append("provider", activeProvider);
+          formData.append("api_key", activeApiKey);
+          formData.append("poe_model", activeModel);
           formData.append("action", action.type || "continue");
           formData.append("target_scope", action.target_scope || "body");
 
@@ -2748,7 +2797,7 @@
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
-        if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
+        if (!activeApiKey) { message.warning("请先配置 API Key"); return; }
 
         message.open({
           key: "continue-progress",
@@ -2772,7 +2821,7 @@
       const handleAutoTranslate = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
-        if (!poeApiKey) { message.warning("请先配置 API Key"); return; }
+        if (!activeApiKey) { message.warning("请先配置 API Key"); return; }
 
         const breakerLimit = automationSettings.autoTranslateBreakerLimit;
         let currentStatus = translationStatus;
@@ -3537,20 +3586,33 @@
           </Drawer>
 
           <Modal
-            title="Poe API 配置"
+            title="模型 API 配置"
             open={configModalVisible}
             onOk={saveConfig}
             onCancel={() => setConfigModalVisible(false)}
             width={500}
           >
             <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", marginBottom: 8 }}>Poe API Key：</label>
-              <Input.Password
-                placeholder="请输入 Poe API Key"
-                value={poeApiKey}
-                onChange={e => setPoeApiKey(e.target.value)}
+              <label style={{ display: "block", marginBottom: 8 }}>供应商：</label>
+              <Select
+                style={{ width: "100%" }}
+                value={activeProvider}
+                onChange={setProvider}
+                options={[
+                  { label: "Poe", value: "poe" },
+                  { label: "DeepSeek", value: "deepseek" },
+                ]}
               />
             </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>{activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key：</label>
+              <Input.Password
+                placeholder={`请输入 ${activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key`}
+                value={activeApiKey}
+                onChange={e => activeProvider === "deepseek" ? setDeepseekApiKey(e.target.value) : setPoeApiKey(e.target.value)}
+              />
+            </div>
+            {activeProvider === "poe" && (
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
               <Select
@@ -3560,12 +3622,13 @@
                 options={modelOptions}
               />
             </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
                 style={{ width: "100%" }}
-                value={activePoeModel}
-                onChange={setPoeModel}
+                value={activeModel}
+                onChange={activeProvider === "deepseek" ? setDeepseekModel : setPoeModel}
                 options={modelOptions}
               />
             </div>
@@ -3577,7 +3640,7 @@
                 上传后自动提取论文标签
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
-                开启后会在获得摘要后额外请求 Poe 进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+                开启后会在获得摘要后额外请求当前供应商进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
               </div>
             </div>
             <div style={{ marginBottom: 20 }}>

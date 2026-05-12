@@ -135,6 +135,36 @@ class PoeGatewayTest(unittest.TestCase):
         file_data = captured_payloads[0]["messages"][0]["content"][1]["file"]["file_data"]
         self.assertTrue(file_data.startswith("data:application/pdf;base64,"))
 
+    def test_get_bot_response_sends_deepseek_openai_compatible_text(self):
+        captured_payloads: list[dict] = []
+
+        def fake_urlopen(req, timeout):
+            captured_payloads.append(json.loads(req.data.decode("utf-8")))
+            self.assertEqual(req.full_url, "https://api.deepseek.com/chat/completions")
+            self.assertEqual(req.headers["Authorization"], "Bearer deepseek-key")
+            return _FakeResponse({"choices": [{"message": {"content": "deepseek ok"}}]})
+
+        attachment = fp.Attachment(
+            url="data:application/pdf;base64,JVBERg==",
+            content_type="application/pdf",
+            name="paper.pdf",
+        )
+        message = fp.ProtocolMessage(role="user", content="Read this.", attachments=[attachment])
+
+        with (
+            patch.object(poe, "_pdf_text_from_bytes", return_value="Extracted PDF text."),
+            patch.object(poe.request, "urlopen", side_effect=fake_urlopen),
+        ):
+            response = asyncio.run(poe.get_bot_response([message], "deepseek-v4-pro", "deepseek-key", provider="deepseek"))
+
+        self.assertEqual(response, "deepseek ok")
+        self.assertEqual(captured_payloads[0]["model"], "deepseek-v4-pro")
+        content = captured_payloads[0]["messages"][0]["content"]
+        self.assertIsInstance(content, str)
+        self.assertIn("Read this.", content)
+        self.assertIn("[PDF: paper.pdf]", content)
+        self.assertIn("Extracted PDF text.", content)
+
 
 if __name__ == "__main__":
     unittest.main()

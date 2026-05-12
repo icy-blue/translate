@@ -20,7 +20,7 @@ from ..domain.message_payloads import (
     safe_json_loads,
 )
 from ..platform.config import engine, settings
-from ..platform.gateways.poe import get_bot_response
+from ..platform.gateways.poe import get_bot_response, normalize_provider
 from ..platform.task_runtime import enqueue_task, get_active_task, get_session_enqueue_lock, mark_task_progress, register_task_definition
 from .conversations import add_message, create_message_pair, get_conversation, get_file_record, get_messages
 
@@ -31,6 +31,7 @@ class ContinueTranslationTaskPayload(BaseModel):
     conversation_id: str
     action: str = "continue"
     target_scope: str = "body"
+    provider: str = "poe"
     poe_model: str
     api_key: str
 
@@ -150,6 +151,7 @@ async def queue_continue_translation(
     conversation_id: str,
     action: str,
     target_scope: str,
+    provider: str,
     poe_model: str,
     api_key: str,
     session: Session,
@@ -169,7 +171,12 @@ async def queue_continue_translation(
             conversation_id=conversation_id,
             action=action,
             target_scope=target_scope,
-            poe_model=poe_model,
+            provider=normalize_provider(provider),
+            poe_model=(
+                settings.deepseek_model
+                if normalize_provider(provider) == "deepseek" and (not str(poe_model or "").strip() or poe_model == settings.poe_model)
+                else (str(poe_model or "").strip() or settings.poe_model)
+            ),
             api_key=api_key,
         )
         return enqueue_task("continue_translation", payload, conversation_id=conversation_id)
@@ -184,6 +191,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
         raise HTTPException(status_code=400, detail="Only action=continue is supported.")
     if payload.target_scope not in {"body", "appendix"}:
         raise HTTPException(status_code=400, detail="Unsupported target_scope.")
+    provider = normalize_provider(payload.provider)
 
     with Session(engine) as session:
         mark_task_progress(task_id, "校验会话与文件")
@@ -218,6 +226,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             [fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])],
             payload.poe_model,
             payload.api_key,
+            provider=provider,
         )
         raw_translation_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(response_text))
         if raw_translation_result is None:
@@ -265,6 +274,7 @@ async def continue_translation_route(
     conversation_id: str,
     action: str = Form(default="continue"),
     target_scope: str = Form(default="body"),
+    provider: str = Form(default="poe"),
     poe_model: str = Form(default=settings.poe_model),
     api_key: str = Depends(get_api_key),
     session: Session = Depends(get_db_session),
@@ -274,6 +284,7 @@ async def continue_translation_route(
         conversation_id=conversation_id,
         action=action,
         target_scope=target_scope,
+        provider=provider,
         poe_model=poe_model,
         api_key=api_key,
         session=session,

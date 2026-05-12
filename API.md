@@ -9,6 +9,7 @@
 - 任务状态统一通过 `/tasks/{task_id}` 查询
 - 所有写接口都会受 `READ_ONLY` 保护
 - ingest / continue 需要表单字段 `api_key`
+- 所有模型调用接口可选传 `provider=poe|deepseek`，默认 `poe`
 - Agent 批量入库需要请求头 `x-agent-token`
 
 ## 页面与系统
@@ -18,14 +19,15 @@
 | `GET` | `/` | 论文浏览页 |
 | `GET` | `/chat` | 新论文上传页 |
 | `GET` | `/chat/{path:path}` | 论文翻译展示页 |
-| `GET` | `/config` | 返回 `read_only` 和 `default_poe_model` |
+| `GET` | `/config` | 返回 `read_only`、`default_poe_model` 和 `default_deepseek_model` |
 
 `GET /config` 返回示例：
 
 ```json
 {
   "read_only": false,
-  "default_poe_model": "GPT-5.2-Instant"
+  "default_poe_model": "GPT-5.2-Instant",
+  "default_deepseek_model": "deepseek-v4-pro"
 }
 ```
 
@@ -38,10 +40,11 @@
 表单字段：
 
 - `file`：PDF 文件，必填
-- `api_key`：Poe API key，必填
-- `poe_model`：翻译模型，默认 `POE_MODEL`
-- `title_model`：标题提取模型，默认 `POE_MODEL`
-- `tag_model`：标签提取模型，默认 `POE_MODEL`
+- `provider`：模型供应商，`poe` 或 `deepseek`，默认 `poe`
+- `api_key`：当前 provider 的 API key，必填
+- `poe_model`：翻译模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
+- `title_model`：标题提取模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
+- `tag_model`：标签提取模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
 - `extract_tags`：是否在 ingest 时顺手提标签，默认 `false`
 
 返回示例：
@@ -59,6 +62,7 @@
 - 上传文件必须是 `.pdf`
 - 会按 PDF SHA-256 指纹去重
 - 若命中已有会话，最终任务结果会直接返回旧会话
+- `provider=deepseek` 时后端会先抽取 PDF 文本再调用 DeepSeek；扫描版或不可抽文本 PDF 会失败并提示改用 Poe
 
 ### `POST /translations/{conversation_id}/continue`
 
@@ -66,8 +70,9 @@
 
 表单字段：
 
-- `api_key`：Poe API key，必填
-- `poe_model`：续翻模型，默认 `POE_MODEL`
+- `provider`：模型供应商，`poe` 或 `deepseek`，默认 `poe`
+- `api_key`：当前 provider 的 API key，必填
+- `poe_model`：续翻模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
 - `action`：当前仅支持 `continue`
 - `target_scope`：`body` 或 `appendix`，默认 `body`
 
@@ -227,8 +232,9 @@
 
 表单字段：
 
-- `api_key`：Poe API key，必填
-- `tag_model`：标签模型，默认 `POE_MODEL`
+- `provider`：模型供应商，`poe` 或 `deepseek`，默认 `poe`
+- `api_key`：当前 provider 的 API key，必填
+- `tag_model`：标签模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
 
 返回中会包含：
 
