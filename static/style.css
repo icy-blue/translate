@@ -12,6 +12,49 @@ body {
   padding: 10px 20px;
 }
 
+.github-corner {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 1200;
+  width: 84px;
+  height: 84px;
+  color: #ffffff;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.github-corner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-top: 84px solid #24292f;
+  border-left: 84px solid transparent;
+  transition: border-top-color 0.2s ease;
+}
+
+.github-corner:hover,
+.github-corner:focus {
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.github-corner:hover::before,
+.github-corner:focus::before {
+  border-top-color: #1677ff;
+}
+
+.github-corner-icon {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  font-size: 28px;
+  line-height: 1;
+  transform: rotate(45deg);
+}
+
 /* ==========================================
    头部样式
    ========================================== */
@@ -1483,6 +1526,10 @@ body {
 }
 
 @media (max-width: 768px) {
+  .github-corner {
+    display: none;
+  }
+
   .paper-grid,
   .paper-grid.masonry {
     grid-template-columns: 1fr;

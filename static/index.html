@@ -43,7 +43,7 @@
 
     const { useState, useEffect, useRef } = React;
     const { Button, Upload, Input, InputNumber, message, Modal, Checkbox, Select, Tag, Drawer, Dropdown, Menu, Tooltip, Image, Radio } = antd;
-    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, DeleteOutlined, TagsOutlined, EditOutlined, ReloadOutlined } = icons;
+    const { AppstoreOutlined, BarsOutlined, PlusOutlined, SearchOutlined, FileTextOutlined, ArrowLeftOutlined, SettingOutlined, UploadOutlined, CaretRightOutlined, MoreOutlined, ShareAltOutlined, DownloadOutlined, DeleteOutlined, TagsOutlined, EditOutlined, ReloadOutlined, GithubOutlined } = icons;
 
     const BASE_URL = "";
     const AUTO_TRANSLATE_BREAKER_DEFAULT = 8;
@@ -1654,6 +1654,16 @@
       // ===== JSX 渲染 =====
       return (
         <div style={{ minHeight: "100vh" }}>
+          <a
+            className="github-corner"
+            href="https://github.com/icy-blue/translate"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="在 GitHub 查看 translate 仓库"
+            title="在 GitHub 查看 translate 仓库"
+          >
+            <GithubOutlined className="github-corner-icon" />
+          </a>
           <div className="header-box">
             <div className="container">
               <div className="browse-title-row" style={{ alignItems: isMobile ? "center" : "center" }}>
