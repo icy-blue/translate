@@ -48,6 +48,12 @@ class AppRoutesTest(unittest.TestCase):
         self.assertIn("confirmation_id: deleteConfirmationId", html)
         self.assertIn("!readOnly && !isMobile && conversationId", html)
 
+    def test_running_task_hint_waits_before_showing(self):
+        html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const runningHintDelayMs = 2 * 60 * 1000;", html)
+        self.assertIn("如果长时间运行中，可重启后端，任务会自动重新执行。", html)
+        self.assertIn('data.status === "running"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

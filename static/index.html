@@ -2722,6 +2722,8 @@
       async function waitForJobResult(jobId, options = {}) {
         const intervalMs = options.intervalMs || 1500;
         const timeoutMs = options.timeoutMs || 20 * 60 * 1000;
+        const runningHintDelayMs = 2 * 60 * 1000;
+        const runningHintText = "如果长时间运行中，可重启后端，任务会自动重新执行。";
         const startedAt = Date.now();
         let lastProgress = null;
 
@@ -2738,9 +2740,17 @@
             }
           }
           const progressText = typeof data.progress === "string" ? data.progress.trim() : "";
-          if (progressText && progressText !== lastProgress && typeof options.onProgress === "function") {
-            lastProgress = progressText;
-            const maybePromise = options.onProgress(progressText, data);
+          const waitedMs = Date.now() - startedAt;
+          const displayProgressText = (
+            progressText
+            && data.status === "running"
+            && waitedMs >= runningHintDelayMs
+          )
+            ? `${progressText} ${runningHintText}`
+            : progressText;
+          if (displayProgressText && displayProgressText !== lastProgress && typeof options.onProgress === "function") {
+            lastProgress = displayProgressText;
+            const maybePromise = options.onProgress(displayProgressText, data);
             if (maybePromise && typeof maybePromise.then === "function") {
               await maybePromise;
             }
