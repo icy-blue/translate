@@ -400,6 +400,114 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
 
         self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
 
+    def test_mixed_ingest_uses_deepseek_for_title_planner_and_tags(self):
+        pdf_bytes = build_test_pdf_bytes()
+        staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        staged_pdf.write(pdf_bytes)
+        staged_pdf.flush()
+        staged_pdf.close()
+        self.addCleanup(Path(staged_pdf.name).unlink, missing_ok=True)
+
+        payload = ingest.IngestPdfTaskPayload(
+            upload_path=staged_pdf.name,
+            filename="paper.pdf",
+            provider="mixed",
+            poe_model="deepseek-v4-pro",
+            title_model="deepseek-v4-pro",
+            tag_model="deepseek-v4-flash",
+            extract_tags=True,
+            poe_api_key="poe-key",
+            deepseek_api_key="deepseek-key",
+        )
+        first_page_attachment = fp.Attachment(
+            url="data:application/pdf;base64,JVBERg==",
+            content_type="application/pdf",
+            name="first_page_paper.pdf",
+        )
+
+        with (
+            patch.object(ingest, "engine", self.engine),
+            patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(self.files_dir.name)),
+            patch.object(ingest, "mark_task_progress"),
+            patch.object(ingest, "update_task_record"),
+            patch.object(ingest, "upload_file", AsyncMock(return_value=first_page_attachment)),
+            patch.object(ingest, "extract_title_from_pdf", AsyncMock(return_value="Mixed Title")) as title_mock,
+            patch.object(
+                ingest,
+                "get_bot_response",
+                AsyncMock(return_value='{"status":"ok","units":["ABSTRACT"],"appendix_units":[],"reason":"","glossary":[]}'),
+            ) as response_mock,
+            patch.object(ingest, "extract_and_store_figures", return_value=[]),
+            patch.object(ingest, "extract_and_store_tables", return_value=[]),
+            patch.object(ingest, "refresh_conversation_semantic_result", return_value=None),
+            patch.object(ingest, "extract_and_store_tags", AsyncMock(return_value=[])) as extract_tags_mock,
+        ):
+            result = asyncio.run(ingest.handle_ingest_task("task-mixed", payload))
+
+        self.assertEqual(result["title"], "Mixed Title")
+        self.assertEqual(title_mock.await_args.args[1], "deepseek-key")
+        self.assertEqual(title_mock.await_args.kwargs["provider"], "deepseek")
+        self.assertEqual(response_mock.await_args.args[2], "deepseek-key")
+        self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
+        self.assertEqual(extract_tags_mock.await_args.args[5], "deepseek-key")
+        self.assertEqual(extract_tags_mock.await_args.kwargs["provider"], "deepseek")
+
+    def test_mixed_ingest_passes_semantic_arxiv_id_to_planner(self):
+        pdf_bytes = build_test_pdf_bytes()
+        staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        staged_pdf.write(pdf_bytes)
+        staged_pdf.flush()
+        staged_pdf.close()
+        self.addCleanup(Path(staged_pdf.name).unlink, missing_ok=True)
+
+        payload = ingest.IngestPdfTaskPayload(
+            upload_path=staged_pdf.name,
+            filename="paper.pdf",
+            provider="mixed",
+            poe_model="deepseek-v4-pro",
+            title_model="deepseek-v4-pro",
+            tag_model="deepseek-v4-flash",
+            extract_tags=False,
+            poe_api_key="poe-key",
+            deepseek_api_key="deepseek-key",
+        )
+        semantic_result = SimpleNamespace(
+            external_ids_json='{"ArXiv": "2605.10922v1"}',
+            open_access_pdf_json=None,
+            url=None,
+            paper_id="paper-id",
+            matched_title="Semantic arXiv Paper",
+            abstract="",
+            venue_abbr="",
+            ccf_category="None",
+            ccf_type="None",
+            citation_count=None,
+            venue=None,
+            year=None,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch.object(ingest, "engine", self.engine),
+            patch("backend.platform.local_files.LOCAL_FILES_DIR", Path(self.files_dir.name)),
+            patch.object(ingest, "mark_task_progress"),
+            patch.object(ingest, "update_task_record"),
+            patch.object(ingest, "upload_file", AsyncMock(return_value=fp.Attachment(url="data:application/pdf;base64,JVBERg==", content_type="application/pdf", name="first_page_paper.pdf"))),
+            patch.object(ingest, "extract_title_from_pdf", AsyncMock(return_value="Mixed Title")),
+            patch.object(
+                ingest,
+                "get_bot_response",
+                AsyncMock(return_value='{"status":"ok","units":["ABSTRACT"],"appendix_units":[],"reason":"","glossary":[]}'),
+            ) as response_mock,
+            patch.object(ingest, "extract_and_store_figures", return_value=[]),
+            patch.object(ingest, "extract_and_store_tables", return_value=[]),
+            patch.object(ingest, "refresh_conversation_semantic_result", return_value=semantic_result),
+        ):
+            asyncio.run(ingest.handle_ingest_task("task-mixed-arxiv", payload))
+
+        self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
+        self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -42,6 +42,9 @@ class _FakeResponseBytes:
 
 
 class PoeGatewayTest(unittest.TestCase):
+    def test_normalize_provider_accepts_mixed(self):
+        self.assertEqual(poe.normalize_provider("mixed"), "mixed")
+
     def test_upload_file_returns_pdf_data_url_attachment(self):
         attachment = asyncio.run(poe.upload_file(io.BytesIO(b"%PDF-test"), "unused-key", "paper.pdf"))
 

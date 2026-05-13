@@ -36,7 +36,10 @@ class AppRoutesTest(unittest.TestCase):
 
     def test_upload_form_includes_tag_model(self):
         html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertIn('formData.append("tag_model", activeModel);', html)
+        self.assertIn('formData.append("tag_model", activeExtractionModel);', html)
+        self.assertIn('{ label: "混合", value: "mixed" }', html)
+        self.assertIn('formData.append("poe_api_key", poeApiKey);', html)
+        self.assertIn('formData.append("deepseek_api_key", deepseekApiKey);', html)
 
     def test_chat_delete_ui_requires_desktop_confirmation(self):
         html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")

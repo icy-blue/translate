@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException
 from sqlmodel import Session
 
-from ..app.dependencies import check_read_only, get_api_key, get_db_session
+from ..app.dependencies import check_read_only, get_db_session
 from ..domain.message_payloads import infer_message_metadata
 from ..domain.paper_tags import build_tag_payloads, extract_abstract_for_tagging
 from ..platform.config import settings
@@ -70,8 +70,9 @@ def refresh_conversation_semantic_result(session: Session, conversation_id: str,
 
 async def refresh_conversation_metadata(session: Session, conversation_id: str, tag_model: str, api_key: str, provider: str = "poe") -> dict:
     normalized_provider = normalize_provider(provider)
+    tag_provider = "deepseek" if normalized_provider in {"deepseek", "mixed"} else "poe"
     resolved_tag_model = str(tag_model or "").strip() or settings.poe_model
-    if normalized_provider == "deepseek" and resolved_tag_model == settings.poe_model:
+    if tag_provider == "deepseek" and resolved_tag_model == settings.poe_model:
         resolved_tag_model = settings.deepseek_model
     conversation = get_conversation(session, conversation_id)
     if not conversation:
@@ -93,7 +94,7 @@ async def refresh_conversation_metadata(session: Session, conversation_id: str, 
         first_bot_message=first_bot_message,
         tag_model=resolved_tag_model,
         api_key=api_key,
-        provider=normalized_provider,
+        provider=tag_provider,
         fallback_abstract=getattr(semantic_result, "abstract", "") if semantic_result else "",
     )
     semantic = serialize_semantic_result(semantic_result)
@@ -113,12 +114,23 @@ async def refresh_metadata_route(
     conversation_id: str,
     provider: str = Form(default="poe"),
     tag_model: str = Form(default=settings.poe_model),
-    api_key: str = Depends(get_api_key),
+    api_key: str = Form(default=""),
+    poe_api_key: str = Form(default=""),
+    deepseek_api_key: str = Form(default=""),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only),
 ):
     try:
-        return await refresh_conversation_metadata(session, conversation_id, tag_model, api_key, provider=provider)
+        normalized_provider = normalize_provider(provider)
+        tag_provider = "deepseek" if normalized_provider in {"deepseek", "mixed"} else "poe"
+        resolved_api_key = (
+            str(deepseek_api_key or api_key or "").strip()
+            if tag_provider == "deepseek"
+            else str(poe_api_key or api_key or "").strip()
+        )
+        if not resolved_api_key:
+            raise HTTPException(status_code=400, detail="API Key is required.")
+        return await refresh_conversation_metadata(session, conversation_id, tag_model, resolved_api_key, provider=provider)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

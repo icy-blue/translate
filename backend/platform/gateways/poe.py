@@ -28,7 +28,8 @@ POE_OPENAI_BASE_URL = "https://api.poe.com/v1"
 POE_CHAT_COMPLETIONS_URL = f"{POE_OPENAI_BASE_URL}/chat/completions"
 DEEPSEEK_PROVIDER = "deepseek"
 POE_PROVIDER = "poe"
-SUPPORTED_PROVIDERS = {POE_PROVIDER, DEEPSEEK_PROVIDER}
+MIXED_PROVIDER = "mixed"
+SUPPORTED_PROVIDERS = {POE_PROVIDER, DEEPSEEK_PROVIDER, MIXED_PROVIDER}
 ARXIV_ID_PATTERN = re.compile(r"(?i)(?:arxiv[:_\-\s/]+|abs/|pdf/|html/)?(\d{4}\.\d{4,5})(v\d+)?")
 
 
@@ -233,6 +234,8 @@ def _deepseek_message_payload(message: fp.ProtocolMessage, arxiv_id: str | None 
 
 def _post_chat_completion(payload: dict[str, Any], api_key: str, *, provider: str) -> str:
     normalized_provider = normalize_provider(provider)
+    if normalized_provider == MIXED_PROVIDER:
+        raise RuntimeError("Mixed provider must be resolved before gateway calls.")
     if normalized_provider == DEEPSEEK_PROVIDER:
         url = f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
         provider_label = "DeepSeek"

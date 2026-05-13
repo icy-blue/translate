@@ -9,7 +9,8 @@
 - 任务状态统一通过 `/tasks/{task_id}` 查询
 - 所有写接口都会受 `READ_ONLY` 保护
 - ingest / continue 需要表单字段 `api_key`
-- 所有模型调用接口可选传 `provider=poe|deepseek`，默认 `poe`
+- 所有模型调用接口可选传 `provider=poe|deepseek|mixed`，默认 `poe`
+- `provider=mixed` 时，标题/计划/关键术语/tag 使用 DeepSeek，正式续翻使用 Poe；需要提交 `poe_api_key` 与 `deepseek_api_key`
 - Agent 批量入库需要请求头 `x-agent-token`
 
 ## 页面与系统
@@ -40,11 +41,12 @@
 表单字段：
 
 - `file`：PDF 文件，必填
-- `provider`：模型供应商，`poe` 或 `deepseek`，默认 `poe`
-- `api_key`：当前 provider 的 API key，必填
-- `poe_model`：翻译模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
+- `provider`：模型供应商，`poe`、`deepseek` 或 `mixed`，默认 `poe`
+- `api_key`：当前 provider 的 API key；非 mixed 必填，mixed 保留兼容但以专用 key 字段为准
+- `poe_api_key` / `deepseek_api_key`：混合模式必填
+- `poe_model`：上传初始化模型；Poe 默认 `POE_MODEL`，DeepSeek/mixed 默认 `DEEPSEEK_MODEL`
 - `title_model`：标题提取模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
-- `tag_model`：标签提取模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
+- `tag_model`：标签提取模型；Poe 默认 `POE_MODEL`，DeepSeek/mixed 默认 `DEEPSEEK_MODEL`
 - `extract_tags`：是否在 ingest 时顺手提标签，默认 `false`
 
 返回示例：
@@ -62,7 +64,7 @@
 - 上传文件必须是 `.pdf`
 - 会按 PDF SHA-256 指纹去重
 - 若命中已有会话，最终任务结果会直接返回旧会话
-- `provider=deepseek` 时后端会先准备论文文本再调用 DeepSeek；识别为 arXiv 论文时优先使用 `https://arxiv.org/html/{arxiv_id}`，非 arXiv 才使用普通 PDF 抽文本
+- `provider=deepseek` 或 `provider=mixed` 的提取阶段会先准备论文文本再调用 DeepSeek；识别为 arXiv 论文时优先使用 `https://arxiv.org/html/{arxiv_id}`，非 arXiv 才使用普通 PDF 抽文本
 
 ### `POST /translations/{conversation_id}/continue`
 
@@ -70,8 +72,9 @@
 
 表单字段：
 
-- `provider`：模型供应商，`poe` 或 `deepseek`，默认 `poe`
-- `api_key`：当前 provider 的 API key，必填
+- `provider`：模型供应商，`poe`、`deepseek` 或 `mixed`，默认 `poe`；mixed 续翻实际使用 Poe
+- `api_key`：当前 provider 的 API key；mixed 可用 `poe_api_key`
+- `poe_api_key` / `deepseek_api_key`：mixed 可同时提交，续翻使用 `poe_api_key`
 - `poe_model`：续翻模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
 - `action`：当前仅支持 `continue`
 - `target_scope`：`body` 或 `appendix`，默认 `body`
@@ -232,8 +235,9 @@
 
 表单字段：
 
-- `provider`：模型供应商，`poe` 或 `deepseek`，默认 `poe`
-- `api_key`：当前 provider 的 API key，必填
+- `provider`：模型供应商，`poe`、`deepseek` 或 `mixed`，默认 `poe`；mixed 刷新标签实际使用 DeepSeek
+- `api_key`：当前 provider 的 API key；mixed 可用 `deepseek_api_key`
+- `poe_api_key` / `deepseek_api_key`：mixed 可同时提交，刷新标签使用 `deepseek_api_key`
 - `tag_model`：标签模型；Poe 默认 `POE_MODEL`，DeepSeek 默认 `DEEPSEEK_MODEL`
 
 返回中会包含：

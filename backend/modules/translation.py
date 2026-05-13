@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from ..app.dependencies import check_read_only, get_api_key, get_db_session
+from ..app.dependencies import check_read_only, get_db_session
 from ..domain.message_payloads import (
     build_translation_status_payload,
     build_unit_translation_prompt,
@@ -33,7 +33,9 @@ class ContinueTranslationTaskPayload(BaseModel):
     target_scope: str = "body"
     provider: str = "poe"
     poe_model: str
-    api_key: str
+    api_key: str = ""
+    poe_api_key: str = ""
+    deepseek_api_key: str = ""
 
 
 class TranslationGlossaryEntryPayload(BaseModel):
@@ -162,6 +164,17 @@ def _provider_label(provider: str) -> str:
     return "DeepSeek" if normalize_provider(provider) == "deepseek" else "Poe"
 
 
+def _translation_provider(provider: str) -> str:
+    return "poe" if normalize_provider(provider) == "mixed" else normalize_provider(provider)
+
+
+def _resolve_translation_api_key(provider: str, api_key: str = "", poe_api_key: str = "", deepseek_api_key: str = "") -> str:
+    actual_provider = _translation_provider(provider)
+    if actual_provider == "deepseek":
+        return str(deepseek_api_key or api_key or "").strip()
+    return str(poe_api_key or api_key or "").strip()
+
+
 async def queue_continue_translation(
     *,
     conversation_id: str,
@@ -171,6 +184,8 @@ async def queue_continue_translation(
     poe_model: str,
     api_key: str,
     session: Session,
+    poe_api_key: str = "",
+    deepseek_api_key: str = "",
 ) -> dict:
     conversation = get_conversation(session, conversation_id)
     if not conversation:
@@ -183,17 +198,25 @@ async def queue_continue_translation(
                 status_code=409,
                 detail=f"会话已有翻译任务进行中（task_id={active_task.id}，状态={active_task.status}）。请等待完成后再继续。",
             )
+        normalized_provider = normalize_provider(provider)
+        actual_provider = _translation_provider(normalized_provider)
+        if normalized_provider == "mixed" and not str(poe_api_key or api_key or "").strip():
+            raise HTTPException(status_code=400, detail="Mixed provider requires a Poe API key for translation.")
+        if not _resolve_translation_api_key(normalized_provider, api_key=api_key, poe_api_key=poe_api_key, deepseek_api_key=deepseek_api_key):
+            raise HTTPException(status_code=400, detail="API Key is required.")
         payload = ContinueTranslationTaskPayload(
             conversation_id=conversation_id,
             action=action,
             target_scope=target_scope,
-            provider=normalize_provider(provider),
+            provider=normalized_provider,
             poe_model=(
                 settings.deepseek_model
-                if normalize_provider(provider) == "deepseek" and (not str(poe_model or "").strip() or poe_model == settings.poe_model)
+                if actual_provider == "deepseek" and (not str(poe_model or "").strip() or poe_model == settings.poe_model)
                 else (str(poe_model or "").strip() or settings.poe_model)
             ),
             api_key=api_key,
+            poe_api_key=poe_api_key,
+            deepseek_api_key=deepseek_api_key,
         )
         return enqueue_task("continue_translation", payload, conversation_id=conversation_id)
 
@@ -201,13 +224,20 @@ async def queue_continue_translation(
 async def handle_continue_translation(task_id: str, payload: ContinueTranslationTaskPayload) -> dict:
     if not payload.conversation_id:
         raise HTTPException(status_code=400, detail="conversation_id is required.")
-    if not payload.api_key:
+    provider = normalize_provider(payload.provider)
+    actual_provider = _translation_provider(provider)
+    api_key = _resolve_translation_api_key(
+        provider,
+        api_key=payload.api_key,
+        poe_api_key=payload.poe_api_key,
+        deepseek_api_key=payload.deepseek_api_key,
+    )
+    if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required.")
     if payload.action != "continue":
         raise HTTPException(status_code=400, detail="Only action=continue is supported.")
     if payload.target_scope not in {"body", "appendix"}:
         raise HTTPException(status_code=400, detail="Unsupported target_scope.")
-    provider = normalize_provider(payload.provider)
 
     with Session(engine) as session:
         mark_task_progress(task_id, "校验会话与文件")
@@ -218,7 +248,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
         if not file_record:
             raise HTTPException(status_code=404, detail="File record not found.")
         arxiv_id = None
-        if provider == "deepseek":
+        if actual_provider == "deepseek":
             arxiv_id = extract_arxiv_id(file_record.filename, file_record.poe_name, file_record.poe_url)
             if arxiv_id is None:
                 arxiv_id = _resolve_arxiv_id_from_semantic_result(get_semantic_result(session, payload.conversation_id))
@@ -242,12 +272,12 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             translation_glossary=latest_glossary,
         )
         pdf_attachment = fp.Attachment(url=file_record.poe_url, content_type=file_record.content_type, name=file_record.poe_name)
-        mark_task_progress(task_id, f"等待 {_provider_label(provider)} 返回翻译结果")
+        mark_task_progress(task_id, f"等待 {_provider_label(actual_provider)} 返回翻译结果")
         response_text = await get_bot_response(
             [fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])],
             payload.poe_model,
-            payload.api_key,
-            provider=provider,
+            api_key,
+            provider=actual_provider,
             arxiv_id=arxiv_id,
         )
         raw_translation_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(response_text))
@@ -298,7 +328,9 @@ async def continue_translation_route(
     target_scope: str = Form(default="body"),
     provider: str = Form(default="poe"),
     poe_model: str = Form(default=settings.poe_model),
-    api_key: str = Depends(get_api_key),
+    api_key: str = Form(default=""),
+    poe_api_key: str = Form(default=""),
+    deepseek_api_key: str = Form(default=""),
     session: Session = Depends(get_db_session),
     _read_only: None = Depends(check_read_only),
 ):
@@ -309,6 +341,8 @@ async def continue_translation_route(
         provider=provider,
         poe_model=poe_model,
         api_key=api_key,
+        poe_api_key=poe_api_key,
+        deepseek_api_key=deepseek_api_key,
         session=session,
     )
 

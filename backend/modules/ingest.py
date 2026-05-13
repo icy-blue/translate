@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from pypdf import PdfReader, PdfWriter
 from sqlmodel import Session, select
 
-from ..app.dependencies import check_read_only, get_api_key
+from ..app.dependencies import check_read_only
 from ..domain.message_payloads import (
     build_initial_translation_prompt,
     build_translation_status_payload,
@@ -46,7 +46,28 @@ class IngestPdfTaskPayload(BaseModel):
     title_model: str
     tag_model: str
     extract_tags: bool = False
-    api_key: str
+    api_key: str = ""
+    poe_api_key: str = ""
+    deepseek_api_key: str = ""
+
+
+def _provider_uses_deepseek_extraction(provider: str) -> bool:
+    return normalize_provider(provider) in {"deepseek", "mixed"}
+
+
+def _ingest_step_provider(provider: str) -> str:
+    return "deepseek" if _provider_uses_deepseek_extraction(provider) else "poe"
+
+
+def _resolve_provider_api_key(provider: str, api_key: str = "", poe_api_key: str = "", deepseek_api_key: str = "") -> str:
+    normalized_provider = normalize_provider(provider)
+    if normalized_provider == "deepseek":
+        return str(deepseek_api_key or api_key or "").strip()
+    if normalized_provider == "poe":
+        return str(poe_api_key or api_key or "").strip()
+    if not str(poe_api_key or "").strip() or not str(deepseek_api_key or "").strip():
+        raise HTTPException(status_code=400, detail="Mixed provider requires both Poe and DeepSeek API keys.")
+    return str(api_key or "").strip()
 
 
 def find_existing_file(session: Session, fingerprint: str) -> Optional[FileRecord]:
@@ -154,16 +175,23 @@ def queue_ingest_pdf(
     extract_tags: bool,
     api_key: str,
     file_bytes: bytes,
+    poe_api_key: str = "",
+    deepseek_api_key: str = "",
 ) -> dict:
     normalized_provider = normalize_provider(provider)
+    if normalized_provider == "mixed" and (not str(poe_api_key or "").strip() or not str(deepseek_api_key or "").strip()):
+        raise HTTPException(status_code=400, detail="Mixed provider requires both Poe and DeepSeek API keys.")
+    extraction_provider = _ingest_step_provider(normalized_provider)
+    if not _resolve_provider_api_key(extraction_provider, api_key=api_key, poe_api_key=poe_api_key, deepseek_api_key=deepseek_api_key):
+        raise HTTPException(status_code=400, detail="API Key is required.")
     TASK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     staged_path = TASK_UPLOAD_DIR / f"{uuid.uuid4().hex}.pdf"
     staged_path.write_bytes(file_bytes)
-    default_model = settings.deepseek_model if normalized_provider == "deepseek" else settings.poe_model
+    default_model = settings.deepseek_model if extraction_provider == "deepseek" else settings.poe_model
     resolved_poe_model = str(poe_model or "").strip() or default_model
     resolved_title_model = str(title_model or "").strip() or default_model
     resolved_tag_model = str(tag_model or "").strip() or default_model
-    if normalized_provider == "deepseek":
+    if extraction_provider == "deepseek":
         if resolved_poe_model == settings.poe_model:
             resolved_poe_model = settings.deepseek_model
         if resolved_title_model == settings.poe_model:
@@ -179,15 +207,24 @@ def queue_ingest_pdf(
         tag_model=resolved_tag_model,
         extract_tags=extract_tags,
         api_key=api_key,
+        poe_api_key=poe_api_key,
+        deepseek_api_key=deepseek_api_key,
     )
     return enqueue_task("ingest_pdf", payload)
 
 
 async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dict:
     upload_path = Path(payload.upload_path)
-    if not payload.api_key:
-        raise HTTPException(status_code=400, detail="API Key is required.")
     provider = normalize_provider(payload.provider)
+    extraction_provider = _ingest_step_provider(provider)
+    extraction_api_key = _resolve_provider_api_key(
+        extraction_provider,
+        api_key=payload.api_key,
+        poe_api_key=payload.poe_api_key,
+        deepseek_api_key=payload.deepseek_api_key,
+    )
+    if not extraction_api_key:
+        raise HTTPException(status_code=400, detail="API Key is required.")
     try:
         mark_task_progress(task_id, "读取上传文件")
         if not upload_path.exists():
@@ -196,8 +233,8 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         if not file_bytes:
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
         fingerprint = hashlib.sha256(file_bytes).hexdigest()
-        arxiv_id = extract_arxiv_id(payload.filename) if provider == "deepseek" else None
-        if provider == "deepseek" and arxiv_id is None:
+        arxiv_id = extract_arxiv_id(payload.filename) if extraction_provider == "deepseek" else None
+        if extraction_provider == "deepseek" and arxiv_id is None:
             arxiv_id = extract_arxiv_id_from_pdf_bytes(file_bytes)
         mark_task_progress(task_id, "检查重复文件")
         with Session(engine) as session:
@@ -223,7 +260,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         mark_task_progress(task_id, "准备原始 PDF 文件")
         pdf_url = write_pdf_file(conversation_id, file_id, file_bytes)
         pdf_attachment = fp.Attachment(url=pdf_url, content_type="application/pdf", name=payload.filename)
-        if provider == "deepseek" and arxiv_id is None:
+        if extraction_provider == "deepseek" and arxiv_id is None:
             arxiv_id = extract_arxiv_id(pdf_url)
 
         mark_task_progress(task_id, "创建会话壳")
@@ -253,16 +290,16 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                     tmp_first_page.write(first_page_pdf_bytes.getvalue())
                     tmp_first_page.flush()
                     with open(tmp_first_page.name, "rb") as file_obj:
-                        title_extraction_attachment = await upload_file(file_obj, payload.api_key, f"first_page_{payload.filename}")
+                        title_extraction_attachment = await upload_file(file_obj, extraction_api_key, f"first_page_{payload.filename}")
         except Exception as exc:
             print(f"Error processing PDF for title extraction: {exc}")
 
         mark_task_progress(task_id, "提取论文标题")
         extracted_title = await extract_title_from_pdf(
             title_extraction_attachment,
-            payload.api_key,
+            extraction_api_key,
             payload.title_model,
-            provider=provider,
+            provider=extraction_provider,
             arxiv_id=arxiv_id,
         )
         final_title = extracted_title or payload.filename
@@ -271,7 +308,7 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                 raise RuntimeError(f"Failed to update conversation title for {conversation_id}.")
 
         semantic_result = None
-        if provider == "deepseek":
+        if extraction_provider == "deepseek":
             mark_task_progress(task_id, "匹配 Semantic Scholar 元数据")
             with Session(engine) as session:
                 semantic_result = refresh_conversation_semantic_result(session, conversation_id, final_title)
@@ -283,8 +320,8 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         planner_response_text = await get_bot_response(
             [fp.ProtocolMessage(role="user", content=planner_prompt, attachments=[pdf_attachment])],
             payload.poe_model,
-            payload.api_key,
-            provider=provider,
+            extraction_api_key,
+            provider=extraction_provider,
             arxiv_id=arxiv_id,
         )
         translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_response_text))
@@ -340,8 +377,8 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
                     final_title,
                     extract_pdf_abstract_for_tagging(file_bytes) or response_content,
                     payload.tag_model,
-                    payload.api_key,
-                    provider=provider,
+                    extraction_api_key,
+                    provider=extraction_provider,
                     fallback_abstract=getattr(semantic_result, "abstract", "") if semantic_result else "",
                 )
             detail = build_conversation_detail(session, conversation_id)
@@ -386,7 +423,9 @@ async def ingest_pdf_route(
     title_model: str = Form(default=settings.poe_model),
     tag_model: str = Form(default=settings.poe_model),
     extract_tags: bool = Form(default=False),
-    api_key: str = Depends(get_api_key),
+    api_key: str = Form(default=""),
+    poe_api_key: str = Form(default=""),
+    deepseek_api_key: str = Form(default=""),
     _read_only: None = Depends(check_read_only),
 ):
     file_bytes = await validate_upload(file)
@@ -398,5 +437,7 @@ async def ingest_pdf_route(
         tag_model=tag_model,
         extract_tags=extract_tags,
         api_key=api_key,
+        poe_api_key=poe_api_key,
+        deepseek_api_key=deepseek_api_key,
         file_bytes=file_bytes,
     )

@@ -57,6 +57,41 @@ class MetadataRefreshTest(unittest.TestCase):
         self.assertEqual(extract_tags_mock.await_args.kwargs["first_bot_message"], "")
         self.assertEqual(extract_tags_mock.await_args.kwargs["fallback_abstract"], "A semantic abstract fallback for tagging.")
 
+    def test_mixed_refresh_metadata_uses_deepseek_for_tags(self):
+        semantic_result = SimpleNamespace(
+            abstract="A semantic abstract fallback for tagging.",
+            venue_abbr="",
+            ccf_category="None",
+            ccf_type="None",
+            citation_count=None,
+            venue=None,
+            year=None,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with Session(self.engine) as session:
+            session.add(Conversation(id="conv-1", title="Paper", original_filename="paper.pdf"))
+            add_message(
+                session,
+                conversation_id="conv-1",
+                content="",
+                message_kind="bot_reply",
+                visible_to_user=True,
+                client_payload={},
+            )
+            session.commit()
+
+            with (
+                patch.object(metadata, "refresh_conversation_semantic_result", return_value=semantic_result),
+                patch.object(metadata, "extract_and_store_tags", AsyncMock(return_value=[])) as extract_tags_mock,
+            ):
+                asyncio.run(metadata.refresh_conversation_metadata(session, "conv-1", "deepseek-v4-flash", "deepseek-key", provider="mixed"))
+
+        extract_tags_mock.assert_awaited_once()
+        self.assertEqual(extract_tags_mock.await_args.kwargs["tag_model"], "deepseek-v4-flash")
+        self.assertEqual(extract_tags_mock.await_args.kwargs["api_key"], "deepseek-key")
+        self.assertEqual(extract_tags_mock.await_args.kwargs["provider"], "deepseek")
+
 
 if __name__ == "__main__":
     unittest.main()

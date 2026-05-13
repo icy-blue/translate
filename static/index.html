@@ -882,13 +882,16 @@
         autoTranslateAppendix,
         autoTranslateBreakerLimit,
       });
-      const activeProvider = provider === "deepseek" ? "deepseek" : "poe";
+      const activeProvider = provider === "deepseek" || provider === "mixed" ? provider : "poe";
       const activeApiKey = activeProvider === "deepseek" ? deepseekApiKey : poeApiKey;
+      const hasRequiredApiKeys = activeProvider === "mixed" ? Boolean(poeApiKey && deepseekApiKey) : Boolean(activeApiKey);
       const activePoeModel = poeModel || defaultPoeModel;
       const activeDeepseekModel = deepseekModel || defaultDeepseekModel;
       const activeModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
-      const activeTitleModel = activeProvider === "deepseek" ? activeDeepseekModel : (titleModel || defaultPoeModel);
-      const activeProviderLabel = activeProvider === "deepseek" ? "DeepSeek" : "Poe";
+      const activeExtractionModel = activeProvider === "poe" ? activePoeModel : activeDeepseekModel;
+      const activeTranslationModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
+      const activeTitleModel = activeProvider === "poe" ? (titleModel || defaultPoeModel) : activeDeepseekModel;
+      const activeProviderLabel = activeProvider === "deepseek" ? "DeepSeek" : activeProvider === "mixed" ? "混合" : "Poe";
 
       // ===== 响应式布局 =====
       useEffect(() => {
@@ -1922,17 +1925,39 @@
                 options={[
                   { label: "Poe", value: "poe" },
                   { label: "DeepSeek", value: "deepseek" },
+                  { label: "混合", value: "mixed" },
                 ]}
               />
             </div>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", marginBottom: 8 }}>{activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key：</label>
-              <Input.Password
-                placeholder={`请输入 ${activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key`}
-                value={activeApiKey}
-                onChange={e => activeProvider === "deepseek" ? setDeepseekApiKey(e.target.value) : setPoeApiKey(e.target.value)}
-              />
-            </div>
+            {activeProvider === "mixed" ? (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>Poe API Key：</label>
+                  <Input.Password
+                    placeholder="请输入 Poe API Key"
+                    value={poeApiKey}
+                    onChange={e => setPoeApiKey(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>DeepSeek API Key：</label>
+                  <Input.Password
+                    placeholder="请输入 DeepSeek API Key"
+                    value={deepseekApiKey}
+                    onChange={e => setDeepseekApiKey(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", marginBottom: 8 }}>{activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key：</label>
+                <Input.Password
+                  placeholder={`请输入 ${activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key`}
+                  value={activeApiKey}
+                  onChange={e => activeProvider === "deepseek" ? setDeepseekApiKey(e.target.value) : setPoeApiKey(e.target.value)}
+                />
+              </div>
+            )}
             {activeProvider === "poe" && (
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
@@ -1944,6 +1969,28 @@
               />
             </div>
             )}
+            {activeProvider === "mixed" ? (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>Poe 翻译模型：</label>
+                  <Select
+                    style={{ width: "100%" }}
+                    value={activePoeModel}
+                    onChange={setPoeModel}
+                    options={modelOptions}
+                  />
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>DeepSeek 提取模型：</label>
+                  <Select
+                    style={{ width: "100%" }}
+                    value={activeDeepseekModel}
+                    onChange={setDeepseekModel}
+                    options={modelOptions}
+                  />
+                </div>
+              </>
+            ) : (
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
@@ -1953,6 +2000,7 @@
                 options={modelOptions}
               />
             </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <Checkbox
                 checked={extractTagsOnUpload}
@@ -1961,7 +2009,7 @@
                 上传后自动提取论文标签
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
-                开启后会在获得摘要后额外请求当前供应商进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+                开启后会在获得摘要后额外请求配置的提取供应商进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
               </div>
             </div>
             <div style={{ marginBottom: 20 }}>
@@ -2163,13 +2211,16 @@
         autoTranslateAppendix,
         autoTranslateBreakerLimit,
       });
-      const activeProvider = provider === "deepseek" ? "deepseek" : "poe";
+      const activeProvider = provider === "deepseek" || provider === "mixed" ? provider : "poe";
       const activeApiKey = activeProvider === "deepseek" ? deepseekApiKey : poeApiKey;
+      const hasRequiredApiKeys = activeProvider === "mixed" ? Boolean(poeApiKey && deepseekApiKey) : Boolean(activeApiKey);
       const activePoeModel = poeModel || defaultPoeModel;
       const activeDeepseekModel = deepseekModel || defaultDeepseekModel;
       const activeModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
-      const activeTitleModel = activeProvider === "deepseek" ? activeDeepseekModel : (titleModel || defaultPoeModel);
-      const activeProviderLabel = activeProvider === "deepseek" ? "DeepSeek" : "Poe";
+      const activeExtractionModel = activeProvider === "poe" ? activePoeModel : activeDeepseekModel;
+      const activeTranslationModel = activeProvider === "deepseek" ? activeDeepseekModel : activePoeModel;
+      const activeTitleModel = activeProvider === "poe" ? (titleModel || defaultPoeModel) : activeDeepseekModel;
+      const activeProviderLabel = activeProvider === "deepseek" ? "DeepSeek" : activeProvider === "mixed" ? "混合" : "Poe";
       const CHAT_SCROLL_EXTRA_GAP = 20;
 
       // ===== 模型选项 =====
@@ -2595,7 +2646,7 @@
         if (!conversationId) {
           return;
         }
-        if (!activeApiKey) {
+        if (!hasRequiredApiKeys) {
           message.warning("请先配置 API Key");
           return;
         }
@@ -2606,7 +2657,9 @@
           const formData = new FormData();
           formData.append("provider", activeProvider);
           formData.append("api_key", activeApiKey);
-          formData.append("tag_model", activeModel);
+          formData.append("poe_api_key", poeApiKey);
+          formData.append("deepseek_api_key", deepseekApiKey);
+          formData.append("tag_model", activeExtractionModel);
 
           const res = await fetch(`${BASE_URL}/metadata/${conversationId}/refresh`, {
             method: "POST",
@@ -2714,7 +2767,7 @@
         accept: ".pdf",
         showUploadList: false,
         customRequest: async ({ file }) => {
-          if (!activeApiKey) { message.error("请先配置 API Key"); return; }
+          if (!hasRequiredApiKeys) { message.error("请先配置 API Key"); return; }
 
           const progressKey = `upload-progress-${Date.now()}`;
           let linkedConversationId = null;
@@ -2740,9 +2793,11 @@
             formData.append("file", file);
             formData.append("provider", activeProvider);
             formData.append("api_key", activeApiKey);
-            formData.append("poe_model", activeModel);
+            formData.append("poe_api_key", poeApiKey);
+            formData.append("deepseek_api_key", deepseekApiKey);
+            formData.append("poe_model", activeExtractionModel);
             formData.append("title_model", activeTitleModel);
-            formData.append("tag_model", activeModel);
+            formData.append("tag_model", activeExtractionModel);
             formData.append("extract_tags", extractTagsOnUpload ? "true" : "false");
 
             const enqueueRes = await fetch(`${BASE_URL}/tasks/ingest-pdf`, {
@@ -2813,7 +2868,9 @@
           const formData = new FormData();
           formData.append("provider", activeProvider);
           formData.append("api_key", activeApiKey);
-          formData.append("poe_model", activeModel);
+          formData.append("poe_api_key", poeApiKey);
+          formData.append("deepseek_api_key", deepseekApiKey);
+          formData.append("poe_model", activeTranslationModel);
           formData.append("action", action.type || "continue");
           formData.append("target_scope", action.target_scope || "body");
 
@@ -2850,7 +2907,7 @@
       const handleContinue = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
-        if (!activeApiKey) { message.warning("请先配置 API Key"); return; }
+        if (!hasRequiredApiKeys) { message.warning("请先配置 API Key"); return; }
 
         message.open({
           key: "continue-progress",
@@ -2874,7 +2931,7 @@
       const handleAutoTranslate = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
-        if (!activeApiKey) { message.warning("请先配置 API Key"); return; }
+        if (!hasRequiredApiKeys) { message.warning("请先配置 API Key"); return; }
 
         const breakerLimit = automationSettings.autoTranslateBreakerLimit;
         let currentStatus = translationStatus;
@@ -3707,17 +3764,39 @@
                 options={[
                   { label: "Poe", value: "poe" },
                   { label: "DeepSeek", value: "deepseek" },
+                  { label: "混合", value: "mixed" },
                 ]}
               />
             </div>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: "block", marginBottom: 8 }}>{activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key：</label>
-              <Input.Password
-                placeholder={`请输入 ${activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key`}
-                value={activeApiKey}
-                onChange={e => activeProvider === "deepseek" ? setDeepseekApiKey(e.target.value) : setPoeApiKey(e.target.value)}
-              />
-            </div>
+            {activeProvider === "mixed" ? (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>Poe API Key：</label>
+                  <Input.Password
+                    placeholder="请输入 Poe API Key"
+                    value={poeApiKey}
+                    onChange={e => setPoeApiKey(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>DeepSeek API Key：</label>
+                  <Input.Password
+                    placeholder="请输入 DeepSeek API Key"
+                    value={deepseekApiKey}
+                    onChange={e => setDeepseekApiKey(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", marginBottom: 8 }}>{activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key：</label>
+                <Input.Password
+                  placeholder={`请输入 ${activeProvider === "deepseek" ? "DeepSeek" : "Poe"} API Key`}
+                  value={activeApiKey}
+                  onChange={e => activeProvider === "deepseek" ? setDeepseekApiKey(e.target.value) : setPoeApiKey(e.target.value)}
+                />
+              </div>
+            )}
             {activeProvider === "poe" && (
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>标题提取模型：</label>
@@ -3729,6 +3808,28 @@
               />
             </div>
             )}
+            {activeProvider === "mixed" ? (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>Poe 翻译模型：</label>
+                  <Select
+                    style={{ width: "100%" }}
+                    value={activePoeModel}
+                    onChange={setPoeModel}
+                    options={modelOptions}
+                  />
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "block", marginBottom: 8 }}>DeepSeek 提取模型：</label>
+                  <Select
+                    style={{ width: "100%" }}
+                    value={activeDeepseekModel}
+                    onChange={setDeepseekModel}
+                    options={modelOptions}
+                  />
+                </div>
+              </>
+            ) : (
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", marginBottom: 8 }}>翻译模型：</label>
               <Select
@@ -3738,6 +3839,7 @@
                 options={modelOptions}
               />
             </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <Checkbox
                 checked={extractTagsOnUpload}
@@ -3746,7 +3848,7 @@
                 上传后自动提取论文标签
               </Checkbox>
               <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 8, lineHeight: 1.6 }}>
-                开启后会在获得摘要后额外请求当前供应商进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
+                开启后会在获得摘要后额外请求配置的提取供应商进行标签分类，并把 tags 一同返回前端，可能额外消耗少量积分。
               </div>
             </div>
             <div style={{ marginBottom: 20 }}>

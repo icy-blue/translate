@@ -235,6 +235,51 @@ class ContinueTranslationFlowTest(unittest.TestCase):
 
         self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
 
+    def test_mixed_continue_translation_uses_poe_provider(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["ABSTRACT"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[],
+            current_unit_id="",
+            attempted_scope="body",
+            raw_translation_result=None,
+        )
+        self._seed_conversation(translation_plan, translation_status)
+
+        payload = translation.ContinueTranslationTaskPayload(
+            conversation_id="conv-1",
+            action="continue",
+            target_scope="body",
+            provider="mixed",
+            poe_model="poe-model",
+            poe_api_key="poe-key",
+            deepseek_api_key="deepseek-key",
+        )
+        with (
+            patch.object(translation, "engine", self.engine),
+            patch.object(translation, "mark_task_progress") as progress_mock,
+            patch.object(
+                translation,
+                "get_bot_response",
+                AsyncMock(
+                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 摘要\n译文'
+                ),
+            ) as response_mock,
+        ):
+            result = asyncio.run(translation.handle_continue_translation("task-mixed", payload))
+
+        self.assertEqual(result["translation_status"]["current_unit_id"], "ABSTRACT")
+        self.assertEqual(response_mock.await_args.args[2], "poe-key")
+        self.assertEqual(response_mock.await_args.kwargs["provider"], "poe")
+        progress_mock.assert_any_call("task-mixed", "等待 Poe 返回翻译结果")
+
     def test_continue_translation_rejects_unconfirmed_glossary(self):
         translation_plan = normalize_translation_plan_payload(
             {
