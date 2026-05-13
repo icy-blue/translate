@@ -192,6 +192,8 @@ class MessagePayloadsTest(unittest.TestCase):
         self.assertIn("Second-level section headings must use `##`", settings.continue_prompt)
         self.assertIn("translate only the heading text after that prefix", settings.continue_prompt)
         self.assertIn("`III.`", settings.continue_prompt)
+        self.assertIn("Wrap standalone or display equations in `\\[ ... \\]`", settings.continue_prompt)
+        self.assertIn("Wrap inline mathematical expressions in `\\( ... \\)`", settings.continue_prompt)
         self.assertIn("CONFIRMED_GLOSSARY_JSON", settings.continue_prompt)
 
 

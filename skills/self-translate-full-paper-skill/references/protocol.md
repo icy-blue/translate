@@ -57,6 +57,8 @@ For the selected unit:
 - use `##` for second-level subsection headings when the current unit is a subsection split
 - do not output synthetic `::` labels
 - keep formulas, citations, symbols, and references intact whenever possible
+- wrap standalone or display equations in `\[ ... \]`, and wrap inline mathematical expressions in `\( ... \)` when they contain formulas, variables, operators, superscripts, subscripts, or set notation
+- do not leave standalone equations as plain Markdown text, and do not wrap citations or ordinary parenthetical prose as math
 - exclude standalone figure and table captions unless they are clearly part of the running prose for the current unit
 
 If the unit cannot be located or bounded reliably, emit canonical unit failure:

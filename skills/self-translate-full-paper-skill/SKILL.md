@@ -85,6 +85,8 @@ Visible bot `content` must not include raw translation status markers.
 
 - Default to Simplified Chinese for translated content.
 - Keep visible paper headings, numbering, formulas, citations, symbols, and references faithful to the PDF.
+- Wrap standalone or display equations in `\[ ... \]`, and wrap inline mathematical expressions in `\( ... \)` when they contain formulas, variables, operators, superscripts, subscripts, or set notation.
+- Do not leave standalone equations as plain Markdown text, and do not wrap citations or ordinary parenthetical prose as math.
 - Do not invent missing sections, appendix names, or subsection boundaries.
 - If the structure is unreliable, prefer canonical `unsupported` output over guesswork.
 
