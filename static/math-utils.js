@@ -94,6 +94,7 @@ const MathUtils = {
 
       // 处理行内公式:
       // - 保留已有 \( ... \)
+      // - 将 $ ... $ 转成 \( ... \)
       // - 将疑似数学的裸 ( ... ) 转成 \( ... \)
       out.push(this.normalizeInlineMath(line));
       i++;
@@ -118,6 +119,15 @@ const MathUtils = {
       const token = `@@INLINE_LATEX_${preserved.length}@@`;
       preserved.push(m);
       return token;
+    });
+
+    // 支持常见的 $...$ 行内公式写法。要求分隔符内侧不是空白，
+    // 可减少把 "$5 and $10" 这类普通文本误判成公式的概率。
+    text = text.replace(/(^|[^\\$])\$([^\s$](?:\\.|[^$])*?)\$(?!\$)/g, (match, prefix, content) => {
+      if (/\s$/.test(content)) return match;
+      const token = `@@INLINE_LATEX_${preserved.length}@@`;
+      preserved.push(`\\(${content}\\)`);
+      return `${prefix}${token}`;
     });
 
     // 再处理裸 ( ... )
