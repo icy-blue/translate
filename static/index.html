@@ -3260,6 +3260,7 @@
         : [];
       const remainingUnitsCount = remainingUnitIds.length;
       const remainingUnitsSummary = remainingUnitsCount > 0 ? `剩余 ${remainingUnitsCount} 个 Units。` : "";
+      const showRemainingUnitsInline = translationStatus?.state !== "UNSUPPORTED";
       const translationStatusSummary = (() => {
         if (!translationProgress?.hasScopedPlan) {
           return "当前会话已生成翻译状态，但尚未解析出完整进度明细。";
@@ -3276,7 +3277,8 @@
           return `正文翻译已完成，正文进度 ${body}；当前处于附录阶段，附录进度 ${appendix}。`;
         }
         if (translationStatus?.state === "UNSUPPORTED") {
-          return `翻译在当前 Unit 停止，已完成总进度 ${overall}。${translationStatus?.reason ? `原因：${translationStatus.reason}。` : ""}`;
+          const reason = String(translationStatus?.reason || "").trim().replace(/[。.!?！？]+$/, "");
+          return `翻译在 ${overall} 停止。${reason ? `原因：${reason}。` : ""}`;
         }
         return `当前正在翻译中，总进度 ${overall}，正文进度 ${body}，附录进度 ${appendix}。`;
       })();
@@ -3549,7 +3551,7 @@
                       <div className="translation-status-bottom">
                         <div className="translation-status-desc">
                           <span>{translationStatusSummary}</span>
-                          {!!remainingUnitsSummary && (
+                          {showRemainingUnitsInline && !!remainingUnitsSummary && (
                             <>
                               <span className="translation-status-desc-inline-note">{remainingUnitsSummary}</span>
                               <button
@@ -3651,9 +3653,6 @@
                             </>
                           )}
                         </div>
-                      )}
-	                    {!!translationStatus.reason && (
-                        <div className="translation-status-note">原因：{translationStatus.reason}</div>
                       )}
                       {glossaryNeedsConfirmation && (
                         <div className="translation-status-note">请先确认关键术语与译法，再继续翻译。</div>
