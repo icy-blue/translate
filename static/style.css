@@ -788,6 +788,50 @@ body {
   color: #1f3247;
 }
 
+.translation-status-title-icon {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #c8d7f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #5b6f90;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.translation-status-title-icon:hover:not(:disabled),
+.translation-status-title-icon:focus-visible:not(:disabled) {
+  border-color: #1677ff;
+  color: #1677ff;
+}
+
+.translation-status-title-icon:disabled {
+  cursor: not-allowed;
+  border-color: #c8d7f0;
+  background: #fff;
+  color: #5b6f90;
+  opacity: 0.55;
+}
+
+.translation-status-title-icon .anticon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+}
+
 .translation-status-badge {
   display: inline-flex;
   align-items: center;

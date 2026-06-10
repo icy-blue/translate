@@ -110,6 +110,62 @@ def _get_latest_translation_context(session: Session, conversation_id: str) -> d
     )
 
 
+def _get_translation_contexts(session: Session, conversation_id: str) -> list[dict[str, object]]:
+    contexts: list[dict[str, object]] = []
+    messages = get_messages(session, conversation_id)
+    for message in reversed(messages):
+        if infer_message_metadata(message)["role"] != "bot":
+            continue
+        payload = safe_json_loads(message.client_payload_json, {})
+        if not isinstance(payload, dict):
+            continue
+        translation_plan = normalize_translation_plan_payload(payload.get("translation_plan"))
+        translation_status = normalize_translation_status_payload(payload.get("translation_status"))
+        translation_glossary = normalize_translation_glossary_payload(payload.get("translation_glossary"))
+        if translation_plan is None or translation_status is None:
+            continue
+        contexts.append(
+            {
+                "message_id": message.id,
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+                "translation_glossary": translation_glossary,
+            }
+        )
+    return contexts
+
+
+def _get_retry_translation_context(session: Session, conversation_id: str) -> dict[str, object]:
+    contexts = _get_translation_contexts(session, conversation_id)
+    if not contexts:
+        raise HTTPException(
+            status_code=409,
+            detail="会话缺少可用的 translation_plan / translation_status，无法重试。",
+        )
+    failed_context = contexts[0]
+    failed_status = normalize_translation_status_payload(failed_context["translation_status"])
+    if failed_status is None or failed_status["state"] != "UNSUPPORTED":
+        raise HTTPException(status_code=409, detail="当前会话不处于翻译失败状态，无需重试。")
+
+    retry_scope = failed_status["active_scope"] if failed_status["active_scope"] in {"body", "appendix"} else "body"
+    failed_unit_id = str(failed_status.get("current_unit_id", "") or "").strip()
+    for context in contexts[1:]:
+        previous_status = normalize_translation_status_payload(context["translation_status"])
+        previous_plan = normalize_translation_plan_payload(context["translation_plan"])
+        if previous_status is None or previous_plan is None or previous_status["state"] == "UNSUPPORTED":
+            continue
+        retry_unit_id = _get_next_unit_id(previous_plan, previous_status, retry_scope)
+        if retry_unit_id and (not failed_unit_id or retry_unit_id == failed_unit_id):
+            return {
+                "translation_plan": previous_plan,
+                "translation_status": previous_status,
+                "translation_glossary": context.get("translation_glossary") or failed_context.get("translation_glossary"),
+                "target_scope": retry_scope,
+                "retry_unit_id": retry_unit_id,
+            }
+    raise HTTPException(status_code=409, detail="无法定位失败前的翻译状态，不能自动重试。")
+
+
 def _default_confirmed_glossary() -> dict[str, object]:
     return normalize_translation_glossary_payload({"status": "confirmed", "entries": []}) or {
         "protocol": "glossary_v1",
@@ -237,8 +293,8 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
     )
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required.")
-    if payload.action != "continue":
-        raise HTTPException(status_code=400, detail="Only action=continue is supported.")
+    if payload.action not in {"continue", "retry"}:
+        raise HTTPException(status_code=400, detail="Only action=continue or action=retry is supported.")
     if payload.target_scope not in {"body", "appendix"}:
         raise HTTPException(status_code=400, detail="Unsupported target_scope.")
 
@@ -256,7 +312,11 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             if arxiv_id is None:
                 arxiv_id = _resolve_arxiv_id_from_semantic_result(get_semantic_result(session, payload.conversation_id))
         mark_task_progress(task_id, "读取最新翻译状态")
-        latest_context = _get_latest_translation_context(session, payload.conversation_id)
+        latest_context = (
+            _get_retry_translation_context(session, payload.conversation_id)
+            if payload.action == "retry"
+            else _get_latest_translation_context(session, payload.conversation_id)
+        )
         latest_status = normalize_translation_status_payload(latest_context["translation_status"])
         latest_plan = normalize_translation_plan_payload(latest_context["translation_plan"])
         latest_glossary = _ensure_confirmed_glossary_for_translation(latest_context.get("translation_glossary"))
@@ -264,10 +324,11 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             raise HTTPException(status_code=409, detail="最新翻译状态不可用。")
         if latest_status["state"] in {"UNSUPPORTED", "ALL_DONE"}:
             raise HTTPException(status_code=409, detail="当前会话没有可继续的 unit。")
-        next_unit_id = _get_next_unit_id(latest_plan, latest_status, payload.target_scope)
+        target_scope = str(latest_context.get("target_scope") or payload.target_scope)
+        next_unit_id = _get_next_unit_id(latest_plan, latest_status, target_scope)
         if not next_unit_id:
             raise HTTPException(status_code=409, detail="当前 scope 没有可继续的 unit。")
-        active_units = latest_plan["units"] if payload.target_scope == "body" else latest_plan["appendix_units"]
+        active_units = latest_plan["units"] if target_scope == "body" else latest_plan["appendix_units"]
         prompt = build_unit_translation_prompt(
             settings.continue_prompt,
             active_units=active_units,
@@ -297,7 +358,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             latest_plan,
             completed_unit_ids=completed_unit_ids,
             current_unit_id=next_unit_id,
-            attempted_scope=payload.target_scope,
+            attempted_scope=target_scope,
             raw_translation_result=raw_translation_result,
         )
         prepared_response = _prepare_bot_response(

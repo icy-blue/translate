@@ -2948,6 +2948,29 @@
         message.destroy("continue-progress");
       };
 
+      const handleRetryTranslation = async () => {
+        if (!conversationId) { message.warning("请先上传论文"); return; }
+        if (readOnly) { return; }
+        if (translationStatus?.state !== "UNSUPPORTED") { return; }
+        if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
+        if (!hasRequiredApiKeys) { message.warning("请先配置 API Key"); return; }
+
+        message.open({
+          key: "continue-progress",
+          type: "loading",
+          content: `正在使用 ${activeProviderLabel} 重试翻译：准备提交任务`,
+          duration: 0
+        });
+        setLoading(true);
+        await performTranslationAction({
+          type: "retry",
+          target_scope: translationStatus.active_scope === "appendix" ? "appendix" : "body",
+          progressKey: "continue-progress",
+        });
+        setLoading(false);
+        message.destroy("continue-progress");
+      };
+
       const handleAutoTranslate = async () => {
         if (!conversationId) { message.warning("请先上传论文"); return; }
         if (glossaryNeedsConfirmation) { message.warning("请先确认关键术语与译法，再开始翻译。"); return; }
@@ -3510,6 +3533,19 @@
 	                    <div className="translation-status-header">
 	                      <div className="translation-status-title">
                           <span>翻译状态</span>
+                          {!readOnly && translationStatus?.state === "UNSUPPORTED" && (
+                            <Tooltip title="重试当前 Unit">
+                              <button
+                                type="button"
+                                className="translation-status-title-icon"
+                                onClick={handleRetryTranslation}
+                                disabled={loading || autoTranslating || glossaryNeedsConfirmation}
+                                aria-label="重试当前 Unit"
+                              >
+                                <ReloadOutlined spin={loading} />
+                              </button>
+                            </Tooltip>
+                          )}
                         </div>
 	                      <span className="translation-status-badge">
                           <span className="translation-status-badge-dot" />

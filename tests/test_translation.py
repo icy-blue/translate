@@ -335,6 +335,69 @@ class ContinueTranslationFlowTest(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "术语词表尚未确认"):
                 asyncio.run(translation.handle_continue_translation("task-3", payload))
 
+    def test_retry_translation_uses_previous_status_before_unsupported_failure(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["ABSTRACT", "2 METHOD"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        previous_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=["ABSTRACT"],
+            current_unit_id="ABSTRACT",
+            attempted_scope="body",
+            raw_translation_result={"current_unit_id": "ABSTRACT", "state": "OK", "reason": ""},
+        )
+        self._seed_conversation(translation_plan, previous_status)
+        failed_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=["ABSTRACT"],
+            current_unit_id="2 METHOD",
+            attempted_scope="body",
+            raw_translation_result={"current_unit_id": "2 METHOD", "state": "UNSUPPORTED", "reason": "missing text"},
+        )
+        with Session(self.engine) as session:
+            add_message(
+                session,
+                conversation_id="conv-1",
+                content="",
+                message_kind="bot_reply",
+                visible_to_user=True,
+                client_payload={
+                    "translation_plan": translation_plan,
+                    "translation_status": failed_status,
+                },
+            )
+            session.commit()
+
+        payload = translation.ContinueTranslationTaskPayload(
+            conversation_id="conv-1",
+            action="retry",
+            target_scope="body",
+            poe_model="poe-model",
+            api_key="test-key",
+        )
+        with (
+            patch.object(translation, "engine", self.engine),
+            patch.object(translation, "mark_task_progress"),
+            patch.object(
+                translation,
+                "get_bot_response",
+                AsyncMock(
+                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"2 METHOD","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 2 METHOD\n译文'
+                ),
+            ) as response_mock,
+        ):
+            result = asyncio.run(translation.handle_continue_translation("task-retry", payload))
+
+        self.assertEqual(result["translation_status"]["current_unit_id"], "2 METHOD")
+        self.assertEqual(result["translation_status"]["completed_unit_ids"], ["ABSTRACT", "2 METHOD"])
+        prompt = response_mock.await_args.args[0][0].content
+        self.assertIn("CURRENT_UNIT_ID:\n2 METHOD", prompt)
+
     def test_confirm_translation_glossary_persists_confirmed_payload(self):
         translation_plan = normalize_translation_plan_payload(
             {
