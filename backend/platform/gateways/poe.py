@@ -163,8 +163,7 @@ def _arxiv_html_text(arxiv_id: str) -> str:
         with request.urlopen(req, timeout=120) as response:
             html = response.read().decode("utf-8", errors="replace")
     except error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id} with HTTP {exc.code}: {body[:500]}") from exc
+        raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id} with HTTP {exc.code}.") from exc
     except error.URLError as exc:
         raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id}: {exc}") from exc
 
@@ -211,8 +210,11 @@ def _deepseek_attachment_text(attachment: Any, arxiv_id: str | None = None) -> s
     if content_type.lower() == "application/pdf" or name.lower().endswith(".pdf"):
         detected_arxiv_id = arxiv_id or extract_arxiv_id(name, url)
         if detected_arxiv_id:
-            text = _arxiv_html_text(detected_arxiv_id)
-            return f"[arXiv HTML: {detected_arxiv_id}]\n{text}"
+            try:
+                text = _arxiv_html_text(detected_arxiv_id)
+                return f"[arXiv HTML: {detected_arxiv_id}]\n{text}"
+            except RuntimeError:
+                pass
         text = _pdf_text_from_bytes(_file_bytes(url, content_type))
         return f"[PDF: {name}]\n{text}"
     if _is_image_content_type(content_type):

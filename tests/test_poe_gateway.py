@@ -195,6 +195,32 @@ class PoeGatewayTest(unittest.TestCase):
         self.assertIn("[arXiv HTML: 2605.10922v1]", content)
         self.assertIn("Precise arXiv HTML text.", content)
 
+    def test_deepseek_arxiv_pdf_falls_back_to_pdf_text_when_html_unavailable(self):
+        captured_payloads: list[dict] = []
+
+        def fake_urlopen(req, timeout):
+            captured_payloads.append(json.loads(req.data.decode("utf-8")))
+            return _FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        attachment = fp.Attachment(
+            url="data:application/pdf;base64,JVBERg==",
+            content_type="application/pdf",
+            name="2112.10752v2.pdf",
+        )
+        message = fp.ProtocolMessage(role="user", content="Plan this.", attachments=[attachment])
+
+        with (
+            patch.object(poe, "_arxiv_html_text", side_effect=RuntimeError("Failed to fetch arXiv HTML 2112.10752v2 with HTTP 404.")),
+            patch.object(poe, "_pdf_text_from_bytes", return_value="Extracted fallback PDF text."),
+            patch.object(poe.request, "urlopen", side_effect=fake_urlopen),
+        ):
+            response = asyncio.run(poe.get_bot_response([message], "deepseek-v4-pro", "deepseek-key", provider="deepseek"))
+
+        self.assertEqual(response, "ok")
+        content = captured_payloads[0]["messages"][0]["content"]
+        self.assertIn("[PDF: 2112.10752v2.pdf]", content)
+        self.assertIn("Extracted fallback PDF text.", content)
+
 
 if __name__ == "__main__":
     unittest.main()
