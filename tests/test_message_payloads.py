@@ -194,6 +194,10 @@ class MessagePayloadsTest(unittest.TestCase):
         self.assertIn("`III.`", settings.continue_prompt)
         self.assertIn("Wrap standalone or display equations in `\\[ ... \\]`", settings.continue_prompt)
         self.assertIn("Wrap inline mathematical expressions in `\\( ... \\)`", settings.continue_prompt)
+        self.assertIn("do not translate tables themselves", settings.continue_prompt)
+        self.assertIn("Translate only non-caption running prose", settings.continue_prompt)
+        self.assertIn("no running prose remains after skipping those artifacts", settings.continue_prompt)
+        self.assertIn("（本章仅图表）", settings.continue_prompt)
         self.assertIn("CONFIRMED_GLOSSARY_JSON", settings.continue_prompt)
 
 

@@ -62,6 +62,9 @@ For each translated unit:
 
 - translate only the current unit
 - preserve heading numbering and visible prefixes
+- skip figures, tables, images, captions, legends, and table contents; do not translate tables themselves or standalone figure/table captions
+- translate only non-caption running prose, including prose that discusses figures or tables
+- when no running prose remains after skipping those artifacts, mark the unit `OK` and output the translated visible heading followed by `（本章仅图表）`
 - emit canonical `translation_status`
 - produce one hidden user message and one visible bot message
 - keep `translation_plan` and `translation_status` in bot `client_payload`
