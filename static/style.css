@@ -217,6 +217,8 @@ body {
 .content {
   flex: 1;
   margin-top: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .content h1,
@@ -288,6 +290,11 @@ body {
   background: white;
   border-radius: 10px;
   border: 1px solid #eee;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .user-message-block {
@@ -296,6 +303,42 @@ body {
   background: #f0f0f0;
   border-radius: 10px;
   border: 1px solid #ddd;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message-block img,
+.message-block video,
+.message-block iframe,
+.user-message-block img,
+.user-message-block video,
+.user-message-block iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+.message-block pre,
+.user-message-block pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.message-block code,
+.user-message-block code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message-block table,
+.user-message-block table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .title-block {
