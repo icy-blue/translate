@@ -15,6 +15,38 @@ from backend.platform.config import settings
 
 
 class MessagePayloadsTest(unittest.TestCase):
+    def _prepare_translated_unit(self, unit_id: str, visible_content: str) -> str:
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": [unit_id],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[unit_id],
+            current_unit_id=unit_id,
+            attempted_scope="body",
+            raw_translation_result={"current_unit_id": unit_id, "state": "OK", "reason": ""},
+        )
+        raw = f"""
+[TRANSLATION_STATUS_JSON]
+{{"current_unit_id":"{unit_id}","state":"OK","reason":""}}
+[/TRANSLATION_STATUS_JSON]
+
+{visible_content}
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+        return prepared["content"]
+
     def test_parse_translation_plan_response_extracts_units_and_appendices(self):
         raw = """
 {
@@ -142,6 +174,326 @@ class MessagePayloadsTest(unittest.TestCase):
         self.assertEqual(prepared["translation_glossary"]["entries"][0]["selected"], "网格面")
         self.assertNotIn("[TRANSLATION_STATUS_JSON]", prepared["content"])
         self.assertIn("这是译文。", prepared["content"])
+
+    def test_preprocess_normalizes_top_level_markdown_heading_level(self):
+        content = self._prepare_translated_unit("1 INTRODUCTION", "## 1 引言\n这是引言译文。")
+
+        self.assertTrue(content.startswith("# 1 引言\n"))
+        self.assertNotIn("## 1 引言", content)
+
+    def test_preprocess_adds_top_level_markdown_to_plain_heading(self):
+        content = self._prepare_translated_unit("1 INTRODUCTION", "1 引言\n这是引言译文。")
+
+        self.assertTrue(content.startswith("# 1 引言\n"))
+
+    def test_preprocess_normalizes_split_unit_single_heading_as_second_level(self):
+        content = self._prepare_translated_unit("3 METHOD :: 3.1 Setup", "### 3.1 设置\n这是设置译文。")
+
+        self.assertTrue(content.startswith("## 3.1 设置\n"))
+        self.assertNotIn("### 3.1 设置", content)
+
+    def test_preprocess_normalizes_split_unit_parent_and_child_headings(self):
+        content = self._prepare_translated_unit("3 METHOD :: 3.1 Setup", "## 3 方法\n3.1 设置\n这是设置译文。")
+
+        self.assertTrue(content.startswith("# 3 方法\n## 3.1 设置\n"))
+
+    def test_preprocess_normalizes_split_parent_and_later_child_heading(self):
+        content = self._prepare_translated_unit(
+            "Experiments :: Unconditional video modeling",
+            "## 4 实验\n\n本节先概述实验设置。\n\n### 4.1 无条件视频建模\n这是实验译文。",
+        )
+
+        self.assertIn("# 4 实验", content)
+        self.assertIn("## 4.1 无条件视频建模", content)
+        self.assertNotIn("### 4.1 无条件视频建模", content)
+
+    def test_preprocess_demotes_unnumbered_markdown_heading_in_split_lead_in(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["Method :: Text-to-Image Model", "Method :: Spatiotemporal Layers"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=["Method :: Text-to-Image Model"],
+            current_unit_id="Method :: Text-to-Image Model",
+            attempted_scope="body",
+            raw_translation_result={"current_unit_id": "Method :: Text-to-Image Model", "state": "OK", "reason": ""},
+        )
+        raw = """
+[TRANSLATION_STATUS_JSON]
+{"current_unit_id":"Method :: Text-to-Image Model","state":"OK","reason":""}
+[/TRANSLATION_STATUS_JSON]
+
+# 3 方法
+
+## Make-A-Video 的最终文本到视频推理方案（如图 2 所示）可形式化为：
+
+## 3.1 文本到图像模型
+这是 3.1 译文。
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+
+        self.assertIn("# 3 方法", prepared["content"])
+        self.assertIn("Make-A-Video 的最终文本到视频推理方案", prepared["content"])
+        self.assertNotIn("## Make-A-Video 的最终文本到视频推理方案", prepared["content"])
+        self.assertIn("## 3.1 文本到图像模型", prepared["content"])
+
+    def test_preprocess_strips_repeated_parent_prelude_for_later_split_unit(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["Method :: Text-to-Image Model", "Method :: Spatiotemporal Layers"],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=["Method :: Text-to-Image Model", "Method :: Spatiotemporal Layers"],
+            current_unit_id="Method :: Spatiotemporal Layers",
+            attempted_scope="body",
+            raw_translation_result={"current_unit_id": "Method :: Spatiotemporal Layers", "state": "OK", "reason": ""},
+        )
+        raw = """
+[TRANSLATION_STATUS_JSON]
+{"current_unit_id":"Method :: Spatiotemporal Layers","state":"OK","reason":""}
+[/TRANSLATION_STATUS_JSON]
+
+# 3 方法
+
+...
+
+## 3.2 时空层
+
+这是 3.2 译文。
+
+#### 3.2.1 伪三维卷积层
+这是 3.2.1 译文。
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+
+        self.assertTrue(prepared["content"].startswith("## 3.2 时空层\n"))
+        self.assertNotIn("# 3 方法", prepared["content"])
+        self.assertNotIn("...", prepared["content"])
+        self.assertIn("### 3.2.1 伪三维卷积层", prepared["content"])
+
+    def test_preprocess_normalizes_deeper_numbered_headings_by_numeric_depth(self):
+        content = self._prepare_translated_unit(
+            "Experiments :: Text-conditioned video generation",
+            "### 4.3 文本条件视频生成\n\n正文。\n\n#### 4.3.1 视频与图像建模的联合训练\n更多正文。",
+        )
+
+        self.assertIn("## 4.3 文本条件视频生成", content)
+        self.assertIn("### 4.3.1 视频与图像建模的联合训练", content)
+        self.assertNotIn("#### 4.3.1 视频与图像建模的联合训练", content)
+
+    def test_preprocess_infers_missing_top_level_number_from_active_units(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": [
+                    "Abstract",
+                    "Introduction",
+                    "Background",
+                    "Video diffusion models",
+                    "Experiments :: Unconditional video modeling",
+                    "Experiments :: Video prediction",
+                    "Experiments :: Text-conditioned video generation",
+                    "Related work",
+                    "Conclusion",
+                ],
+                "appendix_units": [],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[
+                "Abstract",
+                "Introduction",
+                "Background",
+                "Video diffusion models",
+                "Experiments :: Unconditional video modeling",
+                "Experiments :: Video prediction",
+                "Experiments :: Text-conditioned video generation",
+                "Related work",
+            ],
+            current_unit_id="Related work",
+            attempted_scope="body",
+            raw_translation_result={"current_unit_id": "Related work", "state": "OK", "reason": ""},
+        )
+        raw = """
+[TRANSLATION_STATUS_JSON]
+{"current_unit_id":"Related work","state":"OK","reason":""}
+[/TRANSLATION_STATUS_JSON]
+
+# 相关工作
+这是相关工作译文。
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+
+        self.assertTrue(prepared["content"].startswith("# 5 相关工作\n"))
+
+    def test_preprocess_infers_appendix_letter_for_unnumbered_appendix_heading(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["Abstract", "Conclusion"],
+                "appendix_units": ["Additional Implementation Details", "Model Samples"],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=["Abstract", "Conclusion", "Additional Implementation Details"],
+            current_unit_id="Additional Implementation Details",
+            attempted_scope="appendix",
+            raw_translation_result={"current_unit_id": "Additional Implementation Details", "state": "OK", "reason": ""},
+        )
+        raw = """
+[TRANSLATION_STATUS_JSON]
+{"current_unit_id":"Additional Implementation Details","state":"OK","reason":""}
+[/TRANSLATION_STATUS_JSON]
+
+# 附加实现细节
+这是附录译文。
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+
+        self.assertTrue(prepared["content"].startswith("# A. 附加实现细节\n"))
+        self.assertNotIn("# 1 附加实现细节", prepared["content"])
+
+    def test_preprocess_replaces_numeric_appendix_heading_with_letter(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["Abstract", "Conclusion"],
+                "appendix_units": [
+                    "Additional Implementation Details",
+                    "Model Samples",
+                    "Additional Scaling Results",
+                    "VAE Decoder Ablations",
+                ],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=["Abstract", "Conclusion", "Additional Implementation Details", "Model Samples", "Additional Scaling Results"],
+            current_unit_id="Additional Scaling Results",
+            attempted_scope="appendix",
+            raw_translation_result={"current_unit_id": "Additional Scaling Results", "state": "OK", "reason": ""},
+        )
+        raw = """
+[TRANSLATION_STATUS_JSON]
+{"current_unit_id":"Additional Scaling Results","state":"OK","reason":""}
+[/TRANSLATION_STATUS_JSON]
+
+# 3 附加缩放结果
+这是附录译文。
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+
+        self.assertTrue(prepared["content"].startswith("# C. 附加缩放结果\n"))
+        self.assertNotIn("# 3 附加缩放结果", prepared["content"])
+
+    def test_preprocess_infers_appendix_letter_after_all_done_status(self):
+        translation_plan = normalize_translation_plan_payload(
+            {
+                "status": "ok",
+                "units": ["Abstract", "Conclusion"],
+                "appendix_units": [
+                    "Additional Implementation Details",
+                    "Model Samples",
+                    "Additional Scaling Results",
+                    "VAE Decoder Ablations",
+                ],
+                "reason": "",
+            }
+        )
+        translation_status = build_translation_status_payload(
+            translation_plan,
+            completed_unit_ids=[
+                "Abstract",
+                "Conclusion",
+                "Additional Implementation Details",
+                "Model Samples",
+                "Additional Scaling Results",
+                "VAE Decoder Ablations",
+            ],
+            current_unit_id="VAE Decoder Ablations",
+            attempted_scope="appendix",
+            raw_translation_result={"current_unit_id": "VAE Decoder Ablations", "state": "OK", "reason": ""},
+        )
+        raw = """
+[TRANSLATION_STATUS_JSON]
+{"current_unit_id":"VAE Decoder Ablations","state":"OK","reason":""}
+[/TRANSLATION_STATUS_JSON]
+
+# 10 VAE解码器消融实验
+这是附录译文。
+        """.strip()
+        prepared = preprocess_bot_reply_for_storage(
+            raw,
+            {
+                "translation_plan": translation_plan,
+                "translation_status": translation_status,
+            },
+        )
+
+        self.assertTrue(prepared["content"].startswith("# D. VAE解码器消融实验\n"))
+        self.assertNotIn("# 10 VAE解码器消融实验", prepared["content"])
+
+    def test_preprocess_canonicalizes_abstract_heading(self):
+        content = self._prepare_translated_unit("Abstract", "## Abstract\n这是摘要译文。")
+
+        self.assertTrue(content.startswith("# 摘要\n"))
+        self.assertNotIn("## Abstract", content)
+
+    def test_preprocess_canonicalizes_spaced_abstract_unit_heading(self):
+        content = self._prepare_translated_unit("A BSTRACT", "# 1 摘要\n这是摘要译文。")
+
+        self.assertTrue(content.startswith("# 摘要\n"))
+        self.assertNotIn("# 1 摘要", content)
+
+    def test_preprocess_does_not_rewrite_opening_body_paragraph(self):
+        content = self._prepare_translated_unit("1 INTRODUCTION", "这是第一段译文，没有标题。\n第二段译文。")
+
+        self.assertEqual(content, "这是第一段译文，没有标题。\n第二段译文。")
 
     def test_build_translation_status_payload_marks_body_done_when_appendix_remains(self):
         translation_plan = normalize_translation_plan_payload(
