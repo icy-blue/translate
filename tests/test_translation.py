@@ -6,16 +6,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import SQLModel, Session, create_engine, select
 
 from backend.domain.message_payloads import (
     build_translation_status_payload,
     normalize_translation_glossary_payload,
     normalize_translation_plan_payload,
+    safe_json_loads,
 )
 from backend.modules import translation
 from backend.modules.conversations import add_message
-from backend.platform.models import Conversation, FileRecord, PaperSemanticScholarResult
+from backend.platform.models import Conversation, FileRecord, Message, PaperSemanticScholarResult
 
 
 class ContinueTranslationFlowTest(unittest.TestCase):
@@ -182,6 +183,12 @@ class ContinueTranslationFlowTest(unittest.TestCase):
 
         self.assertEqual(result["translation_status"]["current_unit_id"], "ABSTRACT")
         self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
+        with Session(self.engine) as session:
+            bot_messages = session.exec(
+                select(Message).where(Message.conversation_id == "conv-1", Message.message_kind == "bot_reply").order_by(Message.id)
+            ).all()
+            saved_payload = safe_json_loads(bot_messages[-1].client_payload_json, {})
+        self.assertEqual(saved_payload.get("translation_provider"), "deepseek")
         progress_mock.assert_any_call("task-deepseek", "等待 DeepSeek 返回翻译结果")
 
     def test_continue_translation_passes_semantic_arxiv_id_to_deepseek(self):
@@ -278,6 +285,12 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         self.assertEqual(result["translation_status"]["current_unit_id"], "ABSTRACT")
         self.assertEqual(response_mock.await_args.args[2], "poe-key")
         self.assertEqual(response_mock.await_args.kwargs["provider"], "poe")
+        with Session(self.engine) as session:
+            bot_messages = session.exec(
+                select(Message).where(Message.conversation_id == "conv-1", Message.message_kind == "bot_reply").order_by(Message.id)
+            ).all()
+            saved_payload = safe_json_loads(bot_messages[-1].client_payload_json, {})
+        self.assertEqual(saved_payload.get("translation_provider"), "poe")
         progress_mock.assert_any_call("task-mixed", "等待 Poe 返回翻译结果")
 
     def test_continue_translation_rejects_unconfirmed_glossary(self):

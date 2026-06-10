@@ -333,6 +333,14 @@ def strip_translation_status_block(content: str | None) -> str:
     return TRANSLATION_STATUS_JSON_PATTERN.sub("", content or "").strip()
 
 
+def _translation_provider_from_payload(payload: dict[str, Any]) -> str:
+    return str(payload.get("translation_provider", "") or "").strip().lower()
+
+
+def _should_normalize_translation_headings(payload: dict[str, Any]) -> bool:
+    return _translation_provider_from_payload(payload) == "deepseek"
+
+
 def _split_unit_parts(unit_id: str) -> list[str]:
     return [part.strip() for part in str(unit_id or "").split("::") if part.strip()]
 
@@ -826,7 +834,8 @@ def preprocess_bot_reply_for_storage(content: str | None, client_payload: Any = 
     translation_glossary = normalize_translation_glossary_payload(existing_payload.get("translation_glossary"))
     raw_translation_result = parse_raw_translation_status_block(original_content)
     clean_content = strip_translation_status_block(original_content) if raw_translation_result is not None else original_content.strip()
-    clean_content = normalize_translation_heading_markdown(clean_content, translation_status, translation_plan)
+    if _should_normalize_translation_headings(existing_payload):
+        clean_content = normalize_translation_heading_markdown(clean_content, translation_status, translation_plan)
     if translation_plan is not None:
         payload["translation_plan"] = translation_plan
     else:

@@ -54,14 +54,18 @@ def _prepare_bot_response(
     translation_plan: dict[str, object],
     translation_status: dict[str, object],
     translation_glossary: dict[str, object] | None,
+    translation_provider: str = "",
 ) -> dict:
+    client_payload = {
+        "translation_plan": translation_plan,
+        "translation_status": translation_status,
+        "translation_glossary": translation_glossary,
+    }
+    if str(translation_provider or "").strip():
+        client_payload["translation_provider"] = str(translation_provider or "").strip()
     prepared_response = preprocess_bot_reply_for_storage(
         response_text,
-        {
-            "translation_plan": translation_plan,
-            "translation_status": translation_status,
-            "translation_glossary": translation_glossary,
-        },
+        client_payload,
     )
     response_content = str(prepared_response["content"])
     return {
@@ -302,6 +306,7 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             translation_plan=latest_plan,
             translation_status=canonical_status,
             translation_glossary=latest_glossary,
+            translation_provider=actual_provider,
         )
         mark_task_progress(task_id, "写入会话消息")
         create_message_pair(

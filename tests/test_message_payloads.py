@@ -15,7 +15,7 @@ from backend.platform.config import settings
 
 
 class MessagePayloadsTest(unittest.TestCase):
-    def _prepare_translated_unit(self, unit_id: str, visible_content: str) -> str:
+    def _prepare_translated_unit(self, unit_id: str, visible_content: str, *, translation_provider: str = "deepseek") -> str:
         translation_plan = normalize_translation_plan_payload(
             {
                 "status": "ok",
@@ -43,6 +43,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": translation_provider,
             },
         )
         return prepared["content"]
@@ -167,6 +168,7 @@ class MessagePayloadsTest(unittest.TestCase):
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
                 "translation_glossary": translation_glossary,
+                "translation_provider": "deepseek",
             },
         )
         self.assertEqual(prepared["translation_status"]["current_unit_id"], "ABSTRACT")
@@ -180,6 +182,11 @@ class MessagePayloadsTest(unittest.TestCase):
 
         self.assertTrue(content.startswith("# 1 引言\n"))
         self.assertNotIn("## 1 引言", content)
+
+    def test_preprocess_does_not_normalize_heading_without_deepseek_provider(self):
+        content = self._prepare_translated_unit("1 INTRODUCTION", "## 1 引言\n这是引言译文。", translation_provider="poe")
+
+        self.assertTrue(content.startswith("## 1 引言\n"))
 
     def test_preprocess_adds_top_level_markdown_to_plain_heading(self):
         content = self._prepare_translated_unit("1 INTRODUCTION", "1 引言\n这是引言译文。")
@@ -240,6 +247,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": "deepseek",
             },
         )
 
@@ -285,6 +293,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": "deepseek",
             },
         )
 
@@ -351,6 +360,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": "deepseek",
             },
         )
 
@@ -385,6 +395,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": "deepseek",
             },
         )
 
@@ -425,6 +436,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": "deepseek",
             },
         )
 
@@ -472,6 +484,7 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
+                "translation_provider": "deepseek",
             },
         )
 
