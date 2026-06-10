@@ -61,7 +61,8 @@ For the selected unit:
 - do not leave standalone equations as plain Markdown text, and do not wrap citations or ordinary parenthetical prose as math
 - skip figures, tables, images, captions, legends, and table contents; do not translate tables themselves or standalone figure/table captions
 - translate only non-caption running prose, including prose that discusses figures or tables
-- if no running prose remains after skipping those artifacts, mark it `OK` and output only the translated visible heading followed by `（本章仅图表）`
+- when a skipped figure/table/caption/table-only span appears inside an otherwise translatable section, silently omit that local artifact and continue translating the surrounding prose; never insert `（本章仅图表）` as a placeholder for skipped local artifacts
+- use `（本章仅图表）` only if the entire current unit, checked from its heading to the next active unit boundary, contains no non-caption running prose
 
 If the unit cannot be located or bounded reliably, emit canonical unit failure:
 
