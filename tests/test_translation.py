@@ -175,7 +175,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
                 translation,
                 "get_bot_response",
                 AsyncMock(
-                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 摘要\n译文'
+                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n## Abstract\n译文'
                 ),
             ) as response_mock,
         ):
@@ -188,7 +188,9 @@ class ContinueTranslationFlowTest(unittest.TestCase):
                 select(Message).where(Message.conversation_id == "conv-1", Message.message_kind == "bot_reply").order_by(Message.id)
             ).all()
             saved_payload = safe_json_loads(bot_messages[-1].client_payload_json, {})
-        self.assertEqual(saved_payload.get("translation_provider"), "deepseek")
+            saved_content = bot_messages[-1].content
+        self.assertNotIn("translation_provider", saved_payload)
+        self.assertTrue(saved_content.startswith("# 摘要\n"))
         progress_mock.assert_any_call("task-deepseek", "等待 DeepSeek 返回翻译结果")
 
     def test_continue_translation_passes_semantic_arxiv_id_to_deepseek(self):
@@ -276,7 +278,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
                 translation,
                 "get_bot_response",
                 AsyncMock(
-                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n# 摘要\n译文'
+                    return_value='[TRANSLATION_STATUS_JSON]\n{"current_unit_id":"ABSTRACT","state":"OK","reason":""}\n[/TRANSLATION_STATUS_JSON]\n\n## Abstract\n译文'
                 ),
             ) as response_mock,
         ):
@@ -290,7 +292,9 @@ class ContinueTranslationFlowTest(unittest.TestCase):
                 select(Message).where(Message.conversation_id == "conv-1", Message.message_kind == "bot_reply").order_by(Message.id)
             ).all()
             saved_payload = safe_json_loads(bot_messages[-1].client_payload_json, {})
-        self.assertEqual(saved_payload.get("translation_provider"), "poe")
+            saved_content = bot_messages[-1].content
+        self.assertNotIn("translation_provider", saved_payload)
+        self.assertTrue(saved_content.startswith("## Abstract\n"))
         progress_mock.assert_any_call("task-mixed", "等待 Poe 返回翻译结果")
 
     def test_continue_translation_rejects_unconfirmed_glossary(self):

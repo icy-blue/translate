@@ -54,18 +54,17 @@ def _prepare_bot_response(
     translation_plan: dict[str, object],
     translation_status: dict[str, object],
     translation_glossary: dict[str, object] | None,
-    translation_provider: str = "",
+    normalize_translation_headings: bool = False,
 ) -> dict:
     client_payload = {
         "translation_plan": translation_plan,
         "translation_status": translation_status,
         "translation_glossary": translation_glossary,
     }
-    if str(translation_provider or "").strip():
-        client_payload["translation_provider"] = str(translation_provider or "").strip()
     prepared_response = preprocess_bot_reply_for_storage(
         response_text,
         client_payload,
+        normalize_translation_headings=normalize_translation_headings,
     )
     response_content = str(prepared_response["content"])
     return {
@@ -306,14 +305,14 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             translation_plan=latest_plan,
             translation_status=canonical_status,
             translation_glossary=latest_glossary,
-            translation_provider=actual_provider,
+            normalize_translation_headings=actual_provider == "deepseek",
         )
         mark_task_progress(task_id, "写入会话消息")
         create_message_pair(
             session,
             payload.conversation_id,
             prompt,
-            response_text,
+            prepared_response["content"],
             user_message_kind="continue_command",
             user_visible_to_user=False,
             bot_section_category=prepared_response["section_category"],

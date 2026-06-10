@@ -15,7 +15,7 @@ from backend.platform.config import settings
 
 
 class MessagePayloadsTest(unittest.TestCase):
-    def _prepare_translated_unit(self, unit_id: str, visible_content: str, *, translation_provider: str = "deepseek") -> str:
+    def _prepare_translated_unit(self, unit_id: str, visible_content: str, *, normalize_translation_headings: bool = True) -> str:
         translation_plan = normalize_translation_plan_payload(
             {
                 "status": "ok",
@@ -43,8 +43,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": translation_provider,
             },
+            normalize_translation_headings=normalize_translation_headings,
         )
         return prepared["content"]
 
@@ -168,8 +168,8 @@ class MessagePayloadsTest(unittest.TestCase):
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
                 "translation_glossary": translation_glossary,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
         self.assertEqual(prepared["translation_status"]["current_unit_id"], "ABSTRACT")
         self.assertEqual(prepared["translation_plan"]["units"], ["ABSTRACT", "1 INTRODUCTION"])
@@ -184,7 +184,7 @@ class MessagePayloadsTest(unittest.TestCase):
         self.assertNotIn("## 1 引言", content)
 
     def test_preprocess_does_not_normalize_heading_without_deepseek_provider(self):
-        content = self._prepare_translated_unit("1 INTRODUCTION", "## 1 引言\n这是引言译文。", translation_provider="poe")
+        content = self._prepare_translated_unit("1 INTRODUCTION", "## 1 引言\n这是引言译文。", normalize_translation_headings=False)
 
         self.assertTrue(content.startswith("## 1 引言\n"))
 
@@ -247,8 +247,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
 
         self.assertIn("# 3 方法", prepared["content"])
@@ -293,8 +293,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
 
         self.assertTrue(prepared["content"].startswith("## 3.2 时空层\n"))
@@ -360,8 +360,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
 
         self.assertTrue(prepared["content"].startswith("# 5 相关工作\n"))
@@ -395,8 +395,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
 
         self.assertTrue(prepared["content"].startswith("# A. 附加实现细节\n"))
@@ -436,8 +436,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
 
         self.assertTrue(prepared["content"].startswith("# C. 附加缩放结果\n"))
@@ -484,8 +484,8 @@ class MessagePayloadsTest(unittest.TestCase):
             {
                 "translation_plan": translation_plan,
                 "translation_status": translation_status,
-                "translation_provider": "deepseek",
             },
+            normalize_translation_headings=True,
         )
 
         self.assertTrue(prepared["content"].startswith("# D. VAE解码器消融实验\n"))
