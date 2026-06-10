@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from html.parser import HTMLParser
-import io
 import json
 import mimetypes
 import re
@@ -12,8 +10,8 @@ from typing import Optional
 from urllib import error, request
 
 import fastapi_poe as fp
-from pypdf import PdfReader
 
+from ...domain.paper_text_filter import extract_filtered_pdf_text, filter_arxiv_html_text
 from ...domain.paper_tags import (
     build_category_selection_prompt,
     build_tag_payloads,
@@ -88,13 +86,9 @@ def _file_bytes(url: str, content_type: str) -> bytes:
 
 def _pdf_text_from_bytes(content: bytes) -> str:
     try:
-        reader = PdfReader(io.BytesIO(content))
-        page_text = [(page.extract_text() or "").strip() for page in reader.pages]
+        text = extract_filtered_pdf_text(content)
     except Exception as exc:
         raise RuntimeError(f"Failed to extract PDF text for DeepSeek: {exc}") from exc
-    text = "\n\n".join(part for part in page_text if part)
-    if not text.strip():
-        raise RuntimeError("DeepSeek provider requires extractable PDF text; this PDF may be scanned or image-based.")
     return text
 
 
@@ -123,33 +117,6 @@ def extract_arxiv_id_from_pdf_bytes(content: bytes) -> str | None:
         return None
 
 
-class _ArxivHtmlTextParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self._skip_depth = 0
-        self._chunks: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in {"script", "style", "noscript", "svg", "math"}:
-            self._skip_depth += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"script", "style", "noscript", "svg", "math"} and self._skip_depth:
-            self._skip_depth -= 1
-        if tag.lower() in {"p", "div", "section", "article", "h1", "h2", "h3", "h4", "li", "tr"}:
-            self._chunks.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth:
-            return
-        text = " ".join(data.split())
-        if text:
-            self._chunks.append(text)
-
-    def text(self) -> str:
-        return re.sub(r"\n{3,}", "\n\n", "\n".join(self._chunks)).strip()
-
-
 def _arxiv_html_url(arxiv_id: str) -> str:
     return f"https://arxiv.org/html/{arxiv_id}"
 
@@ -167,9 +134,7 @@ def _arxiv_html_text(arxiv_id: str) -> str:
     except error.URLError as exc:
         raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id}: {exc}") from exc
 
-    parser = _ArxivHtmlTextParser()
-    parser.feed(html)
-    text = parser.text()
+    text = filter_arxiv_html_text(html)
     if not text:
         raise RuntimeError(f"arXiv HTML {arxiv_id} did not contain extractable text.")
     return text

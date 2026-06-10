@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import fastapi_poe as fp
+import fitz
 
 from backend.platform.gateways import poe
 
@@ -167,6 +168,46 @@ class PoeGatewayTest(unittest.TestCase):
         self.assertIn("Read this.", content)
         self.assertIn("[PDF: paper.pdf]", content)
         self.assertIn("Extracted PDF text.", content)
+
+    def test_get_bot_response_filters_deepseek_pdf_artifacts(self):
+        captured_payloads: list[dict] = []
+
+        def fake_urlopen(req, timeout):
+            captured_payloads.append(json.loads(req.data.decode("utf-8")))
+            return _FakeResponse({"choices": [{"message": {"content": "deepseek ok"}}]})
+
+        document = fitz.open()
+        page = document.new_page()
+        page.insert_text((72, 72), "1 Introduction")
+        page.insert_text((72, 100), "Figure 1: Overview of the method.")
+        page.insert_text((72, 128), "Figure 1 shows the model pipeline.")
+        page.insert_text((72, 156), "Table 1: Quantitative comparison.")
+        page.insert_text((72, 184), "Method   Accuracy   Runtime")
+        page.insert_text((72, 212), "Ours     95.2       1.0")
+        pdf_bytes = document.tobytes()
+        document.close()
+
+        attachment = fp.Attachment(
+            url="data:application/pdf;base64,JVBERg==",
+            content_type="application/pdf",
+            name="paper.pdf",
+        )
+        message = fp.ProtocolMessage(role="user", content="Translate this.", attachments=[attachment])
+
+        with (
+            patch.object(poe, "_file_bytes", return_value=pdf_bytes),
+            patch.object(poe.request, "urlopen", side_effect=fake_urlopen),
+        ):
+            response = asyncio.run(poe.get_bot_response([message], "deepseek-v4-pro", "deepseek-key", provider="deepseek"))
+
+        self.assertEqual(response, "deepseek ok")
+        content = captured_payloads[0]["messages"][0]["content"]
+        self.assertIn("1 Introduction", content)
+        self.assertIn("Figure 1 shows the model pipeline.", content)
+        self.assertNotIn("Overview of the method", content)
+        self.assertNotIn("Quantitative comparison", content)
+        self.assertNotIn("Method Accuracy Runtime", content)
+        self.assertNotIn("Ours 95.2", content)
 
     def test_deepseek_arxiv_pdf_uses_html_text_without_pdf_extraction(self):
         captured_payloads: list[dict] = []
