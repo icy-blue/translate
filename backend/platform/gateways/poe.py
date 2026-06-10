@@ -29,6 +29,7 @@ POE_PROVIDER = "poe"
 MIXED_PROVIDER = "mixed"
 SUPPORTED_PROVIDERS = {POE_PROVIDER, DEEPSEEK_PROVIDER, MIXED_PROVIDER}
 ARXIV_ID_PATTERN = re.compile(r"(?i)(?:arxiv[:_\-\s/]+|abs/|pdf/|html/)?(\d{4}\.\d{4,5})(v\d+)?")
+MIN_ARXIV_HTML_TEXT_LENGTH = 12000
 
 
 def normalize_provider(provider: str | None) -> str:
@@ -140,6 +141,13 @@ def _arxiv_html_text(arxiv_id: str) -> str:
     return text
 
 
+def _is_probably_complete_arxiv_html_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if len(normalized) < MIN_ARXIV_HTML_TEXT_LENGTH:
+        return False
+    return "references" in normalized or "bibliography" in normalized
+
+
 def _attachment_part(attachment: Any) -> dict[str, Any]:
     url = str(getattr(attachment, "url", "")).strip()
     content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
@@ -177,7 +185,8 @@ def _deepseek_attachment_text(attachment: Any, arxiv_id: str | None = None) -> s
         if detected_arxiv_id:
             try:
                 text = _arxiv_html_text(detected_arxiv_id)
-                return f"[arXiv HTML: {detected_arxiv_id}]\n{text}"
+                if _is_probably_complete_arxiv_html_text(text):
+                    return f"[arXiv HTML: {detected_arxiv_id}]\n{text}"
             except RuntimeError:
                 pass
         text = _pdf_text_from_bytes(_file_bytes(url, content_type))
