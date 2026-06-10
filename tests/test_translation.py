@@ -193,7 +193,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         self.assertTrue(saved_content.startswith("# 摘要\n"))
         progress_mock.assert_any_call("task-deepseek", "等待 DeepSeek 返回翻译结果")
 
-    def test_continue_translation_passes_semantic_arxiv_id_to_deepseek(self):
+    def test_continue_translation_does_not_pass_semantic_arxiv_id_to_deepseek(self):
         translation_plan = normalize_translation_plan_payload(
             {
                 "status": "ok",
@@ -242,7 +242,7 @@ class ContinueTranslationFlowTest(unittest.TestCase):
         ):
             asyncio.run(translation.handle_continue_translation("task-deepseek-arxiv", payload))
 
-        self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
+        self.assertNotIn("arxiv_id", response_mock.await_args.kwargs)
 
     def test_mixed_continue_translation_uses_poe_provider(self):
         translation_plan = normalize_translation_plan_payload(

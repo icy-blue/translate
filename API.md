@@ -64,7 +64,7 @@
 - 上传文件必须是 `.pdf`
 - 会按 PDF SHA-256 指纹去重
 - 若命中已有会话，最终任务结果会直接返回旧会话
-- `provider=deepseek` 或 `provider=mixed` 的提取阶段会先准备论文文本再调用 DeepSeek；识别为 arXiv 论文时优先使用 `https://arxiv.org/html/{arxiv_id}`，非 arXiv 才使用普通 PDF 抽文本
+- `provider=deepseek` 或 `provider=mixed` 的提取阶段会先通过本地 PDF 文本抽取准备论文文本再调用 DeepSeek；不会抓取 arXiv HTML
 
 ### `POST /translations/{conversation_id}/continue`
 

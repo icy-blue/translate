@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from html.parser import HTMLParser
 import io
 import re
 
@@ -16,26 +15,6 @@ TABLE_CAPTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 LEGEND_PATTERN = re.compile(r"^\s*(?:legend|notes?|source)\s*[:：]", re.IGNORECASE)
-HTML_SKIP_CLASS_PATTERN = re.compile(r"(?:^|[_\-\s])(?:ltx_)?(?:figure|table|caption|legend)(?:$|[_\-\s])", re.IGNORECASE)
-HTML_SKIP_TAGS = {
-    "script",
-    "style",
-    "noscript",
-    "svg",
-    "math",
-    "figure",
-    "figcaption",
-    "table",
-    "thead",
-    "tbody",
-    "tfoot",
-    "tr",
-    "td",
-    "th",
-}
-HTML_BLOCK_TAGS = {"p", "div", "section", "article", "h1", "h2", "h3", "h4", "li"}
-
-
 def _normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
 
@@ -133,57 +112,6 @@ def filter_plain_paper_text(text: str) -> str:
         after_any_caption_lines = max(0, after_any_caption_lines - 1)
 
     return re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
-
-
-class _FilteredPaperHtmlParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self._skip_stack: list[bool] = []
-        self._skip_depth = 0
-        self._chunks: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        normalized_tag = tag.lower()
-        should_skip = self._skip_depth > 0 or normalized_tag in HTML_SKIP_TAGS or _attrs_should_skip(attrs)
-        self._skip_stack.append(should_skip)
-        if should_skip:
-            self._skip_depth += 1
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in HTML_BLOCK_TAGS and not self._skip_depth and not _attrs_should_skip(attrs):
-            self._chunks.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        was_skipped = self._skip_stack.pop() if self._skip_stack else False
-        if was_skipped and self._skip_depth:
-            self._skip_depth -= 1
-        if not was_skipped and tag.lower() in HTML_BLOCK_TAGS:
-            self._chunks.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth:
-            return
-        text = _normalize_whitespace(data)
-        if text:
-            self._chunks.append(text)
-
-    def text(self) -> str:
-        return filter_plain_paper_text("\n".join(self._chunks))
-
-
-def _attrs_should_skip(attrs: list[tuple[str, str | None]]) -> bool:
-    for name, value in attrs:
-        if name.lower() not in {"class", "id", "role", "aria-label"}:
-            continue
-        if value and HTML_SKIP_CLASS_PATTERN.search(value):
-            return True
-    return False
-
-
-def filter_arxiv_html_text(html: str) -> str:
-    parser = _FilteredPaperHtmlParser()
-    parser.feed(str(html or ""))
-    return parser.text()
 
 
 def _raw_pdf_text_from_bytes(content: bytes) -> str:

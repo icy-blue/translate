@@ -346,7 +346,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
         self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
         self.assertEqual(extract_tags_mock.await_args.kwargs["provider"], "deepseek")
 
-    def test_deepseek_ingest_passes_semantic_arxiv_id_to_planner(self):
+    def test_deepseek_ingest_does_not_pass_semantic_arxiv_id_to_planner(self):
         pdf_bytes = build_test_pdf_bytes()
         staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         staged_pdf.write(pdf_bytes)
@@ -398,7 +398,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
         ):
             asyncio.run(ingest.handle_ingest_task("task-deepseek-arxiv", payload))
 
-        self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
+        self.assertNotIn("arxiv_id", response_mock.await_args.kwargs)
 
     def test_mixed_ingest_uses_deepseek_for_title_planner_and_tags(self):
         pdf_bytes = build_test_pdf_bytes()
@@ -452,7 +452,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
         self.assertEqual(extract_tags_mock.await_args.args[5], "deepseek-key")
         self.assertEqual(extract_tags_mock.await_args.kwargs["provider"], "deepseek")
 
-    def test_mixed_ingest_passes_semantic_arxiv_id_to_planner(self):
+    def test_mixed_ingest_does_not_pass_semantic_arxiv_id_to_planner(self):
         pdf_bytes = build_test_pdf_bytes()
         staged_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         staged_pdf.write(pdf_bytes)
@@ -506,7 +506,7 @@ class IngestDuplicateHandlingTest(unittest.TestCase):
             asyncio.run(ingest.handle_ingest_task("task-mixed-arxiv", payload))
 
         self.assertEqual(response_mock.await_args.kwargs["provider"], "deepseek")
-        self.assertEqual(response_mock.await_args.kwargs["arxiv_id"], "2605.10922v1")
+        self.assertNotIn("arxiv_id", response_mock.await_args.kwargs)
 
 
 if __name__ == "__main__":

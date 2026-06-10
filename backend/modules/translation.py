@@ -20,9 +20,9 @@ from ..domain.message_payloads import (
     safe_json_loads,
 )
 from ..platform.config import engine, settings
-from ..platform.gateways.poe import extract_arxiv_id, get_bot_response, normalize_provider
+from ..platform.gateways.poe import get_bot_response, normalize_provider
 from ..platform.task_runtime import enqueue_task, get_active_task, get_session_enqueue_lock, mark_task_progress, register_task_definition
-from .conversations import add_message, create_message_pair, get_conversation, get_file_record, get_messages, get_semantic_result
+from .conversations import add_message, create_message_pair, get_conversation, get_file_record, get_messages
 
 router = APIRouter(tags=["translation"])
 
@@ -207,18 +207,6 @@ def _get_next_unit_id(translation_plan: dict[str, object], translation_status: d
     return ""
 
 
-def _resolve_arxiv_id_from_semantic_result(semantic_result) -> str | None:
-    if semantic_result is None:
-        return None
-    return extract_arxiv_id(
-        getattr(semantic_result, "external_ids_json", None),
-        getattr(semantic_result, "open_access_pdf_json", None),
-        getattr(semantic_result, "url", None),
-        getattr(semantic_result, "paper_id", None),
-        getattr(semantic_result, "matched_title", None),
-    )
-
-
 def _provider_label(provider: str) -> str:
     return "DeepSeek" if normalize_provider(provider) == "deepseek" else "Poe"
 
@@ -306,11 +294,6 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
         file_record = get_file_record(session, payload.conversation_id)
         if not file_record:
             raise HTTPException(status_code=404, detail="File record not found.")
-        arxiv_id = None
-        if actual_provider == "deepseek":
-            arxiv_id = extract_arxiv_id(file_record.filename, file_record.poe_name, file_record.poe_url)
-            if arxiv_id is None:
-                arxiv_id = _resolve_arxiv_id_from_semantic_result(get_semantic_result(session, payload.conversation_id))
         mark_task_progress(task_id, "读取最新翻译状态")
         latest_context = (
             _get_retry_translation_context(session, payload.conversation_id)
@@ -342,7 +325,6 @@ async def handle_continue_translation(task_id: str, payload: ContinueTranslation
             payload.poe_model,
             api_key,
             provider=actual_provider,
-            arxiv_id=arxiv_id,
         )
         raw_translation_result = normalize_raw_translation_result_payload(parse_raw_translation_status_block(response_text))
         if raw_translation_result is None:

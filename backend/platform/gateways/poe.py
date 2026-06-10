@@ -4,14 +4,13 @@ import asyncio
 import base64
 import json
 import mimetypes
-import re
 from typing import Any
 from typing import Optional
 from urllib import error, request
 
 import fastapi_poe as fp
 
-from ...domain.paper_text_filter import extract_filtered_pdf_text, filter_arxiv_html_text
+from ...domain.paper_text_filter import extract_filtered_pdf_text
 from ...domain.paper_tags import (
     build_category_selection_prompt,
     build_tag_payloads,
@@ -28,8 +27,6 @@ DEEPSEEK_PROVIDER = "deepseek"
 POE_PROVIDER = "poe"
 MIXED_PROVIDER = "mixed"
 SUPPORTED_PROVIDERS = {POE_PROVIDER, DEEPSEEK_PROVIDER, MIXED_PROVIDER}
-ARXIV_ID_PATTERN = re.compile(r"(?i)(?:arxiv[:_\-\s/]+|abs/|pdf/|html/)?(\d{4}\.\d{4,5})(v\d+)?")
-MIN_ARXIV_HTML_TEXT_LENGTH = 12000
 
 
 def normalize_provider(provider: str | None) -> str:
@@ -93,61 +90,6 @@ def _pdf_text_from_bytes(content: bytes) -> str:
     return text
 
 
-def extract_arxiv_id(*values: Any) -> str | None:
-    for value in values:
-        if value is None:
-            continue
-        if isinstance(value, (dict, list)):
-            candidates = [json.dumps(value, ensure_ascii=False)]
-        else:
-            candidates = [str(value)]
-        for candidate in candidates:
-            for match in ARXIV_ID_PATTERN.finditer(candidate):
-                prefix = candidate[max(0, match.start() - 12) : match.start()].lower()
-                raw_match = match.group(0).lower()
-                if "semanticscholar" in prefix and not any(marker in raw_match for marker in ("arxiv", "abs/", "pdf/", "html/")):
-                    continue
-                return f"{match.group(1)}{match.group(2) or ''}"
-    return None
-
-
-def extract_arxiv_id_from_pdf_bytes(content: bytes) -> str | None:
-    try:
-        return extract_arxiv_id(_pdf_text_from_bytes(content))
-    except Exception:
-        return None
-
-
-def _arxiv_html_url(arxiv_id: str) -> str:
-    return f"https://arxiv.org/html/{arxiv_id}"
-
-
-def _arxiv_html_text(arxiv_id: str) -> str:
-    req = request.Request(
-        _arxiv_html_url(arxiv_id),
-        headers={"User-Agent": "translate-deepseek-arxiv-html/1.0", "Accept": "text/html,*/*"},
-    )
-    try:
-        with request.urlopen(req, timeout=120) as response:
-            html = response.read().decode("utf-8", errors="replace")
-    except error.HTTPError as exc:
-        raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id} with HTTP {exc.code}.") from exc
-    except error.URLError as exc:
-        raise RuntimeError(f"Failed to fetch arXiv HTML {arxiv_id}: {exc}") from exc
-
-    text = filter_arxiv_html_text(html)
-    if not text:
-        raise RuntimeError(f"arXiv HTML {arxiv_id} did not contain extractable text.")
-    return text
-
-
-def _is_probably_complete_arxiv_html_text(text: str) -> bool:
-    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
-    if len(normalized) < MIN_ARXIV_HTML_TEXT_LENGTH:
-        return False
-    return "references" in normalized or "bibliography" in normalized
-
-
 def _attachment_part(attachment: Any) -> dict[str, Any]:
     url = str(getattr(attachment, "url", "")).strip()
     content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
@@ -176,19 +118,11 @@ def _message_payload(message: fp.ProtocolMessage) -> dict[str, Any]:
     return {"role": _message_role(str(message.role)), "content": parts}
 
 
-def _deepseek_attachment_text(attachment: Any, arxiv_id: str | None = None) -> str:
+def _deepseek_attachment_text(attachment: Any) -> str:
     url = str(getattr(attachment, "url", "")).strip()
     content_type = str(getattr(attachment, "content_type", "")).strip() or "application/octet-stream"
     name = str(getattr(attachment, "name", "")).strip() or "attachment"
     if content_type.lower() == "application/pdf" or name.lower().endswith(".pdf"):
-        detected_arxiv_id = arxiv_id or extract_arxiv_id(name, url)
-        if detected_arxiv_id:
-            try:
-                text = _arxiv_html_text(detected_arxiv_id)
-                if _is_probably_complete_arxiv_html_text(text):
-                    return f"[arXiv HTML: {detected_arxiv_id}]\n{text}"
-            except RuntimeError:
-                pass
         text = _pdf_text_from_bytes(_file_bytes(url, content_type))
         return f"[PDF: {name}]\n{text}"
     if _is_image_content_type(content_type):
@@ -199,11 +133,11 @@ def _deepseek_attachment_text(attachment: Any, arxiv_id: str | None = None) -> s
     return f"[Attachment: {name}]\n{content}"
 
 
-def _deepseek_message_payload(message: fp.ProtocolMessage, arxiv_id: str | None = None) -> dict[str, Any]:
+def _deepseek_message_payload(message: fp.ProtocolMessage) -> dict[str, Any]:
     attachments = list(getattr(message, "attachments", None) or [])
     content = str(getattr(message, "content", "") or "").strip()
     if attachments:
-        attachment_blocks = "\n\n".join(_deepseek_attachment_text(attachment, arxiv_id=arxiv_id) for attachment in attachments)
+        attachment_blocks = "\n\n".join(_deepseek_attachment_text(attachment) for attachment in attachments)
         content = f"{content}\n\n{attachment_blocks}" if content else attachment_blocks
     return {"role": _message_role(str(message.role)), "content": content}
 
@@ -248,13 +182,12 @@ def _get_chat_completion(
     bot_name: str,
     api_key: str,
     provider: str = POE_PROVIDER,
-    arxiv_id: str | None = None,
 ) -> str:
     normalized_provider = normalize_provider(provider)
     payload = {
         "model": bot_name,
         "messages": [
-            _deepseek_message_payload(message, arxiv_id=arxiv_id) if normalized_provider == DEEPSEEK_PROVIDER else _message_payload(message)
+            _deepseek_message_payload(message) if normalized_provider == DEEPSEEK_PROVIDER else _message_payload(message)
             for message in messages
         ],
     }
@@ -266,11 +199,10 @@ async def extract_title_from_pdf(
     api_key: str,
     model: str,
     provider: str = POE_PROVIDER,
-    arxiv_id: str | None = None,
 ) -> Optional[str]:
     prompt = settings.title_prompt
     message = fp.ProtocolMessage(role="user", content=prompt, attachments=[pdf_attachment])
-    title_text = await get_bot_response([message], model, api_key, provider=provider, arxiv_id=arxiv_id)
+    title_text = await get_bot_response([message], model, api_key, provider=provider)
     return title_text.strip() or None
 
 
@@ -279,9 +211,8 @@ async def get_bot_response(
     bot_name: str,
     api_key: str,
     provider: str = POE_PROVIDER,
-    arxiv_id: str | None = None,
 ) -> str:
-    return await asyncio.to_thread(_get_chat_completion, messages, bot_name, api_key, provider, arxiv_id)
+    return await asyncio.to_thread(_get_chat_completion, messages, bot_name, api_key, provider)
 
 
 async def upload_file(file, api_key: str, file_name: str) -> fp.Attachment:

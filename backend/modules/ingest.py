@@ -25,7 +25,7 @@ from ..domain.message_payloads import (
 )
 from ..domain.paper_tags import extract_abstract_from_document_text
 from ..platform.config import engine, settings
-from ..platform.gateways.poe import extract_arxiv_id, extract_arxiv_id_from_pdf_bytes, extract_title_from_pdf, get_bot_response, normalize_provider, upload_file
+from ..platform.gateways.poe import extract_title_from_pdf, get_bot_response, normalize_provider, upload_file
 from ..platform.local_files import local_file_url_to_path, write_pdf_file
 from ..platform.models import Conversation, FileRecord
 from ..platform.task_runtime import enqueue_task, mark_task_progress, register_task_definition, update_task_record
@@ -139,18 +139,6 @@ def update_conversation_title(session: Session, conversation_id: str, title: str
     return conversation
 
 
-def resolve_arxiv_id_from_semantic_result(semantic_result) -> str | None:
-    if semantic_result is None:
-        return None
-    return extract_arxiv_id(
-        getattr(semantic_result, "external_ids_json", None),
-        getattr(semantic_result, "open_access_pdf_json", None),
-        getattr(semantic_result, "url", None),
-        getattr(semantic_result, "paper_id", None),
-        getattr(semantic_result, "matched_title", None),
-    )
-
-
 def extract_pdf_abstract_for_tagging(file_bytes: bytes) -> str:
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
@@ -233,9 +221,6 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         if not file_bytes:
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
         fingerprint = hashlib.sha256(file_bytes).hexdigest()
-        arxiv_id = extract_arxiv_id(payload.filename) if extraction_provider == "deepseek" else None
-        if extraction_provider == "deepseek" and arxiv_id is None:
-            arxiv_id = extract_arxiv_id_from_pdf_bytes(file_bytes)
         mark_task_progress(task_id, "检查重复文件")
         with Session(engine) as session:
             existing_file = find_existing_file(session, fingerprint)
@@ -260,9 +245,6 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
         mark_task_progress(task_id, "准备原始 PDF 文件")
         pdf_url = write_pdf_file(conversation_id, file_id, file_bytes)
         pdf_attachment = fp.Attachment(url=pdf_url, content_type="application/pdf", name=payload.filename)
-        if extraction_provider == "deepseek" and arxiv_id is None:
-            arxiv_id = extract_arxiv_id(pdf_url)
-
         mark_task_progress(task_id, "创建会话壳")
         with Session(engine) as session:
             create_conversation_shell(
@@ -300,7 +282,6 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             extraction_api_key,
             payload.title_model,
             provider=extraction_provider,
-            arxiv_id=arxiv_id,
         )
         final_title = extracted_title or payload.filename
         with Session(engine) as session:
@@ -312,8 +293,6 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             mark_task_progress(task_id, "匹配 Semantic Scholar 元数据")
             with Session(engine) as session:
                 semantic_result = refresh_conversation_semantic_result(session, conversation_id, final_title)
-            if arxiv_id is None:
-                arxiv_id = resolve_arxiv_id_from_semantic_result(semantic_result)
 
         mark_task_progress(task_id, "生成全文规划与关键术语译法")
         planner_prompt = build_initial_translation_prompt(settings.initial_prompt)
@@ -322,7 +301,6 @@ async def handle_ingest_task(task_id: str, payload: IngestPdfTaskPayload) -> dic
             payload.poe_model,
             extraction_api_key,
             provider=extraction_provider,
-            arxiv_id=arxiv_id,
         )
         translation_plan = normalize_translation_plan_payload(parse_translation_plan_response(planner_response_text))
         translation_glossary = normalize_translation_glossary_payload(parse_translation_glossary_response(planner_response_text))

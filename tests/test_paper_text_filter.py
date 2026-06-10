@@ -4,7 +4,7 @@ import unittest
 
 import fitz
 
-from backend.domain.paper_text_filter import extract_filtered_pdf_text, filter_arxiv_html_text, filter_plain_paper_text
+from backend.domain.paper_text_filter import extract_filtered_pdf_text, filter_plain_paper_text
 
 
 class PaperTextFilterTest(unittest.TestCase):
@@ -32,33 +32,6 @@ class PaperTextFilterTest(unittest.TestCase):
         self.assertNotIn("Quantitative results", filtered)
         self.assertNotIn("Method Accuracy Runtime", filtered)
         self.assertNotIn("Ours 95.2", filtered)
-
-    def test_filter_arxiv_html_skips_figure_table_and_caption_nodes(self):
-        html = """
-        <article>
-          <h1>Abstract</h1>
-          <p>This paper introduces a registration method.</p>
-          <figure>
-            <figcaption>Figure 1: A visual overview.</figcaption>
-            <p>Hidden figure text.</p>
-          </figure>
-          <div class="ltx_table">
-            <div class="ltx_caption">Table 1: Results.</div>
-            <table><tr><td>Ours</td><td>95.2</td></tr></table>
-          </div>
-          <p>Figure 1 shows the pipeline in context.</p>
-        </article>
-        """
-
-        filtered = filter_arxiv_html_text(html)
-
-        self.assertIn("Abstract", filtered)
-        self.assertIn("This paper introduces a registration method.", filtered)
-        self.assertIn("Figure 1 shows the pipeline in context.", filtered)
-        self.assertNotIn("A visual overview", filtered)
-        self.assertNotIn("Hidden figure text", filtered)
-        self.assertNotIn("Results", filtered)
-        self.assertNotIn("95.2", filtered)
 
     def test_extract_filtered_pdf_text_removes_caption_blocks(self):
         document = fitz.open()
